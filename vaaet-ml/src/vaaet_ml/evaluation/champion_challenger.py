@@ -136,7 +136,7 @@ def load_evaluation_bundle(
 ) -> EvaluationBundle:
     """Valida el bundle portable antes de cargar sus artefactos binarios."""
     directory = Path(bundle_dir).resolve()
-    manifest = validate_manifest(directory)
+    manifest = validate_manifest(directory, allow_historical_revision=True)
     load_model = model_loader or _default_model_loader
     load_scaler = scaler_loader or _default_scaler_loader
     return EvaluationBundle(
@@ -173,9 +173,7 @@ def validate_evaluation_pair(
     holdout: HumanHoldoutSnapshot,
 ) -> None:
     """Comprueba que ambos bundles usen exactamente el benchmark congelado."""
-    if champion.manifest.get("contract_version") != challenger.manifest.get(
-        "contract_version"
-    ):
+    if champion.manifest.get("contract_version") != challenger.manifest.get("contract_version"):
         raise ValueError("Champion and challenger use different bundle contract generations.")
     champion_holdout = _holdout_descriptor(champion.manifest)
     challenger_holdout = _holdout_descriptor(challenger.manifest)
@@ -234,14 +232,20 @@ def _evaluate_bundle(bundle: EvaluationBundle, test: pd.DataFrame) -> ModelEvalu
         "ece": expected_calibration_error(truth, probabilities),
         "brier_score": multiclass_brier_score(truth, probabilities),
         "final_normal_congested_error": float(
-            (((truth == 0) & (final_predictions == 2)) | ((truth == 2) & (final_predictions == 0))).mean()
+            (
+                ((truth == 0) & (final_predictions == 2))
+                | ((truth == 2) & (final_predictions == 0))
+            ).mean()
         ),
         "direct_f1_macro": float(
             f1_score(truth, direct_predictions, labels=[0, 1, 2], average="macro", zero_division=0)
         ),
         "direct_expected_confusion_cost": expected_confusion_cost(truth, direct_predictions),
         "direct_normal_congested_error": float(
-            (((truth == 0) & (direct_predictions == 2)) | ((truth == 2) & (direct_predictions == 0))).mean()
+            (
+                ((truth == 0) & (direct_predictions == 2))
+                | ((truth == 2) & (direct_predictions == 0))
+            ).mean()
         ),
     }
     if classified["traffic_state"].eq(3).any():
@@ -269,9 +273,7 @@ def _metric_values(truth: np.ndarray, predictions: np.ndarray) -> dict[str, floa
     for state, label in MODEL_STATE_LABELS.items():
         support = int((truth == state).sum())
         values[f"recall_{label.lower()}"] = (
-            float(((truth == state) & (predictions == state)).sum() / support)
-            if support
-            else 0.0
+            float(((truth == state) & (predictions == state)).sum() / support) if support else 0.0
         )
         predicted_count = int((predictions == state).sum())
         values[f"precision_{label.lower()}"] = (
@@ -291,7 +293,7 @@ def paired_bootstrap_intervals(
     champion_predictions: np.ndarray | list[int],
     challenger_predictions: np.ndarray | list[int],
     *,
-    clip_ids: np.ndarray | list[object] | None = None,
+    clip_ids: np.ndarray | list[object],
     samples: int = 1_000,
     random_state: int = RANDOM_SEED,
 ) -> pd.DataFrame:
@@ -308,7 +310,7 @@ def paired_bootstrap_intervals(
     if not set(truth).union(champion, challenger).issubset(MODEL_STATE_LABELS):
         raise ValueError("Bootstrap comparison accepts only the three stable traffic states.")
 
-    groups = np.arange(len(truth), dtype=object) if clip_ids is None else np.asarray(clip_ids, dtype=object)
+    groups = np.asarray(clip_ids, dtype=object)
     if groups.shape != truth.shape:
         raise ValueError("Bootstrap clip_ids must align with predictions.")
     unique_groups = pd.unique(groups)
@@ -343,9 +345,11 @@ def paired_bootstrap_intervals(
         lambda name: "lower-is-better" if name in lower_is_better else "higher-is-better"
     )
     result["challenger_favorable"] = result.apply(
-        lambda row: row["delta_challenger_minus_champion"] < 0
-        if row["direction"] == "lower-is-better"
-        else row["delta_challenger_minus_champion"] > 0,
+        lambda row: (
+            row["delta_challenger_minus_champion"] < 0
+            if row["direction"] == "lower-is-better"
+            else row["delta_challenger_minus_champion"] > 0
+        ),
         axis=1,
     )
     return result
@@ -423,9 +427,7 @@ def evaluate_champion_challenger(
             challenger.name: list(challenger_result.metrics.values()),
         }
     )
-    summary["delta_challenger_minus_champion"] = (
-        summary[challenger.name] - summary[champion.name]
-    )
+    summary["delta_challenger_minus_champion"] = summary[challenger.name] - summary[champion.name]
     lower_is_better = summary["metric"].str.contains("cost|error|ece|brier", regex=True)
     summary["direction"] = np.where(lower_is_better, "lower-is-better", "higher-is-better")
     summary["challenger_favorable"] = np.where(

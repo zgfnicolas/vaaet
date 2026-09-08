@@ -64,6 +64,7 @@ def _engine() -> TrafficStateEngine:
             deployment_stage="production",
             input_policy="canonical-v3",
             model_revision="a" * 64,
+            historical_only=False,
         )
     )
 

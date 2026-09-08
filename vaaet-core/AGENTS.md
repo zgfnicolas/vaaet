@@ -5,7 +5,7 @@ Leé primero el [`AGENTS.md`](../AGENTS.md) raíz, el
 
 ## Alcance
 
-`vaaet-core` es la distribución portable `vaaet-core==0.2.0`, con import
+`vaaet-core` es la distribución portable `vaaet-core==0.2.1`, con import
 `vaaet`. Contiene percepción, telemetría, 19 features, política de estados y
 bundle/inferencia manifest-first. No puede importar `vaaet_ml`, PostgreSQL,
 DVC, Google Drive ni APIs de notebook; tampoco administra colas, workers,

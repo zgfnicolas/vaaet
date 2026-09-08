@@ -188,7 +188,7 @@ class DatabaseSettings:
     def application(self) -> str:
         """Devuelve una identidad segura para observabilidad del cliente SQL."""
 
-        return self.application_name or f"vaaet-{self.profile.value}-4.6.0"
+        return self.application_name or f"vaaet-{self.profile.value}-4.6.1"
 
 
 @dataclass(frozen=True, repr=False)
@@ -202,7 +202,9 @@ class DatabaseAdminSettings:
 
     def __post_init__(self) -> None:
         if not self.username or not self.password:
-            raise DatabaseNotConfiguredError("PostgreSQL administrator requires username and password.")
+            raise DatabaseNotConfiguredError(
+                "PostgreSQL administrator requires username and password."
+            )
 
     def __repr__(self) -> str:
         return (
@@ -252,7 +254,7 @@ class DatabaseAdminSettings:
     def application(self) -> str:
         """Identifica las sesiones administrativas sin revelar el proveedor."""
 
-        return self.application_name or "vaaet-migration-4.6.0"
+        return self.application_name or "vaaet-migration-4.6.1"
 
 
 def _colab_secret(name: str) -> str | None:
@@ -526,7 +528,9 @@ def _load_legacy_admin_settings(raw_url: str) -> DatabaseAdminSettings:
         endpoint=endpoint,
         username=url.username,
         password=url.password,
-        application_name=str(options["application_name"]) if "application_name" in options else None,
+        application_name=str(options["application_name"])
+        if "application_name" in options
+        else None,
     )
 
 
@@ -566,7 +570,9 @@ def load_database_admin_settings(
             logger.warning(
                 "PostgreSQL administrator uses sslmode=require without server identity verification."
             )
-        return DatabaseAdminSettings(endpoint=endpoint, username=str(username), password=str(password))
+        return DatabaseAdminSettings(
+            endpoint=endpoint, username=str(username), password=str(password)
+        )
 
     raise DatabaseNotConfiguredError(
         "PostgreSQL administrator is not configured; set VAAET_DB_* plus "
@@ -594,7 +600,9 @@ def get_optional_database_settings(
     try:
         return load_database_settings(profile, env_file=env_file)
     except DatabaseNotConfiguredError:
-        logger.info("Optional PostgreSQL profile=%s is not configured", DatabaseProfile(profile).value)
+        logger.info(
+            "Optional PostgreSQL profile=%s is not configured", DatabaseProfile(profile).value
+        )
         return None
 
 

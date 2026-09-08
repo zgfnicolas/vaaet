@@ -44,7 +44,7 @@ Keep DVC at the root and track `vaaet-ml/artifacts/traffic-state/` as the existi
 
 ## Preserve the ML serving contract
 
-Keep bundle v2 as the only ML/API exchange: `traffic_classifier.keras`, `feature_scaler.joblib`, `label_mapping.joblib`, and `model-manifest.json`. Require `vaaet.artifacts.validate_manifest()` before deserializing a bundle in the API.
+Keep bundle v3 as the only current ML/API exchange: `traffic_classifier.keras`, `feature_scaler.joblib`, `label_mapping.joblib`, and `model-manifest.json`. Require `vaaet.artifacts.validate_manifest()` before deserializing a bundle in the API.
 
 Preserve the 19 `FEATURE_COLS`, learned states `Normal`, `Reduced`, `Congested`, and the human-only publication of `Accident`. Preserve lifecycle, input policy, `production_eligible`, `promotion_blockers`, and artifact eligibility; relocating code never promotes a bundle.
 

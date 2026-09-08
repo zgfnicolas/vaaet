@@ -79,17 +79,24 @@ def _assign_continuity(result: pd.DataFrame, explicit_values: pd.Series) -> pd.S
             explicit_change = prior_time is not None and current_explicit != prior_explicit
             if prior_time is None or gap or explicit_change:
                 segment += 1
-                if explicit_change and current_explicit is not None and current_explicit in seen_explicit:
+                if (
+                    explicit_change
+                    and current_explicit is not None
+                    and current_explicit in seen_explicit
+                ):
                     raise ValueError(
                         f"continuity_id={current_explicit!r} reappears non-contiguously "
                         f"within clip_id={clip_id!r}."
                     )
                 if current_explicit is not None:
                     seen_explicit.add(current_explicit)
-                base = current_explicit or f"{clip_id}:continuity-{segment:04d}"
+                instant = current_time.strftime("%Y%m%dT%H%M%S%fZ")
+                base = current_explicit or f"{clip_id}:continuity-{instant}"
                 active_id = (
-                    f"{base}:gap-{segment:04d}"
-                    if gap and current_explicit is not None
+                    f"{base}:gap-{instant}"
+                    # Si el identificador ya cambió, ese cambio representa el
+                    # límite. Esto vuelve idempotente una segunda normalización.
+                    if gap and current_explicit is not None and not explicit_change
                     else base
                 )
             assigned.at[index] = active_id

@@ -36,23 +36,19 @@ def test_administrator_uses_shared_typed_endpoint_outside_colab(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_local_admin_environment(monkeypatch)
-    monkeypatch.setattr(
-        "vaaet_ml.data.database_settings._colab_secret", lambda _: "colab-secret"
-    )
+    monkeypatch.setattr("vaaet_ml.data.database_settings._colab_secret", lambda _: "colab-secret")
 
     settings = load_database_admin_settings(allow_legacy=False)
 
     assert settings.host == "localhost"
-    assert settings.application == "vaaet-migration-4.6.0"
+    assert settings.application == "vaaet-migration-4.6.1"
     assert "not-a-real-secret" not in repr(settings)
 
 
 def test_administrator_does_not_read_colab_when_environment_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "vaaet_ml.data.database_settings._colab_secret", lambda _: "colab-secret"
-    )
+    monkeypatch.setattr("vaaet_ml.data.database_settings._colab_secret", lambda _: "colab-secret")
     for name in (
         "VAAET_DB_HOST",
         "VAAET_DB_NAME",
@@ -133,7 +129,10 @@ def test_administrator_legacy_url_rejects_insecure_remote_endpoint(
         "postgresql+psycopg2://admin:secret@db.example.test:5432/vaaet",
     )
 
-    with pytest.warns(FutureWarning), pytest.raises(DatabaseNotConfiguredError, match="SSLROOTCERT"):
+    with (
+        pytest.warns(FutureWarning),
+        pytest.raises(DatabaseNotConfiguredError, match="SSLROOTCERT"),
+    ):
         load_database_admin_settings()
 
 
@@ -182,7 +181,7 @@ def test_admin_engine_uses_null_pool_and_common_tls_arguments(
     assert captured["poolclass"] is NullPool
     assert captured["connect_args"] == {
         "connect_timeout": 10,
-        "application_name": "vaaet-migration-4.6.0",
+        "application_name": "vaaet-migration-4.6.1",
         "sslmode": "disable",
     }
 

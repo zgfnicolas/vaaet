@@ -19,7 +19,7 @@ Keep layers as VAAET's principal architecture:
 
 Preserve `vaaet.vision.analyze_video()` as the portable shared boundary for collection and inference. Keep notebooks thin; core owns video behavior and ML owns laboratory workflows.
 
-Read ADR-0021 and ADR-0013 through ADR-0019 before architectural changes. Read ADR-0022 for future serving with YOLO. Do not change the 19 `FEATURE_COLS`, state semantics, MLP, thresholds, schema, or bundle v2 without explicit authorization and an ADR.
+Read ADR-0021, ADR-0026, ADR-0027, and ADR-0013 through ADR-0019 before architectural changes. Read ADR-0022 for future serving with YOLO. Do not change the 19 `FEATURE_COLS`, state semantics, MLP, thresholds, schema, or bundle v3 without explicit authorization and an ADR.
 
 ## Current state: do not misrepresent it
 

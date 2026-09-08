@@ -13,7 +13,12 @@ from typing import cast
 
 from vaaet_ml.exceptions import DvcRegistryError
 
-from .models import RegistryEntry, RegistryProvider, RemoteConfiguration
+from .models import (
+    RegistryEntry,
+    RegistryMaterializationPurpose,
+    RegistryProvider,
+    RemoteConfiguration,
+)
 from .service import DvcRegistryService
 
 
@@ -29,27 +34,50 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    configure = subcommands.add_parser("configure", help="configura el remoto local ignorado por Git")
-    configure.add_argument("provider", choices=tuple(provider.value for provider in RegistryProvider))
+    configure = subcommands.add_parser(
+        "configure", help="configura el remoto local ignorado por Git"
+    )
+    configure.add_argument(
+        "provider", choices=tuple(provider.value for provider in RegistryProvider)
+    )
     configure.add_argument("--url", required=True, help="URL sin credenciales del almacenamiento")
     configure.add_argument("--endpoint-url", help="endpoint HTTPS requerido para Cloudflare R2")
     configure.add_argument("--profile", help="perfil local AWS o DVC, sin secretos")
     configure.add_argument("--region", help="región AWS; R2 usa siempre auto")
-    configure.add_argument("--service-account-file", type=Path, help="clave privada de Drive fuera del repo")
-    configure.add_argument("--replace", action="store_true", help="reemplaza el remoto local existente")
+    configure.add_argument(
+        "--service-account-file", type=Path, help="clave privada de Drive fuera del repo"
+    )
+    configure.add_argument(
+        "--replace", action="store_true", help="reemplaza el remoto local existente"
+    )
 
     subcommands.add_parser("doctor", help="verifica DVC y la configuración local sin usar red")
     subcommands.add_parser("stage", help="valida el bundle y crea su metadata DVC")
     subcommands.add_parser("push", help="publica un puntero DVC ya consolidado en Git")
 
     list_command = subcommands.add_parser("list", help="resume versiones DVC por revisión Git")
-    list_command.add_argument("--limit", type=int, default=20, help="máximo de revisiones a inspeccionar")
-    list_command.add_argument("--model-version", help="filtra por la versión informativa del manifiesto")
+    list_command.add_argument(
+        "--limit", type=int, default=20, help="máximo de revisiones a inspeccionar"
+    )
+    list_command.add_argument(
+        "--model-version", help="filtra por la versión informativa del manifiesto"
+    )
     list_command.add_argument("--format", choices=("text", "json"), default="text")
 
-    get_command = subcommands.add_parser("get", help="materializa una revisión en un directorio nuevo")
-    get_command.add_argument("--revision", required=True, help="commit, tag o referencia Git inmutable")
-    get_command.add_argument("--out", type=Path, required=True, help="directorio nuevo fuera del bundle activo")
+    get_command = subcommands.add_parser(
+        "get", help="materializa una revisión en un directorio nuevo"
+    )
+    get_command.add_argument(
+        "--revision", required=True, help="commit, tag o referencia Git inmutable"
+    )
+    get_command.add_argument(
+        "--out", type=Path, required=True, help="directorio nuevo fuera del bundle activo"
+    )
+    get_command.add_argument(
+        "--historical-evaluation",
+        action="store_true",
+        help="permite materializar identidades antiguas sólo para evaluación offline",
+    )
     return parser
 
 
@@ -74,7 +102,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Remoto local configurado. Ejecutá vaaet-registry doctor antes de sincronizar.")
         elif command == "doctor":
             health = service.doctor()
-            print(f"Registro DVC listo: remoto={health.remote_name}, proveedor={health.provider.value}.")
+            print(
+                f"Registro DVC listo: remoto={health.remote_name}, proveedor={health.provider.value}."
+            )
         elif command == "stage":
             version = service.stage_bundle()
             print(f"Bundle validado y registrado en DVC: {version}.")
@@ -89,7 +119,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_entries(entries, cast(str, arguments.format))
         elif command == "get":
             version = service.get_bundle(
-                cast(str, arguments.revision), cast(Path, arguments.out)
+                cast(str, arguments.revision),
+                cast(Path, arguments.out),
+                purpose=(
+                    RegistryMaterializationPurpose.HISTORICAL_EVALUATION
+                    if cast(bool, arguments.historical_evaluation)
+                    else RegistryMaterializationPurpose.INFERENCE
+                ),
             )
             print(f"Bundle materializado y validado: {version}.")
         else:  # pragma: no cover - argparse limita los subcomandos disponibles.
@@ -111,11 +147,12 @@ def _print_entries(entries: Sequence[RegistryEntry], output_format: str) -> None
         return
     for entry in entries:
         state = "disponible" if entry.available else "no disponible"
+        usage = "sólo-histórico" if entry.historical_only else "operacional"
         blockers = ",".join(entry.promotion_blockers) or "-"
         print(
             f"{entry.revision[:12]}  {entry.model_version or '-'}  "
             f"{entry.deployment_stage or '-'}  {entry.provenance_origin or '-'}  "
-            f"{entry.input_lock_id or '-'}  {blockers}  {state}"
+            f"{entry.input_lock_id or '-'}  {blockers}  {usage}  {state}"
         )
 
 

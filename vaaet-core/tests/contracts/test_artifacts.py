@@ -12,6 +12,35 @@ from vaaet.exceptions import ArtifactNotFoundError, ArtifactValidationError
 from vaaet.lifecycle import ModelInputPolicy, TrainingMode, build_training_lifecycle
 
 
+def _passing_interval_rows(*, include_ece: bool) -> list[dict[str, object]]:
+    rows = [
+        ("f1_macro", 0.95, 0.90, 0.98),
+        ("precision_normal", 0.96, 0.94, 0.99),
+        ("precision_reduced", 0.94, 0.90, 0.98),
+        ("precision_congested", 0.95, 0.92, 0.98),
+        ("recall_normal", 0.96, 0.94, 0.99),
+        ("recall_reduced", 0.94, 0.92, 0.98),
+        ("recall_congested", 0.92, 0.88, 0.96),
+        ("normal_congested_error", 0.0, 0.0, 0.005),
+    ]
+    if include_ece:
+        rows.append(("ece", 0.02, 0.0, 0.04))
+    return [
+        {
+            "metric": name,
+            "value": value,
+            "ci_95_low": low,
+            "ci_95_high": high,
+            "evaluable_fraction": 1.0,
+            "method": "grouped-bootstrap",
+            "group_count": 20,
+            "bootstrap_samples": 2_000,
+            "sufficient": True,
+        }
+        for name, value, low, high in rows
+    ]
+
+
 @pytest.fixture
 def valid_bundle(tmp_path: Path) -> Path:
     for name in REQUIRED_FILES:
@@ -19,9 +48,21 @@ def valid_bundle(tmp_path: Path) -> Path:
     create_manifest(
         tmp_path,
         metrics={
-            "direct_f1_macro": 0.85,
-            "final_f1_macro": 0.86,
+            "direct_f1_macro": 0.95,
+            "final_f1_macro": 0.95,
             "unavailable_metric": float("nan"),
+            "automatic_accident_states": 0,
+            "congested_minutes": 100,
+            "congested_clips": 20,
+            "negative_exposure_hours": 300.0,
+            "incident_candidate_count": 0,
+            "false_candidates_per_hour": 0.0,
+            "false_candidates_upper_95": 0.009,
+            "grouped_direct_intervals": _passing_interval_rows(include_ece=False),
+            "grouped_final_intervals": _passing_interval_rows(include_ece=True),
+            "direct_normal_congested_error": 0.0,
+            "final_normal_congested_error": 0.0,
+            "ece": 0.02,
             "production_eligible": True,
         },
         data_provenance={
@@ -400,4 +441,62 @@ def test_rejects_invalid_artifact_file_hash(valid_bundle: Path) -> None:
     payload["files"][REQUIRED_FILES[0]]["sha256"] = "invalid"
     _write_manifest(valid_bundle, payload)
     with pytest.raises(ArtifactValidationError, match="Invalid SHA-256"):
+        validate_manifest(valid_bundle)
+
+
+def test_model_revision_changes_with_input_policy(valid_bundle: Path) -> None:
+    original = _manifest(valid_bundle)["model_revision"]
+    payload = _manifest(valid_bundle)
+    payload["training_lifecycle"]["input_policy"] = "legacy-v1-bootstrap"
+    payload["training_lifecycle"]["deployment_stage"] = "pilot"
+    payload["training_lifecycle"]["training_mode"] = "seed-bootstrap"
+    payload["training_lifecycle"]["supervision"] = "weak-proxy"
+    payload["training_lifecycle"]["production_eligible"] = False
+    payload["metrics"]["production_eligible"] = False
+    payload["data_provenance"]["production_eligible"] = False
+    payload["data_provenance"]["human_holdout"] = False
+    payload["data_provenance"]["promotion_blockers"] = ["historical comparison"]
+    payload["human_holdout"] = None
+    _write_manifest(valid_bundle, payload)
+
+    with pytest.raises(ArtifactValidationError, match="model_revision"):
+        validate_manifest(valid_bundle)
+
+    assert original == payload["model_revision"]
+
+
+def test_old_revision_algorithm_is_historical_only(valid_bundle: Path) -> None:
+    payload = _manifest(valid_bundle)
+    del payload["model_revision_algorithm"]
+    _write_manifest(valid_bundle, payload)
+
+    with pytest.raises(ArtifactValidationError, match="historical evaluation"):
+        validate_manifest(valid_bundle)
+    assert validate_manifest(valid_bundle, allow_historical_revision=True)
+
+
+def test_rejects_production_evidence_with_declared_blockers(valid_bundle: Path) -> None:
+    payload = _manifest(valid_bundle)
+    payload["data_provenance"]["promotion_blockers"] = ["insufficient evidence"]
+    _write_manifest(valid_bundle, payload)
+
+    with pytest.raises(ArtifactValidationError, match="contradictory"):
+        validate_manifest(valid_bundle)
+
+
+def test_rejects_production_point_outside_grouped_interval(valid_bundle: Path) -> None:
+    payload = _manifest(valid_bundle)
+    payload["metrics"]["direct_f1_macro"] = 0.91
+    _write_manifest(valid_bundle, payload)
+
+    with pytest.raises(ArtifactValidationError, match="inconsistent with grouped evidence"):
+        validate_manifest(valid_bundle)
+
+
+def test_rejects_production_interval_without_group_evidence(valid_bundle: Path) -> None:
+    payload = _manifest(valid_bundle)
+    payload["metrics"]["grouped_final_intervals"][0]["group_count"] = 1
+    _write_manifest(valid_bundle, payload)
+
+    with pytest.raises(ArtifactValidationError, match="grouped-bootstrap evidence"):
         validate_manifest(valid_bundle)

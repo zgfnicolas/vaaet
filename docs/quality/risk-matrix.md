@@ -8,7 +8,7 @@ Complementa BIAS_AND_LIMITATIONS.md y FEASIBILITY.md. -->
 | Campo | Detalles |
 |---|---|
 | **Nombre del Proyecto** | VAAET — Video Advanced Analysis of Traffic |
-| **Versión** | 4.6.0 |
+| **Versión** | 4.6.1 |
 | **Responsable Técnico** | Facundo Nicolás González |
 | **Última Revisión** | 2026-08-30 |
 

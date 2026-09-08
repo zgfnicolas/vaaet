@@ -2,7 +2,7 @@
 
 DVC versiona el bundle promocionable completo sin guardar binarios pesados en
 Git. El registro es portable: Google Drive, AWS S3 y Cloudflare R2 son sólo
-proveedores de cache; Git y el manifiesto v2 mantienen la identidad y el
+proveedores de cache; Git y el manifiesto v3 mantienen la identidad y el
 contrato del modelo.
 
 ## Reglas
@@ -84,7 +84,17 @@ vaaet-registry get --revision model/mlp-vX.Y --out ..\bundles\mlp-vX.Y
 válidos. Su JSON incluye revisión, versión, lifecycle, elegibilidad,
 procedencia, input lock y bloqueos de promoción. `get` falla si el destino existe
 o apunta al bundle activo, y sólo deja el directorio final después de validar
-checksums y contrato v2.
+checksums y contrato v3. Las entradas con el algoritmo de identidad anterior
+se muestran como `sólo-histórico` y no pueden materializarse con el propósito
+operacional predeterminado. Para una comparación offline explícita:
+
+```powershell
+vaaet-registry get --revision <commit-o-tag> --out ..\bundles\historico --historical-evaluation
+```
+
+Ese flag no habilita inferencia operacional, persistencia, HITL ni promoción.
+Si se decide adoptar el artefacto, se reexporta a otro destino con un motivo y
+se vuelve a evaluar; nunca se reescribe la revisión DVC anterior.
 
 ## Migrar de proveedor
 
@@ -107,5 +117,6 @@ cerrar la verificación y mantener un respaldo independiente.
 Referencias: [contrato del bundle](model-artifact-contract.md),
 [ADR-0023](../architecture/decisions/0023-provider-neutral-dvc-registry.md),
 [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md),
+[ADR-0027](../architecture/decisions/0027-complete-bundle-identity-and-hitl-integrity.md),
 [DVC Remote Storage](https://doc.dvc.org/user-guide/data-management/remote-storage)
 y [DVC S3-compatible](https://doc.dvc.org/user-guide/data-management/remote-storage/amazon-s3).

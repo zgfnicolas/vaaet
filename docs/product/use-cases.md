@@ -9,7 +9,7 @@ implementado; su frontera está definida por ADR-0021.
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.6.0 |
+| Versión del laboratorio | 4.6.1 |
 | Última revisión | 2026-08-27 |
 
 ## CU-001 — Procesar video
@@ -57,7 +57,7 @@ credenciales administrativas nunca se ejecutan desde Colab.
 |---|---|
 | Actor | Investigador |
 | Precondición | Plan `SEED_BOOTSTRAP` o `HITL_RETRAINING` válido y GPU disponible |
-| Resultado | Bundle v2 candidato con procedencia, checksums y gates |
+| Resultado | Bundle v3 candidato con procedencia, checksums y gates |
 
 El entrenamiento audita telemetría v2, usa las 19 features, conserva la
 proveniencia de datos reales/sintéticos y separa los tres estados aprendidos de

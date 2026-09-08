@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import cast
 
@@ -31,6 +32,14 @@ class LoadedTrafficBundle:
     deployment_stage: str
     input_policy: str
     model_revision: str
+    historical_only: bool
+
+
+class BundleLoadPurpose(str, Enum):
+    """Declara si el bundle se usará operacionalmente o sólo para historia."""
+
+    INFERENCE = "inference"
+    HISTORICAL_EVALUATION = "historical-evaluation"
 
 
 def authorize_bundle(
@@ -54,7 +63,9 @@ def authorize_bundle(
     if stage == "candidate" and not allow_experimental:
         raise RuntimeError("El bundle candidato requiere autorización offline explícita.")
     if stage == "candidate" and persist_to_database:
-        raise RuntimeError("Los bundles candidatos son sólo offline. Usá PERSIST_TO_DATABASE=False.")
+        raise RuntimeError(
+            "Los bundles candidatos son sólo offline. Usá PERSIST_TO_DATABASE=False."
+        )
     return stage, input_policy
 
 
@@ -64,10 +75,15 @@ def load_traffic_bundle(
     allow_pilot: bool,
     allow_experimental: bool,
     persist_to_database: bool,
+    purpose: BundleLoadPurpose | str = BundleLoadPurpose.INFERENCE,
 ) -> LoadedTrafficBundle:
     """Valida manifiesto y lifecycle antes de deserializar el bundle."""
 
-    manifest = validate_manifest(directory)
+    active_purpose = BundleLoadPurpose(purpose)
+    historical_only = active_purpose is BundleLoadPurpose.HISTORICAL_EVALUATION
+    if historical_only and persist_to_database:
+        raise RuntimeError("Historical bundles cannot persist operational predictions.")
+    manifest = validate_manifest(directory, allow_historical_revision=historical_only)
     stage, input_policy = authorize_bundle(
         manifest,
         allow_pilot=allow_pilot,
@@ -94,4 +110,5 @@ def load_traffic_bundle(
         deployment_stage=stage,
         input_policy=input_policy,
         model_revision=str(manifest["model_revision"]),
+        historical_only=historical_only,
     )

@@ -45,9 +45,9 @@ def test_training_and_ingestion_modules_import_without_cycles() -> None:
 
 
 def test_dataset_codec_breaks_the_artifacts_ingestion_cycle() -> None:
-    artifacts_source = REPO_ROOT.joinpath("src", "vaaet_ml", "data", "dataset_artifacts.py").read_text(
-        encoding="utf-8"
-    )
+    artifacts_source = REPO_ROOT.joinpath(
+        "src", "vaaet_ml", "data", "dataset_artifacts.py"
+    ).read_text(encoding="utf-8")
     codec_source = REPO_ROOT.joinpath("src", "vaaet_ml", "data", "package_codec.py").read_text(
         encoding="utf-8"
     )
@@ -209,18 +209,22 @@ def test_active_sources_do_not_use_legacy_paths_or_import_hacks() -> None:
         *ACTIVE_NOTEBOOKS,
         *active_docs,
         WORKSPACE_ROOT / "docs/architecture/decisions/0013-on-demand-data-collection-workflow.md",
-        WORKSPACE_ROOT / "docs/architecture/decisions/0014-hierarchical-traffic-state-and-incident-policy.md",
-        WORKSPACE_ROOT / "docs/architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md",
-        WORKSPACE_ROOT / "docs/architecture/decisions/0016-postgresql-hardening-and-pipeline-runs.md",
-        WORKSPACE_ROOT / "docs/architecture/decisions/0020-single-git-monorepo-and-application-boundary.md",
+        WORKSPACE_ROOT
+        / "docs/architecture/decisions/0014-hierarchical-traffic-state-and-incident-policy.md",
+        WORKSPACE_ROOT
+        / "docs/architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md",
+        WORKSPACE_ROOT
+        / "docs/architecture/decisions/0016-postgresql-hardening-and-pipeline-runs.md",
+        WORKSPACE_ROOT
+        / "docs/architecture/decisions/0020-single-git-monorepo-and-application-boundary.md",
     ]
     for path in active_files:
         content = path.read_text(encoding="utf-8")
         for value in forbidden:
             assert value not in content, f"{path.relative_to(REPO_ROOT)} contains {value!r}"
-    inference = (
-        NOTEBOOKS_DIR / "inference" / "analyze_traffic_video.ipynb"
-    ).read_text(encoding="utf-8")
+    inference = (NOTEBOOKS_DIR / "inference" / "analyze_traffic_video.ipynb").read_text(
+        encoding="utf-8"
+    )
     assert "os.path.join(_root" not in inference
 
 
@@ -255,7 +259,9 @@ def test_internal_markdown_links_resolve() -> None:
     broken: list[str] = []
     for markdown_path in WORKSPACE_ROOT.rglob("*.md"):
         relative = markdown_path.relative_to(WORKSPACE_ROOT).as_posix()
-        if relative.startswith(("plantillas_docs/", ".venv/")):
+        if relative.startswith(("plantillas_docs/", ".venv/", ".tmp-tests/")) or any(
+            part in {".pytest_cache", ".tmp-tests"} for part in markdown_path.parts
+        ):
             continue
         for target_text in link_pattern.findall(markdown_path.read_text(encoding="utf-8")):
             clean_target = target_text.split("#", 1)[0].split("?", 1)[0]
@@ -311,10 +317,10 @@ def test_dvc_registry_uses_declared_provider_extras_and_neutral_configuration() 
 
     assert 'python -m pip install "./vaaet-core"' in workflow
     assert 'python -m pip install "./vaaet-ml[dvc,dvc-gdrive,dvc-s3,dev]"' in workflow
-    assert 'vaaet-registry --help' in workflow
+    assert "vaaet-registry --help" in workflow
     assert "pytest vaaet-ml/tests/unit/test_dvc_registry.py" in workflow
-    assert 'dvc pull' not in workflow
-    assert 'dvc push' not in workflow
+    assert "dvc pull" not in workflow
+    assert "dvc push" not in workflow
     assert "dvc-gdrive" in pyproject
     assert "dvc-s3" in pyproject
     assert "remote =" not in dvc_config
@@ -335,7 +341,7 @@ def test_ci_preserves_the_workspace_quality_gates() -> None:
     assert "repository-quality:" in workflow
     assert "git diff --check" in workflow
     assert "package-smoke:" in workflow
-    assert 'ruff check notebooks --select F821' in workflow
+    assert "ruff check notebooks --select F821" in workflow
     assert "audit_notebooks.py notebooks" in workflow
     assert 'python -m venv "$RUNNER_TEMP/vaaet-core-base"' in workflow
     assert 'python -m venv "$RUNNER_TEMP/vaaet-workspace-base"' in workflow
@@ -343,21 +349,22 @@ def test_ci_preserves_the_workspace_quality_gates() -> None:
 
 def test_python_313_is_declared_and_exercised_by_ci() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    core_pyproject = (WORKSPACE_ROOT / "vaaet-core" / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
+    core_pyproject = (WORKSPACE_ROOT / "vaaet-core" / "pyproject.toml").read_text(encoding="utf-8")
     workflow = (WORKSPACE_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     assert 'requires-python = ">=3.10,<3.14"' in pyproject
     assert '"Programming Language :: Python :: 3.13"' in pyproject
     assert "tensorflow" not in pyproject
-    assert "vaaet-core[inference]==0.2.0" in pyproject
+    assert "vaaet-core[inference]==0.2.1" in pyproject
     assert "python_version >= '3.13'" in core_pyproject
     assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
 
 
 def test_active_code_uses_semantic_telemetry_contract_names() -> None:
-    active_python = [*REPO_ROOT.joinpath("src").rglob("*.py"), *REPO_ROOT.joinpath("tests").rglob("*.py")]
+    active_python = [
+        *REPO_ROOT.joinpath("src").rglob("*.py"),
+        *REPO_ROOT.joinpath("tests").rglob("*.py"),
+    ]
     forbidden = ("RAW_TELEMETRY_" + "V2_COLUMNS", "MODERN_" + "TELEMETRY_COLUMNS")
     for path in active_python:
         content = path.read_text(encoding="utf-8")
@@ -402,8 +409,8 @@ def test_portable_agent_context_describes_the_active_monorepo() -> None:
     ml_context = (ML_ROOT / "llms.txt").read_text(encoding="utf-8")
     normalized_core_rules = " ".join(core_rules.split())
 
-    assert "vaaet-core==0.2.0" in root_context
-    assert "vaaet-ml==4.6.0" in root_context
+    assert "vaaet-core==0.2.1" in root_context
+    assert "vaaet-ml==4.6.1" in root_context
     assert "import `vaaet_ml`" in root_context
     assert "cuatro notebooks" in root_context
     assert "No puede importar `vaaet_ml`, PostgreSQL, DVC, Google Drive" in normalized_core_rules
@@ -461,13 +468,14 @@ def test_normative_documentation_matches_the_active_monorepo() -> None:
         assert stale_claim not in combined
 
     assert "Normativo y vigente" in documents["docs/product/product-requirements.md"]
-    assert "`vaaet-core==0.2.0`" in documents["docs/product/software-requirements.md"]
+    assert "`vaaet-core==0.2.1`" in documents["docs/product/software-requirements.md"]
     assert "fuera de alcance" in documents["docs/product/software-requirements.md"]
     assert "Cuatro notebooks" in documents["docs/product/product-requirements.md"]
     assert "cuarto\nnotebook" in documents["docs/operations/user-guide.md"]
-    assert "no se garantiza un modelo de acelerador concreto" in documents[
-        "docs/operations/colab-guide.md"
-    ]
+    assert (
+        "no se garantiza un modelo de acelerador concreto"
+        in documents["docs/operations/colab-guide.md"]
+    )
     assert "mismo monorepo" in documents["docs/ml/model-artifact-contract.md"]
     assert "VIEW_PLAN_PATH = None" in documents["docs/operations/colab-guide.md"]
     assert "vaaet-view-plan-v1" in documents["docs/operations/multi-view-calibration-guide.md"]

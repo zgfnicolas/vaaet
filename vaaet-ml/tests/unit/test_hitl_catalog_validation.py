@@ -15,9 +15,9 @@ from vaaet_ml.data.hitl_catalog import (
     CatalogSelection,
     HitlReviewCatalog,
     _deduplicate_uuid_rows,
-    _resolve_feedback,
     _resolve_validation_graph,
     _validation_leaf,
+    resolve_effective_human_feedback,
 )
 
 
@@ -36,7 +36,7 @@ def _entry(**overrides: object) -> dict[str, object]:
         "status": "active",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "model_revision": "c" * 64,
-        "vaaet_version": "4.6.0",
+        "vaaet_version": "4.6.1",
     }
     return {**entry, **overrides}
 
@@ -109,7 +109,7 @@ def test_feedback_and_validation_graph_reject_inconsistent_relations() -> None:
     identifier = str(uuid.uuid4())
     prediction_id = str(uuid.uuid4())
     with pytest.raises(ValueError, match="no compatible"):
-        _resolve_feedback(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+        resolve_effective_human_feedback(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
 
     features = pd.DataFrame({"id": [identifier], "record_time": ["2026-08-29T00:00:00Z"]})
     predictions = pd.DataFrame(
@@ -120,11 +120,12 @@ def test_feedback_and_validation_graph_reject_inconsistent_relations() -> None:
             "id": [str(uuid.uuid4())],
             "prediction_id": [prediction_id],
             "validated_state": [1],
+            "is_human_validated": [True],
             "supersedes_validation_id": [pd.NA],
         }
     )
     with pytest.raises(ValueError, match="missing feature UUIDs"):
-        _resolve_feedback(features, predictions, validations)
+        resolve_effective_human_feedback(features, predictions, validations)
 
     assert _resolve_validation_graph(pd.DataFrame()).empty
     with pytest.raises(ValueError, match="missing fields"):
@@ -142,6 +143,7 @@ def test_validation_graph_rejects_invalid_topology() -> None:
             "id": [first],
             "prediction_id": [prediction_id],
             "validated_state": [1],
+            "is_human_validated": [True],
             "supersedes_validation_id": [str(uuid.uuid4())],
         }
     )
@@ -153,6 +155,7 @@ def test_validation_graph_rejects_invalid_topology() -> None:
             "id": [first, second],
             "prediction_id": [prediction_id, prediction_id],
             "validated_state": [1, 2],
+            "is_human_validated": [True, True],
             "supersedes_validation_id": [pd.NA, pd.NA],
         }
     )

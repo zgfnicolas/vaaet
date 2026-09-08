@@ -11,7 +11,7 @@ Construí Python profesional para VAAET 3.10–3.13: claro, tipado, comprobable 
 
 - Preservá el monorepo: la percepción portable, telemetría, contratos, validación del bundle e inferencia viven en `vaaet-core/src/vaaet/`; datasets, entrenamiento, evaluación, PostgreSQL y soporte de notebooks viven en `vaaet-ml/src/vaaet_ml/`. `vaaet-core` no depende de ML, DVC, Drive, PostgreSQL ni APIs de notebooks.
 - Los notebooks sólo orquestan y visualizan. Importan `vaaet` para operaciones portables y `vaaet_ml` para laboratorio; no mutan `sys.path` ni duplican lógica reusable.
-- Antes de cambiar un contrato, leé los ADRs aplicables. No cambies las 19 `FEATURE_COLS`, el MLP, umbrales, estados públicos, esquema PostgreSQL ni bundle v2 sin autorización y ADR.
+- Antes de cambiar un contrato, leé los ADRs aplicables. No cambies las 19 `FEATURE_COLS`, el MLP, umbrales, estados públicos, esquema PostgreSQL ni bundle v3 sin autorización y ADR.
 - Aplicá KISS y YAGNI. Usá DRY cuando la duplicación represente un concepto estable, no para crear un framework de un único flujo.
 
 Elegí funciones puras para transformaciones deterministas: reciben datos explícitos, devuelven resultados sin mutar entradas ni depender del entorno, y se prueban con facilidad. Usá objetos cuando exista estado legítimo o ciclo de vida: modelos cargados, sesiones, recursos externos, configuración validada o trackers. Representá valores de dominio estables con `@dataclass(frozen=True)` cuando corresponda.

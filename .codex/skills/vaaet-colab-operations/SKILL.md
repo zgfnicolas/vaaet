@@ -9,7 +9,7 @@ description: Prepare, adapt, review, or troubleshoot VAAET ML workflows on Googl
 
 Treat Colab as an ephemeral compute worker. Keep source code and high-I/O data under `/content`; persist only governed datasets, locks, review packages, and completed artifacts to mounted Drive.
 
-Before altering a workflow, read ADR-0021 and the applicable ADRs `0013` through `0019` in `docs/architecture/decisions/`. Read ADR-0022 before any serving-related change. Preserve the 19 `FEATURE_COLS`, public states, MLP, thresholds, PostgreSQL schema, bundle v2, and DVC remotes unless the user explicitly authorizes a governed change.
+Before altering a workflow, read ADR-0021, ADR-0026, ADR-0027 and the applicable ADRs `0013` through `0019` in `docs/architecture/decisions/`. Read ADR-0022 before any serving-related change. Preserve the 19 `FEATURE_COLS`, public states, MLP, thresholds, PostgreSQL schema, bundle v3, and DVC remotes unless the user explicitly authorizes a governed change.
 
 - Keep notebooks as thin orchestrators. Put portable operations in `vaaet-core/src/vaaet/` and laboratory behavior in `vaaet-ml/src/vaaet_ml/`.
 - Do not mutate `sys.path`.

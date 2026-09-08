@@ -19,8 +19,10 @@ de los cuatro estados públicos. También contiene la política jerárquica,
 temperatura de calibración, umbrales por clase, margen, histéresis, prohibición de Accident automático,
 confirmación humana obligatoria, elegibilidad, bloqueos de promoción y
 checksums SHA-256. `model_revision` identifica los hashes exactos del modelo,
-scaler y mapping junto con la política, el schema de features y el training
-input lock. `model_version` continúa siendo una etiqueta semántica reutilizable.
+scaler y mapping junto con la política de decisión, el schema de features, el
+training input lock y `input_policy`. `model_version` continúa siendo una
+etiqueta semántica reutilizable. Las exportaciones nuevas declaran
+`model_revision_algorithm=sha256-inference-contract-v2`.
 
 `training_lifecycle` vuelve explícitos cuatro datos de serving:
 
@@ -62,6 +64,20 @@ output y conserva sus decisiones conservadoras. Los candidatos HITL no aprobados
 requieren la autorización experimental separada; ningún flag cambia la metadata
 ni promociona el artefacto.
 
+Los bundles v3 sin `model_revision_algorithm` usan la identidad histórica que
+no incluía `input_policy`. El loader operacional los rechaza aunque se activen
+flags de piloto o candidato. Sólo el propósito tipado `historical-evaluation`
+permite inspeccionarlos sin persistencia, HITL ni promoción. Una reexportación
+usa `reexport_historical_bundle(...)`, exige un destino nuevo y un motivo, crea
+otra revisión y fuerza `production_eligible=false`; el artefacto debe volver a
+evaluarse antes de cualquier uso operacional.
+
+Para declarar `production`, el core no acepta únicamente los booleanos de
+elegibilidad. También valida holdout compatible, cobertura v3, soporte humano,
+cero Accident automáticos, exposición de incidentes y métricas directas/finales
+con intervalos del 95 % por bootstrap de clips completos. Las estimaciones
+puntuales deben coincidir con esos intervalos.
+
 ## Versionado con DVC
 
 Después del primer entrenamiento se elimina `.gitkeep`, se configura el remoto
@@ -88,3 +104,6 @@ El benchmark humano congelado está gobernado por [ADR-0018](../architecture/dec
 La gestión inmutable de datasets está gobernada por [ADR-0019](../architecture/decisions/0019-immutable-seed-and-hitl-datasets.md).
 La continuidad y la identidad exacta del bundle están gobernadas por
 [ADR-0026](../architecture/decisions/0026-temporal-continuity-and-immutable-model-revisions.md).
+La identidad corregida, la compatibilidad histórica y la publicación
+recuperable están gobernadas por
+[ADR-0027](../architecture/decisions/0027-complete-bundle-identity-and-hitl-integrity.md).

@@ -71,6 +71,9 @@ indicador por clase.
   que la mejor época no esconda una divergencia.
 - **Calidad, confusión y confiabilidad**: revisá F1 macro, Normal–Congested,
   ECE, Brier y las matrices. Los umbrales ya existentes son los únicos gates.
+- **Intervalos**: tablas, gráficos y gates reutilizan el mismo bootstrap de
+  clips completos. Sin dos grupos independientes o sin soporte evaluable en el
+  95 % de las réplicas, la métrica se muestra como insuficiente.
 - **Supervisión y gobernanza**: observá el progreso humano hacia 300/300/100,
   el peso de memoria proxy decreciente, soporte descartado e integridad del
   holdout.

@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| Proyecto | VAAET ML 4.6.0 |
+| Proyecto | VAAET ML 4.6.1 |
 | Modelo vigente | `mlp-v3.0` |
 | Estado inicial | Pilot weak-supervision hasta cumplir gates humanos |
 | Runtime | TensorFlow/Keras, Python 3.10–3.13, Google Colab |
@@ -99,6 +99,6 @@ holdouts, features y salidas compatibles. Consultá la
 | `mlp-v1.1` | Baseline de 19 features y cuatro salidas |
 | `mlp-v2.0` | Tres salidas estables, contrato v2 y política jerárquica humana para Accident |
 | `mlp-v2.1` | Modos seed/HITL, política legacy paritaria y selección conservadora de balanceo |
-| `mlp-v3.0` | Continuidad explícita, revisión exacta del bundle y evaluación agrupada por clip |
+| `mlp-v3.0` | Continuidad explícita, revisión exacta del bundle y evaluación agrupada por clip; desde Core 0.2.1 la identidad incluye `input_policy` |
 
-Última revisión: 2026-09-05. Véanse [ADR-0014](../architecture/decisions/0014-hierarchical-traffic-state-and-incident-policy.md), [ADR-0015](../architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md), [ADR-0017](../architecture/decisions/0017-seed-bootstrap-and-hitl-retraining.md), [ADR-0018](../architecture/decisions/0018-versioned-frozen-human-holdouts.md), [ADR-0019](../architecture/decisions/0019-immutable-seed-and-hitl-datasets.md) y [ADR-0026](../architecture/decisions/0026-temporal-continuity-and-immutable-model-revisions.md).
+Última revisión: 2026-09-07. Véanse [ADR-0014](../architecture/decisions/0014-hierarchical-traffic-state-and-incident-policy.md), [ADR-0015](../architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md), [ADR-0017](../architecture/decisions/0017-seed-bootstrap-and-hitl-retraining.md), [ADR-0018](../architecture/decisions/0018-versioned-frozen-human-holdouts.md), [ADR-0019](../architecture/decisions/0019-immutable-seed-and-hitl-datasets.md), [ADR-0026](../architecture/decisions/0026-temporal-continuity-and-immutable-model-revisions.md) y [ADR-0027](../architecture/decisions/0027-complete-bundle-identity-and-hitl-integrity.md).

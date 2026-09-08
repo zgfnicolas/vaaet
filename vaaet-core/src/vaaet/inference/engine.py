@@ -40,12 +40,7 @@ class TrafficStateEngine:
     def predict_latest(self, telemetry: pd.DataFrame) -> TrafficStatePrediction | None:
         """Devuelve la última predicción tipada al pipeline ordenado de video."""
 
-        try:
-            classified = self.classify(telemetry)
-        except ValueError:
-            # Un clip finito puede no completar todavía un minuto. Esa ausencia
-            # no es un fallo de inferencia ni habilita inventar un estado.
-            return None
+        classified = self.classify(telemetry)
         if classified.empty:
             return None
         latest = classified.iloc[-1]

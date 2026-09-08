@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -23,12 +24,16 @@ from vaaet_ml.data.database import (
     DatabaseSettings,
     get_pg_restore_version,
     inspect_backup_catalog,
-    load_human_ground_truth,
+    load_human_feedback_components,
     load_telemetry,
     parse_sql_dump_tables,
     restore_backup_to_sql,
 )
-from vaaet_ml.data.dataset_artifacts import HitlCatalogSource, load_hitl_catalog_feedback
+from vaaet_ml.data.dataset_artifacts import HitlCatalogSource
+from vaaet_ml.data.hitl_catalog import (
+    load_hitl_catalog_components,
+    resolve_effective_human_feedback,
+)
 from vaaet_ml.data.package_codec import (
     DATASET_PACKAGE_CONTRACT,
     SEED_DATASET_PACKAGE_CONTRACT,
@@ -180,35 +185,40 @@ def _load_seed_features(source: SeedDatasetPackageSource) -> pd.DataFrame:
 
 
 def _latest_validated_feedback(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    features = frames.get("features", pd.DataFrame())
-    predictions = frames.get("predictions", pd.DataFrame())
-    validations = frames.get("validations", pd.DataFrame())
-    if features.empty or predictions.empty or validations.empty:
-        return pd.DataFrame()
-    for name, frame, required in (
-        ("features", features, {"id", "clip_id", "record_time", *FEATURE_COLS}),
-        ("predictions", predictions, {"id", "telemetry_feature_id", "model_version"}),
-        ("validations", validations, {"prediction_id", "validated_state", "reviewed_at"}),
-    ):
-        missing = required - set(frame.columns)
-        if missing:
-            raise ValueError(f"{name} component is missing fields: {sorted(missing)}")
-    validations = validations.copy()
-    validations["reviewed_at"] = pd.to_datetime(validations["reviewed_at"], utc=True)
-    ordering = ["reviewed_at", "id"] if "id" in validations else ["reviewed_at"]
-    latest = validations.sort_values(ordering).drop_duplicates("prediction_id", keep="last")
-    prediction_columns = ["id", "telemetry_feature_id", "model_version"]
-    if "model_revision" in predictions:
-        prediction_columns.append("model_revision")
-    joined = features.merge(
-        predictions[prediction_columns],
-        left_on="id",
-        right_on="telemetry_feature_id",
-        suffixes=("", "_prediction"),
-    ).merge(latest, left_on="id_prediction", right_on="prediction_id")
-    joined["traffic_state"] = pd.to_numeric(joined["validated_state"], errors="raise").astype(int)
-    joined["is_human_validated"] = True
-    return joined
+    return resolve_effective_human_feedback(
+        frames.get("features", pd.DataFrame()),
+        frames.get("predictions", pd.DataFrame()),
+        frames.get("validations", pd.DataFrame()),
+    )
+
+
+def _load_feedback_components(
+    source: TrainingSource,
+) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+    if isinstance(source, PostgresSource):
+        return (
+            load_human_feedback_components(
+                settings=source.settings,
+                feature_schema_version=source.feature_schema_version,
+            ),
+            {"source_kind": "postgres-history"},
+        )
+    if isinstance(source, DatasetPackageSource):
+        return load_dataset_package(source.path), {"source_kind": "dataset-package"}
+    if isinstance(source, PostgresBackupSource):
+        frames = _frames_from_backup(source, components={"features", "predictions", "validations"})
+        details = next(
+            (
+                item.attrs.get("vaaet_provenance", {})
+                for item in frames.values()
+                if item.attrs.get("vaaet_provenance")
+            ),
+            {},
+        )
+        return frames, dict(details)
+    if isinstance(source, HitlCatalogSource):
+        return load_hitl_catalog_components(source)
+    raise ValueError(f"Source {type(source).__name__} cannot provide validated feedback.")
 
 
 def _frames_from_backup(
@@ -263,7 +273,8 @@ def _frames_from_backup(
     if "validations" not in result and "predictions" in result:
         legacy = result["predictions"]
         if "is_human_validated" in legacy:
-            validated = legacy.loc[legacy["is_human_validated"].fillna(False).astype(bool)].copy()
+            flags = legacy["is_human_validated"].map(_parse_contract_boolean)
+            validated = legacy.loc[flags].copy()
             if not validated.empty:
                 validated["prediction_id"] = validated["id"]
                 validated["validated_state"] = validated["human_override_state"].fillna(
@@ -271,9 +282,7 @@ def _frames_from_backup(
                 )
                 validated["reviewed_at"] = validated.get("validated_at", validated["classified_at"])
                 validated["reviewer_id"] = "legacy-import"
-                validated.attrs["vaaet_provenance"] = legacy.attrs.get(
-                    "vaaet_provenance", {}
-                )
+                validated.attrs["vaaet_provenance"] = legacy.attrs.get("vaaet_provenance", {})
                 result["validations"] = validated
     return result
 
@@ -315,40 +324,6 @@ def _load_raw(source: TrainingSource) -> pd.DataFrame:
     return frame
 
 
-def _load_feedback(source: TrainingSource) -> pd.DataFrame:
-    if isinstance(source, PostgresSource):
-        return load_human_ground_truth(
-            settings=source.settings,
-            feature_schema_version=source.feature_schema_version,
-        )
-    if isinstance(source, DatasetPackageSource):
-        return _latest_validated_feedback(load_dataset_package(source.path))
-    if isinstance(source, PostgresBackupSource):
-        frames = _frames_from_backup(
-            source, components={"features", "predictions", "validations"}
-        )
-        frame = _latest_validated_feedback(frames)
-        source_details = next(
-            (
-                item.attrs.get("vaaet_provenance", {})
-                for item in frames.values()
-                if item.attrs.get("vaaet_provenance")
-            ),
-            {},
-        )
-        frame.attrs["vaaet_provenance"] = source_details
-        return frame
-    if isinstance(source, RawCsvSource):
-        raise ValueError("RawCsvSource cannot be used as a feedback source.")
-    if isinstance(source, SeedDatasetPackageSource):
-        raise ValueError("SeedDatasetPackageSource cannot be used as a feedback source.")
-    if isinstance(source, HitlCatalogSource):
-        frame, descriptor = load_hitl_catalog_feedback(source)
-        frame.attrs["vaaet_provenance"] = descriptor
-        return frame
-    raise TypeError(f"Unsupported feedback source: {type(source)!r}")
-
-
 def _deduplicate_raw(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
     non_empty = [frame.copy() for frame in frames if not frame.empty]
     if not non_empty:
@@ -376,34 +351,45 @@ def _deduplicate_feedback(
     non_empty = [frame.copy() for frame in frames if not frame.empty]
     if not non_empty:
         return pd.DataFrame(), pd.DataFrame()
+    versions_by_source = [
+        _validate_processed_frame_contract(frame, require_human_validation) for frame in non_empty
+    ]
     combined = pd.concat(non_empty, ignore_index=True)
     required = {"clip_id", "record_time", "traffic_state", *FEATURE_COLS}
     if missing := required - set(combined.columns):
         raise ValueError(f"Validated feedback is missing fields: {sorted(missing)}")
-    versions = _validate_processed_frame_contract(combined, require_human_validation)
-    normalized_frames = [normalize_continuity_frame(frame) for frame in non_empty]
-    combined = pd.concat(normalized_frames, ignore_index=True)
+    versions = set().union(*versions_by_source)
+    combined["record_time"] = normalize_timestamp_series(combined["record_time"])
     combined.attrs["legacy_feature_schema"] = versions == {"traffic-features-v2"}
-    combined["traffic_state"] = pd.to_numeric(combined["traffic_state"], errors="raise").astype(int)
+    states = pd.to_numeric(combined["traffic_state"], errors="raise")
+    if (
+        not states.map(lambda value: float(value).is_integer()).all()
+        or not states.isin((0, 1, 2, 3)).all()
+    ):
+        raise ValueError("Feedback traffic_state values must be integers from 0 through 3.")
+    combined["traffic_state"] = states.astype(int)
     for _, group in combined.groupby(["clip_id", "record_time"], dropna=False):
-        if group["traffic_state"].nunique() > 1 or len(
-            group[[*FEATURE_COLS, "traffic_state"]].drop_duplicates()
-        ) > 1:
+        if (
+            group["traffic_state"].nunique() > 1
+            or len(group[[*FEATURE_COLS, "traffic_state"]].drop_duplicates()) > 1
+        ):
             raise ValueError(
                 f"Conflicting human labels or features for clip={group.iloc[0]['clip_id']} "
                 f"time={group.iloc[0]['record_time']}"
             )
     combined = (
-        combined.drop_duplicates(["clip_id", "record_time"], keep="last")
+        _attach_lineage_sets(combined)
+        .drop_duplicates(["clip_id", "record_time"], keep="last")
         .sort_values(["clip_id", "record_time"])
         .reset_index(drop=True)
     )
+    combined = normalize_continuity_frame(combined)
     incidents = combined.loc[combined["traffic_state"].eq(3)].reset_index(drop=True)
     stable = combined.loc[combined["traffic_state"].isin((0, 1, 2))].reset_index(drop=True)
     return stable, incidents
 
 
-def _validate_processed_frame_contract(
+def _validate_processed_frame_contract(  # noqa: C901 - valida un borde tabular externo.
     frame: pd.DataFrame, require_human_validation: bool
 ) -> set[str]:
     """Valida schema, orden y lineage antes de consolidar fuentes procesadas."""
@@ -414,11 +400,15 @@ def _validate_processed_frame_contract(
     if require_human_validation:
         if "is_human_validated" not in frame:
             raise ValueError("Feedback sources must explicitly prove human validation.")
-        if not frame["is_human_validated"].fillna(False).all():
+        confirmation = frame["is_human_validated"].map(_parse_contract_boolean)
+        if not confirmation.all():
             raise ValueError("Feedback sources contain unvalidated predictions.")
+        frame["is_human_validated"] = confirmation.astype(bool)
     if "feature_schema_version" not in frame:
         raise ValueError("Processed feedback requires feature_schema_version.")
-    versions = set(frame["feature_schema_version"].dropna().astype(str))
+    if frame["feature_schema_version"].isna().any():
+        raise ValueError("Processed feedback requires feature_schema_version on every row.")
+    versions = set(frame["feature_schema_version"].astype(str))
     accepted = {FEATURE_SCHEMA_VERSION, "traffic-features-v2"}
     if len(versions) != 1 or not versions.issubset(accepted):
         raise ValueError(f"Incompatible feature schema versions: {sorted(versions)}")
@@ -430,7 +420,40 @@ def _validate_processed_frame_contract(
         and "model_revision" not in frame
     ):
         raise ValueError("Current processed feedback requires model_revision lineage.")
+    if require_human_validation and versions == {FEATURE_SCHEMA_VERSION}:
+        revisions = frame["model_revision"].astype("string")
+        if revisions.isna().any() or not revisions.str.fullmatch(r"[0-9a-f]{64}").all():
+            raise ValueError("Current processed feedback requires SHA-256 model_revision values.")
+    numeric = frame.loc[:, FEATURE_COLS].apply(pd.to_numeric, errors="raise")
+    if not numeric.map(math.isfinite).all().all():
+        raise ValueError("Processed feedback contains non-finite feature values.")
+    frame.loc[:, FEATURE_COLS] = numeric.astype(float)
     return versions
+
+
+def _parse_contract_boolean(value: object) -> bool:
+    if type(value) is bool:
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    raise ValueError("is_human_validated must contain contractual boolean values.")
+
+
+def _attach_lineage_sets(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    candidates = {
+        "source_prediction_ids": ("prediction_id", "id_prediction"),
+        "source_validation_ids": ("validation_id", "id_y"),
+    }
+    for output, names in candidates.items():
+        available = next((name for name in names if name in result), None)
+        if available is None:
+            continue
+        values = result.groupby(["clip_id", "record_time"], dropna=False)[available].transform(
+            lambda group: ",".join(sorted({str(item) for item in group.dropna()}))
+        )
+        result[output] = values
+    return result
 
 
 def compose_supervised_dataset(
@@ -469,45 +492,66 @@ def load_training_inputs(plan: TrainingIngestionPlan) -> TrainingDataset:
 
     raw_frames: list[pd.DataFrame] = []
     seed_frames: list[pd.DataFrame] = []
-    feedback_frames: list[pd.DataFrame] = []
+    feedback_components: dict[str, list[pd.DataFrame]] = {
+        "features": [],
+        "predictions": [],
+        "validations": [],
+    }
     provenance: list[dict[str, object]] = []
     for index, source in enumerate(plan.raw_sources):
         frame = _load_raw(source)
         raw_frames.append(frame)
-        provenance.append({
-            "kind": "raw",
-            "source_index": index,
-            "source_type": type(source).__name__,
-            "rows": len(frame),
-            **frame.attrs.get("vaaet_provenance", {}),
-        })
+        provenance.append(
+            {
+                "kind": "raw",
+                "source_index": index,
+                "source_type": type(source).__name__,
+                "rows": len(frame),
+                **frame.attrs.get("vaaet_provenance", {}),
+            }
+        )
     for index, source in enumerate(plan.seed_sources):
         frame = _load_seed_features(source)
         seed_frames.append(frame)
-        provenance.append({
-            "kind": "processed_seed",
-            "source_index": index,
-            "source_type": type(source).__name__,
-            "rows": len(frame),
-            **frame.attrs.get("vaaet_provenance", {}),
-        })
+        provenance.append(
+            {
+                "kind": "processed_seed",
+                "source_index": index,
+                "source_type": type(source).__name__,
+                "rows": len(frame),
+                **frame.attrs.get("vaaet_provenance", {}),
+            }
+        )
     for index, source in enumerate(plan.feedback_sources):
-        frame = _load_feedback(source)
-        feedback_frames.append(frame)
-        provenance.append({
-            "kind": "validated_feedback",
-            "source_index": index,
-            "source_type": type(source).__name__,
-            "rows": len(frame),
-            **frame.attrs.get("vaaet_provenance", {}),
-        })
+        components, source_details = _load_feedback_components(source)
+        for kind in feedback_components:
+            frame = components.get(kind, pd.DataFrame())
+            if not frame.empty:
+                feedback_components[kind].append(frame)
+        validation_rows = len(components.get("validations", pd.DataFrame()))
+        provenance.append(
+            {
+                "kind": "validated_feedback",
+                "source_index": index,
+                "source_type": type(source).__name__,
+                "rows": validation_rows,
+                **source_details,
+            }
+        )
     raw = _deduplicate_raw(raw_frames)
-    seed, seed_incidents = _deduplicate_feedback(
-        seed_frames, require_human_validation=False
-    )
+    seed, seed_incidents = _deduplicate_feedback(seed_frames, require_human_validation=False)
     if not seed_incidents.empty:
         raise ValueError("Processed seed datasets cannot contain Accident targets.")
-    feedback, incidents = _deduplicate_feedback(feedback_frames)
+    combined_components = {
+        kind: pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        for kind, frames in feedback_components.items()
+    }
+    effective_feedback = (
+        _latest_validated_feedback(combined_components)
+        if any(not frame.empty for frame in combined_components.values())
+        else pd.DataFrame()
+    )
+    feedback, incidents = _deduplicate_feedback([effective_feedback])
     if raw.empty and seed.empty and feedback.empty and incidents.empty:
         raise ValueError("No usable raw telemetry or validated feedback was loaded.")
     return TrainingDataset(raw, seed, feedback, incidents, pd.DataFrame(provenance))

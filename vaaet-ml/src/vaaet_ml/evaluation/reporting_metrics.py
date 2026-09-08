@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from itertools import product
-from math import sqrt
 
 import numpy as np
 import pandas as pd
@@ -15,19 +14,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 from vaaet.calibration import multiclass_brier_score
 from vaaet.settings import STATE_LABELS
 
-CONFUSION_COST = np.array(
-    [[0.0, 1.0, 4.0], [1.0, 0.0, 2.0], [4.0, 2.0, 0.0]]
-)
-
-
-def _wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
-    if total <= 0:
-        return (float("nan"), float("nan"))
-    proportion = successes / total
-    denominator = 1 + z**2 / total
-    centre = (proportion + z**2 / (2 * total)) / denominator
-    radius = z * sqrt(proportion * (1 - proportion) / total + z**2 / (4 * total**2))
-    return (max(0.0, centre - radius / denominator), min(1.0, centre + radius / denominator))
+CONFUSION_COST = np.array([[0.0, 1.0, 4.0], [1.0, 0.0, 2.0], [4.0, 2.0, 0.0]])
 
 
 def build_classification_support_table(
@@ -40,10 +27,11 @@ def build_classification_support_table(
     groups = np.asarray(clip_ids, dtype=object) if clip_ids is not None else None
     if groups is not None and groups.shape != truth.shape:
         raise ValueError("clip_ids must align with y_true.")
-    rows = [
-        _support_row(code, truth, predicted, groups)
-        for code in (0, 1, 2)
-    ]
+    interval_lookup: dict[str, dict[str, object]] = {}
+    if groups is not None:
+        intervals = grouped_classification_intervals(truth, predicted, groups)
+        interval_lookup = {str(row["metric"]): row for row in intervals.to_dict(orient="records")}
+    rows = [_support_row(code, truth, predicted, groups, interval_lookup) for code in (0, 1, 2)]
     return pd.DataFrame(rows)
 
 
@@ -52,12 +40,16 @@ def _support_row(
     truth: np.ndarray,
     predicted: np.ndarray,
     groups: np.ndarray | None,
+    intervals: dict[str, dict[str, object]],
 ) -> dict[str, object]:
     true_positive = int(((truth == code) & (predicted == code)).sum())
     actual = int((truth == code).sum())
     predicted_count = int((predicted == code).sum())
     precision = true_positive / predicted_count if predicted_count else 0.0
     recall = true_positive / actual if actual else 0.0
+    label_key = {0: "normal", 1: "reduced", 2: "congested"}[code]
+    precision_interval = intervals.get(f"precision_{label_key}")
+    recall_interval = intervals.get(f"recall_{label_key}")
     return {
         "traffic_state": code,
         "state_label": STATE_LABELS[code],
@@ -67,10 +59,23 @@ def _support_row(
         ),
         "predicted": predicted_count,
         "precision": precision,
-        "precision_ci_95": _wilson_interval(true_positive, predicted_count),
+        "precision_ci_95": _interval_tuple(precision_interval),
         "recall": recall,
-        "recall_ci_95": _wilson_interval(true_positive, actual),
+        "recall_ci_95": _interval_tuple(recall_interval),
+        "interval_method": "grouped-bootstrap" if groups is not None else "unavailable",
+        "interval_sufficient": bool(
+            precision_interval
+            and recall_interval
+            and precision_interval["sufficient"]
+            and recall_interval["sufficient"]
+        ),
     }
+
+
+def _interval_tuple(row: dict[str, object] | None) -> tuple[float | None, float | None]:
+    if row is None:
+        return (None, None)
+    return (float(row["ci_95_low"]), float(row["ci_95_high"]))
 
 
 def grouped_classification_intervals(
@@ -128,7 +133,10 @@ def grouped_classification_intervals(
                     float(np.quantile(metric_values, 0.975)) if metric_values else np.nan
                 ),
                 "evaluable_fraction": evaluable_fraction,
-                "sufficient": evaluable_fraction >= 0.95,
+                "method": "grouped-bootstrap",
+                "group_count": int(len(unique_groups)),
+                "bootstrap_samples": int(samples),
+                "sufficient": len(unique_groups) >= 2 and evaluable_fraction >= 0.95,
                 "direction": (
                     "lower-is-better"
                     if name in {"normal_congested_error", "ece", "brier_score"}
@@ -150,8 +158,13 @@ def false_alert_rate_upper_bound(alerts: int, negative_exposure_hours: float) ->
 
 def _metric_names(probabilities: np.ndarray | None) -> tuple[str, ...]:
     base = (
-        "f1_macro", "precision_normal", "precision_reduced", "precision_congested",
-        "recall_normal", "recall_reduced", "recall_congested",
+        "f1_macro",
+        "precision_normal",
+        "precision_reduced",
+        "precision_congested",
+        "recall_normal",
+        "recall_reduced",
+        "recall_congested",
         "normal_congested_error",
     )
     return (*base, "ece", "brier_score") if probabilities is not None else base
@@ -169,16 +182,16 @@ def _classification_metrics(
             else None
         ),
         "normal_congested_error": (
-            float(
-                (((truth == 0) & (predicted == 2)) | ((truth == 2) & (predicted == 0))).mean()
-            )
+            float((((truth == 0) & (predicted == 2)) | ((truth == 2) & (predicted == 0))).mean())
             if {0, 2}.issubset(set(truth))
             else None
         ),
     }
     for code, label in ((0, "normal"), (1, "reduced"), (2, "congested")):
         result[f"precision_{label}"] = (
-            float(precision_score(truth, predicted, labels=[code], average="macro", zero_division=0))
+            float(
+                precision_score(truth, predicted, labels=[code], average="macro", zero_division=0)
+            )
             if (predicted == code).any()
             else None
         )
@@ -223,7 +236,9 @@ def expected_calibration_error(
         upper = lower + 1.0 / bins
         mask = (confidence > lower) & (confidence <= upper)
         if mask.any():
-            error += float(mask.mean()) * abs(float(correct[mask].mean()) - float(confidence[mask].mean()))
+            error += float(mask.mean()) * abs(
+                float(correct[mask].mean()) - float(confidence[mask].mean())
+            )
     return float(error)
 
 

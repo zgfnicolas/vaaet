@@ -9,6 +9,10 @@ import pytest
 from sqlalchemy.exc import ProgrammingError
 
 from vaaet_ml.data.database_queries import (
+    HUMAN_FEATURES_QUERY,
+    HUMAN_PREDICTIONS_QUERY,
+    HUMAN_VALIDATIONS_QUERY,
+    load_human_feedback_components,
     load_human_ground_truth,
     load_telemetry,
     load_telemetry_window,
@@ -51,6 +55,34 @@ def test_read_only_queries_dispose_owned_engine(monkeypatch: pytest.MonkeyPatch)
 
     assert len(load_human_ground_truth(settings={"host": "unused"})) == 1
     assert engine.disposed
+
+
+def test_human_history_queries_are_explicit_and_load_every_component(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _DisposableEngine()
+    statements: list[str] = []
+
+    def fake_read_sql(statement: object, _engine: object, *, params: object) -> pd.DataFrame:
+        statements.append(str(statement))
+        assert params == {"feature_schema_version": "traffic-features-v3"}
+        return pd.DataFrame({"id": [len(statements)]})
+
+    monkeypatch.setattr("vaaet_ml.data.database_queries.pd.read_sql", fake_read_sql)
+    components = load_human_feedback_components(engine=engine)
+
+    assert set(components) == {"features", "predictions", "validations"}
+    assert [int(frame.iloc[0]["id"]) for frame in components.values()] == [1, 2, 3]
+    assert not engine.disposed
+    assert all(
+        "SELECT *" not in query.upper()
+        for query in (
+            HUMAN_FEATURES_QUERY,
+            HUMAN_PREDICTIONS_QUERY,
+            HUMAN_VALIDATIONS_QUERY,
+        )
+    )
+    assert "supersedes_validation_id" in HUMAN_VALIDATIONS_QUERY
 
 
 @pytest.mark.parametrize("filters", [{"pipeline_run_ids": ("",)}, {"clip_ids": ("",)}])

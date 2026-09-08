@@ -36,7 +36,7 @@ despliegue.
 | Dependencia YOLO | Pendiente | Ultralytics, AGPL-3.0/Enterprise | Según upstream | Pendiente |
 | Peso YOLO base | Pendiente | URL y términos upstream | Verificar antes de publicar | Pendiente |
 | Peso YOLO ajustado | N/A si no existe | Dataset, entrenamiento y licencia | Requiere revisión explícita | N/A |
-| Bundle v2 MLP | Pendiente | Manifiesto, checksum y lineage | Requiere revisión explícita | Pendiente |
+| Bundle v3 MLP | Pendiente | Manifiesto, checksum y lineage | Requiere revisión explícita | Pendiente |
 | Video de muestra | Pendiente | Sintético, redaccionado o con permiso | Requiere revisión explícita | Pendiente |
 | Dataset de entrenamiento | N/A salvo que sea necesario y redistribuible | Propietario y licencia | No publicar por defecto | N/A |
 

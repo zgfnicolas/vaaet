@@ -25,7 +25,20 @@ from vaaet_ml.evaluation.reporting import (
 def test_classification_support_includes_intervals() -> None:
     table = build_classification_support_table([0, 0, 1, 2], [0, 1, 1, 2])
     assert table["support"].tolist() == [2, 1, 1]
-    assert all(len(interval) == 2 for interval in table["recall_ci_95"])
+    assert table["interval_method"].eq("unavailable").all()
+    assert table["interval_sufficient"].eq(False).all()
+    assert all(interval == (None, None) for interval in table["recall_ci_95"])
+
+
+def test_classification_support_reuses_grouped_intervals() -> None:
+    table = build_classification_support_table(
+        [0, 1, 2, 0, 1, 2],
+        [0, 1, 2, 0, 1, 2],
+        clip_ids=["a", "a", "a", "b", "b", "b"],
+    )
+
+    assert table["interval_method"].eq("grouped-bootstrap").all()
+    assert table["interval_sufficient"].all()
 
 
 def test_extreme_confusion_costs_more_than_adjacent() -> None:
@@ -54,9 +67,7 @@ def test_decision_policy_is_selected_from_validation_probabilities() -> None:
     probabilities = np.array(
         [[0.9, 0.08, 0.02], [0.1, 0.85, 0.05], [0.05, 0.1, 0.85], [0.05, 0.1, 0.85]]
     )
-    policy = select_validation_decision_policy(
-        frame, [0, 1, 2, 2], probabilities, temperature=1.2
-    )
+    policy = select_validation_decision_policy(frame, [0, 1, 2, 2], probabilities, temperature=1.2)
     assert set(policy["class_thresholds"]) == {"0", "1", "2"}
     assert policy["temperature"] == 1.2
 
@@ -81,7 +92,9 @@ def test_grouped_intervals_are_deterministic_and_report_calibration() -> None:
 
 def test_grouped_intervals_mark_rare_class_as_insufficient() -> None:
     intervals = grouped_classification_intervals(
-        [0, 0, 1, 2], [0, 0, 1, 2], ["normal", "normal", "reduced", "congested"],
+        [0, 0, 1, 2],
+        [0, 0, 1, 2],
+        ["normal", "normal", "reduced", "congested"],
         samples=100,
         random_state=11,
     ).set_index("metric")

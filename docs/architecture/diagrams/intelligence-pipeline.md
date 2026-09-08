@@ -17,7 +17,7 @@ flowchart TD
     L -->|sin evidencia| M[Estado estable 0-2]
     L -->|fuerte y persistente| N[Congested + accident_rule_triggered]
     N -->|confirmación humana validada| O[Accident público]
-    M --> P[Bundle v2]
+    M --> P[Bundle v3]
     O --> Q[(feedback humano)]
     Q --> D
     E --> R[Evaluación final real y humana]

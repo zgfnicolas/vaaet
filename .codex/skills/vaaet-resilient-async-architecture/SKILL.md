@@ -27,7 +27,7 @@ frame -> optical flow -> YOLO -> SORT -> speed and motion
 
 Do not parallelize, reorder, or externalize SORT state, optical flow, speed
 smoothing, stationary detection, minute accumulation, classification policy,
-or incident handling. Preserve the 19 features, bundle v2, three MLP outputs,
+or incident handling. Preserve the 19 features, bundle v3, three MLP outputs,
 and human-only Accident publication.
 
 ## Keep boundaries explicit across runtimes
@@ -46,7 +46,7 @@ connect to PostgreSQL, or expose secrets and private paths.
 
 A future C++ component is an optional internal accelerator behind a stable
 `vaaet-core` interface with an equivalent Python fallback. It does not receive
-web traffic, replace public domain APIs, alter the bundle v2, or share mutable
+web traffic, replace public domain APIs, alter the bundle v3, or share mutable
 tracker state across runtimes.
 
 ## Introduce local decoupling only with evidence

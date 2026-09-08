@@ -17,7 +17,9 @@ from vaaet.artifacts import (
     FEATURE_SCHEMA_VERSION,
     LEGACY_CONTRACT_VERSION,
     LEGACY_FEATURE_SCHEMA_VERSION,
+    LEGACY_MODEL_REVISION_ALGORITHM,
     MANIFEST_FILE,
+    MODEL_REVISION_ALGORITHM,
     MODEL_VERSION,
     REQUIRED_DEPENDENCIES,
     REQUIRED_FIELDS,
@@ -28,17 +30,22 @@ from vaaet.artifacts import (
     _sha256,
     calculate_model_revision,
 )
+from vaaet.eligibility import production_evidence_errors
 from vaaet.exceptions import ArtifactNotFoundError, ArtifactValidationError
 from vaaet.lifecycle import ModelInputPolicy, TrainingMode
 from vaaet.settings import FEATURE_COLS, MODEL_STATE_LABELS, STATE_LABELS
 
 
-def validate_manifest(bundle_dir: str | Path) -> TrafficBundleManifest:
+def validate_manifest(
+    bundle_dir: str | Path, *, allow_historical_revision: bool = False
+) -> TrafficBundleManifest:
     """Valida compatibilidad e integridad antes de cargar un bundle soportado."""
 
     directory = Path(bundle_dir).resolve()
     manifest = _load_manifest(directory)
-    _validate_identity(manifest)
+    historical_revision = _validate_identity(
+        manifest, allow_historical_revision=allow_historical_revision
+    )
     lifecycle = _validate_lifecycle(manifest)
     _validate_policy(manifest)
     files, dependencies, metrics, provenance = _validate_sections(manifest)
@@ -46,13 +53,18 @@ def validate_manifest(bundle_dir: str | Path) -> TrafficBundleManifest:
     _validate_provenance(manifest, provenance)
     _validate_human_holdout(manifest, provenance)
     _validate_input_lock(manifest)
-    _validate_eligibility(lifecycle, metrics, provenance)
-    _validate_files(directory, files)
+    _validate_eligibility(
+        lifecycle,
+        metrics,
+        provenance,
+        manifest,
+        enforce_production_evidence=not historical_revision,
+    )
+    _validate_files(directory, files, lifecycle, historical_revision=historical_revision)
     if manifest["contract_version"] == LEGACY_CONTRACT_VERSION:
         manifest["model_revision"] = calculate_model_revision(
             file_hashes={
-                name: str(cast(dict[str, object], files[name])["sha256"])
-                for name in REQUIRED_FILES
+                name: str(cast(dict[str, object], files[name])["sha256"]) for name in REQUIRED_FILES
             },
             decision_policy=_require_section(manifest, "decision_policy"),
             feature_schema_version=str(manifest["feature_schema_version"]),
@@ -61,7 +73,12 @@ def validate_manifest(bundle_dir: str | Path) -> TrafficBundleManifest:
                 if isinstance(manifest.get("training_input_lock"), dict)
                 else None
             ),
+            input_policy=str(lifecycle["input_policy"]),
+            algorithm=LEGACY_MODEL_REVISION_ALGORITHM,
         )
+        manifest["model_revision_algorithm"] = LEGACY_MODEL_REVISION_ALGORITHM
+    elif historical_revision:
+        manifest["model_revision_algorithm"] = LEGACY_MODEL_REVISION_ALGORITHM
     return cast(TrafficBundleManifest, manifest)
 
 
@@ -85,10 +102,23 @@ def _require_section(manifest: Mapping[str, object], field_name: str) -> dict[st
     return cast(dict[str, object], value)
 
 
-def _validate_identity(manifest: Mapping[str, object]) -> None:
+def _validate_identity(  # noqa: C901 - valida una frontera contractual ordenada.
+    manifest: Mapping[str, object], *, allow_historical_revision: bool
+) -> bool:
     required_fields = set(REQUIRED_FIELDS)
     if manifest.get("contract_version") == LEGACY_CONTRACT_VERSION:
         required_fields.discard("model_revision")
+        required_fields.discard("model_revision_algorithm")
+    historical_revision = (
+        manifest.get("contract_version") == CONTRACT_VERSION
+        and "model_revision_algorithm" not in manifest
+    )
+    if historical_revision and not allow_historical_revision:
+        raise ArtifactValidationError(
+            "Legacy model revision is restricted to explicit historical evaluation."
+        )
+    if historical_revision and allow_historical_revision:
+        required_fields.discard("model_revision_algorithm")
     missing_fields = sorted(required_fields - manifest.keys())
     if missing_fields:
         raise ArtifactValidationError(f"Missing manifest fields: {', '.join(missing_fields)}")
@@ -103,6 +133,11 @@ def _validate_identity(manifest: Mapping[str, object]) -> None:
     expected_outputs = {str(key): value for key, value in MODEL_STATE_LABELS.items()}
     if manifest["model_output_mapping"] != expected_outputs:
         raise ArtifactValidationError("Artifact MLP output mapping is incompatible with VAAET.")
+    algorithm = manifest.get("model_revision_algorithm")
+    if not historical_revision and manifest.get("contract_version") == CONTRACT_VERSION:
+        if algorithm != MODEL_REVISION_ALGORITHM:
+            raise ArtifactValidationError("Unsupported model revision algorithm.")
+    return historical_revision
 
 
 def _validate_versions(manifest: Mapping[str, object]) -> None:
@@ -131,7 +166,9 @@ def _validate_generated_at(value: object) -> None:
     try:
         generated_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise ArtifactValidationError("Manifest generated_at must be a valid ISO-8601 timestamp.") from exc
+        raise ArtifactValidationError(
+            "Manifest generated_at must be a valid ISO-8601 timestamp."
+        ) from exc
     if generated_at.tzinfo is None:
         raise ArtifactValidationError("Manifest generated_at must include a timezone.")
 
@@ -153,7 +190,9 @@ def _validate_lifecycle(manifest: Mapping[str, object]) -> dict[str, object]:
         training_mode = TrainingMode(lifecycle["training_mode"])
         input_policy = ModelInputPolicy(lifecycle["input_policy"])
     except (TypeError, ValueError) as exc:
-        raise ArtifactValidationError("Unsupported training lifecycle mode or input policy.") from exc
+        raise ArtifactValidationError(
+            "Unsupported training lifecycle mode or input policy."
+        ) from exc
     _validate_lifecycle_values(
         lifecycle,
         training_mode,
@@ -189,7 +228,9 @@ def _validate_lifecycle_values(
         lifecycle["deployment_stage"] not in {"candidate", "production"}
         or lifecycle["supervision"] != "human-validated-with-proxy-memory"
     ):
-        raise ArtifactValidationError("HITL bundles must be human-validated candidates or production.")
+        raise ArtifactValidationError(
+            "HITL bundles must be human-validated candidates or production."
+        )
     if (
         training_mode is TrainingMode.HITL_RETRAINING
         and lifecycle.get("production_eligible")
@@ -258,11 +299,7 @@ def _validate_dependencies_and_metrics(
     )
     for metric_name in metric_names:
         value = metrics.get(metric_name)
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not 0 <= value <= 1
-        ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
             raise ArtifactValidationError(
                 f"Manifest metrics.{metric_name} must be a number between 0 and 1."
             )
@@ -304,7 +341,9 @@ def _validate_coverage(value: object, field_name: str) -> None:
         raise ArtifactValidationError(f"{field_name} must be between 0 and 1.")
 
 
-def _validate_human_holdout(manifest: Mapping[str, object], provenance: Mapping[str, object]) -> None:
+def _validate_human_holdout(
+    manifest: Mapping[str, object], provenance: Mapping[str, object]
+) -> None:
     holdout = manifest.get("human_holdout")
     if not provenance["human_holdout"]:
         if holdout is not None:
@@ -335,9 +374,7 @@ def _validate_human_holdout(manifest: Mapping[str, object], provenance: Mapping[
     _validate_fingerprint(descriptor["fingerprint"], "Human holdout fingerprint")
     for field_name in ("validation_rows", "test_rows"):
         if type(descriptor[field_name]) is not int or descriptor[field_name] < 1:
-            raise ArtifactValidationError(
-                f"Human holdout {field_name} must be a positive integer."
-            )
+            raise ArtifactValidationError(f"Human holdout {field_name} must be a positive integer.")
 
 
 def _validate_input_lock(manifest: Mapping[str, object]) -> None:
@@ -385,17 +422,40 @@ def _validate_eligibility(
     lifecycle: Mapping[str, object],
     metrics: Mapping[str, object],
     provenance: Mapping[str, object],
+    manifest: Mapping[str, object],
+    *,
+    enforce_production_evidence: bool,
 ) -> None:
     metric_eligibility = metrics.get("production_eligible")
-    if type(metric_eligibility) is not bool or metric_eligibility != provenance["production_eligible"]:
+    if (
+        type(metric_eligibility) is not bool
+        or metric_eligibility != provenance["production_eligible"]
+    ):
         raise ArtifactValidationError("Production eligibility must be explicit and consistent.")
     if lifecycle["production_eligible"] != metric_eligibility:
         raise ArtifactValidationError("Training lifecycle eligibility must match bundle metrics.")
     if lifecycle["deployment_stage"] == "production" and not metric_eligibility:
         raise ArtifactValidationError("Only eligible bundles may use the production stage.")
+    if metric_eligibility and enforce_production_evidence:
+        errors = production_evidence_errors(
+            lifecycle=lifecycle,
+            metrics=metrics,
+            provenance=provenance,
+            human_holdout=manifest.get("human_holdout"),
+        )
+        if errors:
+            raise ArtifactValidationError(
+                "Production evidence is contradictory: " + "; ".join(errors)
+            )
 
 
-def _validate_files(directory: Path, files: Mapping[str, object]) -> None:
+def _validate_files(
+    directory: Path,
+    files: Mapping[str, object],
+    lifecycle: Mapping[str, object],
+    *,
+    historical_revision: bool,
+) -> None:
     for name in REQUIRED_FILES:
         path = directory / name
         file_entry = files.get(name)
@@ -409,10 +469,9 @@ def _validate_files(directory: Path, files: Mapping[str, object]) -> None:
         if _sha256(path) != expected:
             raise ArtifactValidationError(f"Checksum mismatch for artifact file: {name}")
     manifest = _load_manifest(directory)
-    if manifest["contract_version"] == CONTRACT_VERSION:
+    if manifest["contract_version"] == CONTRACT_VERSION and not historical_revision:
         file_hashes = {
-            name: str(cast(dict[str, object], files[name])["sha256"])
-            for name in REQUIRED_FILES
+            name: str(cast(dict[str, object], files[name])["sha256"]) for name in REQUIRED_FILES
         }
         expected_revision = calculate_model_revision(
             file_hashes=file_hashes,
@@ -423,6 +482,10 @@ def _validate_files(directory: Path, files: Mapping[str, object]) -> None:
                 if isinstance(manifest.get("training_input_lock"), dict)
                 else None
             ),
+            input_policy=str(lifecycle["input_policy"]),
+            algorithm=str(manifest["model_revision_algorithm"]),
         )
         if manifest["model_revision"] != expected_revision:
-            raise ArtifactValidationError("Bundle model_revision does not match its exact contents.")
+            raise ArtifactValidationError(
+                "Bundle model_revision does not match its exact contents."
+            )

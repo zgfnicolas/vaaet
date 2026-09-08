@@ -156,6 +156,7 @@ def _normalize_validations(
                 "id",
                 "prediction_id",
                 "validated_state",
+                "is_human_validated",
                 "reviewer_id",
                 "reviewed_at",
                 "notes",
@@ -178,10 +179,17 @@ def _normalize_validations(
     )
     unknown = set(frame["prediction_id"]) - set(prediction_ids)
     if unknown:
-        raise ValueError(f"Validations reference predictions outside the session: {sorted(unknown)}")
-    frame["validated_state"] = pd.to_numeric(frame["validated_state"], errors="raise").astype(int)
-    if not frame["validated_state"].isin((0, 1, 2, 3)).all():
+        raise ValueError(
+            f"Validations reference predictions outside the session: {sorted(unknown)}"
+        )
+    states = pd.to_numeric(frame["validated_state"], errors="raise")
+    if (
+        not states.map(lambda value: float(value).is_integer()).all()
+        or not states.isin((0, 1, 2, 3)).all()
+    ):
         raise ValueError("Human validations must use public states 0 through 3.")
+    frame["validated_state"] = states.astype(int)
+    frame["is_human_validated"] = True
     supplied_ids = frame.get("id", pd.Series(pd.NA, index=frame.index))
     frame["id"] = [
         str(value)

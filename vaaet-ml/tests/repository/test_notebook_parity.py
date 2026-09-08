@@ -583,7 +583,10 @@ def test_inference_uses_shared_analysis_and_validates_bundle() -> None:
     assert "TrafficStateEngine" in code
     assert "load_traffic_bundle(" in code
     assert "prediction_provider=traffic_engine.predict_latest" in code
-    assert "manifest = validate_manifest(directory)" in bundle_module
+    assert (
+        "manifest = validate_manifest(directory, allow_historical_revision=historical_only)"
+        in bundle_module
+    )
     assert "from sqlalchemy import text as sa_text" not in code
     assert "load_review_queue" in code
     assert "build_review_widget" in code

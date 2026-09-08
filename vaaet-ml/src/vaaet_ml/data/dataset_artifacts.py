@@ -9,7 +9,9 @@ from vaaet_ml.data.hitl_catalog import (
     CatalogSelection,
     HitlCatalogSource,
     HitlReviewCatalog,
+    load_hitl_catalog_components,
     load_hitl_catalog_feedback,
+    resolve_effective_human_feedback,
 )
 from vaaet_ml.data.review_finalization import (
     FinalizedReviewSession,
@@ -51,4 +53,6 @@ __all__ = [
     "finalize_review_session",
     "import_legacy_hitl_package",
     "load_hitl_catalog_feedback",
+    "load_hitl_catalog_components",
+    "resolve_effective_human_feedback",
 ]

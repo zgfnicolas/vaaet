@@ -13,7 +13,7 @@ Keep model contracts, feature policy, bundle validation, and serving-compatible 
 
 ## Preserve the public learning contract
 
-Keep the canonical 19 `FEATURE_COLS` in their existing order. Preserve the current MLP, its three learned outputs—`Normal`, `Reduced`, and `Congested`—and its bundle v2 interfaces unless authorization and the applicable ADR permit a change.
+Keep the canonical 19 `FEATURE_COLS` in their existing order. Preserve the current MLP, its three learned outputs—`Normal`, `Reduced`, and `Congested`—and its bundle v3 interfaces unless authorization and the applicable ADR permit a change.
 
 Keep `Accident` outside the learned target. A reliable automatic signal remains `Congested` with `accident_rule_triggered`; only an effective human validation can publish the public Accident state.
 
@@ -46,7 +46,7 @@ Treat KDE plots of maximum confidence and post-training feature importance as fu
 
 ## Build auditable candidates
 
-Create only the existing bundle v2 files and validate its manifest before use. Preserve lifecycle, supervision, input policy, data provenance, `production_eligible`, and `promotion_blockers`; a complete pilot bundle remains ineligible until human-evidence gates pass.
+Create only the existing bundle v3 files and validate its manifest before use. Preserve lifecycle, supervision, input policy, data provenance, `production_eligible`, and `promotion_blockers`; a complete pilot bundle remains ineligible until human-evidence gates pass.
 
 Require a real frozen human holdout, adequate telemetry coverage, no leakage, per-class support and intervals, retrospective review, and prospective shadow evidence before manual promotion. Report incident candidates as false candidates per hour and negative exposure; do not publish Accident recall without confirmed incidents.
 

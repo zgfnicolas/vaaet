@@ -39,6 +39,7 @@ from vaaet_ml.data.database_queries import (
     LEGACY_TELEMETRY_QUERY,
     RAW_TABLE,
     TELEMETRY_QUERY,
+    load_human_feedback_components,
     load_human_ground_truth,
     load_telemetry,
     load_telemetry_window,
@@ -76,6 +77,7 @@ def load_from_backup(
         frame.to_csv(destination, index=False)
     return frame
 
+
 __all__ = [
     "EFFECTIVE_LABELS_VIEW",
     "FEATURE_TABLE",
@@ -104,6 +106,7 @@ __all__ = [
     "load_database_settings",
     "load_database_admin_settings",
     "load_from_backup",
+    "load_human_feedback_components",
     "load_human_ground_truth",
     "load_reviewer_id",
     "load_telemetry",

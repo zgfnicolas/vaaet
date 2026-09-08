@@ -28,6 +28,8 @@ from vaaet.settings import (
 )
 
 CONTRACT_VERSION = 3
+MODEL_REVISION_ALGORITHM = "sha256-inference-contract-v2"
+LEGACY_MODEL_REVISION_ALGORITHM = "sha256-inference-contract-v1"
 FEATURE_SCHEMA_VERSION = "traffic-features-v3"
 LEGACY_CONTRACT_VERSION = 2
 LEGACY_FEATURE_SCHEMA_VERSION = "traffic-features-v2"
@@ -41,6 +43,7 @@ REQUIRED_FIELDS = {
     "feature_schema_version",
     "model_version",
     "model_revision",
+    "model_revision_algorithm",
     "generated_at",
     "git_commit",
     "feature_columns",
@@ -82,6 +85,7 @@ class TrafficBundleManifest(TypedDict):
     feature_schema_version: str
     model_version: str
     model_revision: str
+    model_revision_algorithm: str
     generated_at: str
     git_commit: str
     feature_columns: list[str]
@@ -140,6 +144,8 @@ def calculate_model_revision(
     decision_policy: Mapping[str, object],
     feature_schema_version: str,
     training_input_lock: Mapping[str, object] | None,
+    input_policy: str,
+    algorithm: str = MODEL_REVISION_ALGORITHM,
 ) -> str:
     """Identifica de forma inmutable pesos, transformación y política exactos."""
 
@@ -148,6 +154,8 @@ def calculate_model_revision(
         "decision_policy": dict(decision_policy),
         "feature_schema_version": feature_schema_version,
         "training_input_lock": dict(training_input_lock or {}),
+        "input_policy": input_policy,
+        "algorithm": algorithm,
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -171,9 +179,7 @@ def create_manifest(
 
     policy: dict[str, object] = {
         "architecture": "hierarchical-stable-flow-with-incident-candidate",
-        "class_thresholds": {
-            str(key): value for key, value in DEFAULT_CLASS_THRESHOLDS.items()
-        },
+        "class_thresholds": {str(key): value for key, value in DEFAULT_CLASS_THRESHOLDS.items()},
         "minimum_probability_margin": DEFAULT_MIN_PROBABILITY_MARGIN,
         "worsening_persistence_minutes": WORSENING_PERSISTENCE_MINUTES,
         "recovery_persistence_minutes": RECOVERY_PERSISTENCE_MINUTES,
@@ -190,19 +196,19 @@ def create_manifest(
         decision_policy=policy,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         training_input_lock=training_input_lock,
+        input_policy=str(lifecycle.get("input_policy", "")),
     )
     manifest: dict[str, object] = {
         "contract_version": CONTRACT_VERSION,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "model_version": MODEL_VERSION,
         "model_revision": model_revision,
+        "model_revision_algorithm": MODEL_REVISION_ALGORITHM,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": _git_commit(directory),
         "feature_columns": list(FEATURE_COLS),
         "class_mapping": {str(key): value for key, value in STATE_LABELS.items()},
-        "model_output_mapping": {
-            str(key): value for key, value in MODEL_STATE_LABELS.items()
-        },
+        "model_output_mapping": {str(key): value for key, value in MODEL_STATE_LABELS.items()},
         "decision_policy": policy,
         "files": {name: {"sha256": digest} for name, digest in file_hashes.items()},
         "dependencies": {
@@ -228,10 +234,12 @@ def create_manifest(
     return output
 
 
-def validate_manifest(bundle_dir: str | Path) -> TrafficBundleManifest:
+def validate_manifest(
+    bundle_dir: str | Path, *, allow_historical_revision: bool = False
+) -> TrafficBundleManifest:
     """Valida compatibilidad e integridad antes de cargar un bundle soportado."""
     # La importación diferida mantiene la fachada pública libre de un ciclo de
     # importación: los validadores sólo necesitan el contrato ya definido arriba.
     from vaaet.artifact_validation import validate_manifest as _validate_manifest
 
-    return _validate_manifest(bundle_dir)
+    return _validate_manifest(bundle_dir, allow_historical_revision=allow_historical_revision)

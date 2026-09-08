@@ -2,8 +2,8 @@
 
 ## Contexto
 
-VAAET es un monorepo con `vaaet-core==0.2.0` (import `vaaet`) y
-`vaaet-ml==4.6.0` (import `vaaet_ml`). [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
+VAAET es un monorepo con `vaaet-core==0.2.1` (import `vaaet`) y
+`vaaet-ml==4.6.1` (import `vaaet_ml`). [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
 define los límites; las reglas para agentes están en
 [AGENTS.md](../../AGENTS.md) y [llms.txt](../../llms.txt). Este plan cubre
 validación automática y evidencia manual; no reemplaza contratos de datos,

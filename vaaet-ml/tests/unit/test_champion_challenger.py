@@ -72,7 +72,9 @@ def _holdout(tmp_path: Path, *, feature_offset: float = 0.0):
     )
 
 
-def _bundle(name: str, holdout, *, offset: int = 0, fingerprint: str | None = None) -> EvaluationBundle:
+def _bundle(
+    name: str, holdout, *, offset: int = 0, fingerprint: str | None = None
+) -> EvaluationBundle:
     descriptor = dict(holdout.descriptor)
     if fingerprint is not None:
         descriptor["fingerprint"] = fingerprint
@@ -156,7 +158,12 @@ def test_paired_bootstrap_intervals_are_deterministic() -> None:
     champion = np.array([0, 1, 1, 1, 2, 0])
     challenger = np.array([0, 0, 1, 2, 2, 2])
 
-    first = paired_bootstrap_intervals(truth, champion, challenger, samples=100, random_state=7)
-    second = paired_bootstrap_intervals(truth, champion, challenger, samples=100, random_state=7)
+    clips = np.array(["a", "a", "a", "b", "b", "b"])
+    first = paired_bootstrap_intervals(
+        truth, champion, challenger, clip_ids=clips, samples=100, random_state=7
+    )
+    second = paired_bootstrap_intervals(
+        truth, champion, challenger, clip_ids=clips, samples=100, random_state=7
+    )
 
     pd.testing.assert_frame_equal(first, second)

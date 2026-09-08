@@ -15,6 +15,8 @@ from pathlib import Path, PurePosixPath
 import pandas as pd
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.continuity import normalize_continuity_frame
+from vaaet.settings import FEATURE_COLS
+from vaaet.timestamps import normalize_timestamp_series
 
 from vaaet_ml.data.artifact_serialization import (
     atomic_json_write,
@@ -195,8 +197,18 @@ def _validate_catalog_entry_identity(
     entry: dict[str, object], package_ids: set[str], paths: set[str]
 ) -> str:
     required = {
-        "package_id", "path", "created_at", "pipeline_run_id", "sha256", "fingerprint", "clips",
-        "rows", "human_support", "status", "feature_schema_version", "model_revision",
+        "package_id",
+        "path",
+        "created_at",
+        "pipeline_run_id",
+        "sha256",
+        "fingerprint",
+        "clips",
+        "rows",
+        "human_support",
+        "status",
+        "feature_schema_version",
+        "model_revision",
         "vaaet_version",
     }
     if missing := sorted(required - entry.keys()):
@@ -255,27 +267,14 @@ def load_hitl_catalog_feedback(
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     """Carga y resuelve el feedback humano efectivo de paquetes activos."""
 
-    catalog = HitlReviewCatalog(source.catalog_path)
-    document, entries = catalog.selected_entries(source.selection)
-    if not entries:
-        raise ValueError("The HITL catalog contains no active packages.")
-    frames_by_kind = _load_catalog_frames(catalog, entries)
-    combined = {
-        kind: pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-        for kind, frames in frames_by_kind.items()
-    }
+    combined, source_descriptor = load_hitl_catalog_components(source)
     input_counts = {kind: int(len(frame)) for kind, frame in combined.items()}
     features = _deduplicate_uuid_rows(combined["features"], name="features")
     predictions = _deduplicate_uuid_rows(combined["predictions"], name="predictions")
     validations = _deduplicate_uuid_rows(combined["validations"], name="validations")
-    feedback = _resolve_feedback(features, predictions, validations)
+    feedback = resolve_effective_human_feedback(features, predictions, validations)
     descriptor = {
-        "contract": HITL_CATALOG_CONTRACT,
-        "revision": int(document["revision"]),
-        "catalog_sha256": sha256_file(source.catalog_path),
-        "package_ids": [entry["package_id"] for entry in entries],
-        "package_fingerprints": [entry["fingerprint"] for entry in entries],
-        "package_sha256": [entry["sha256"] for entry in entries],
+        **source_descriptor,
         "resolved_validations": int(len(feedback)),
         "duplicate_rows_resolved": {
             kind: input_counts[kind] - len(frame)
@@ -296,6 +295,30 @@ def load_hitl_catalog_feedback(
     }
     feedback.attrs["vaaet_provenance"] = descriptor
     return feedback, descriptor
+
+
+def load_hitl_catalog_components(
+    source: HitlCatalogSource,
+) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+    """Carga componentes sin resolverlos para consolidar varias fuentes globalmente."""
+
+    catalog = HitlReviewCatalog(source.catalog_path)
+    document, entries = catalog.selected_entries(source.selection)
+    if not entries:
+        raise ValueError("The HITL catalog contains no active packages.")
+    frames_by_kind = _load_catalog_frames(catalog, entries)
+    combined = {
+        kind: pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        for kind, frames in frames_by_kind.items()
+    }
+    return combined, {
+        "contract": HITL_CATALOG_CONTRACT,
+        "revision": int(document["revision"]),
+        "catalog_sha256": sha256_file(source.catalog_path),
+        "package_ids": [entry["package_id"] for entry in entries],
+        "package_fingerprints": [entry["fingerprint"] for entry in entries],
+        "package_sha256": [entry["sha256"] for entry in entries],
+    }
 
 
 def _load_catalog_frames(
@@ -324,36 +347,60 @@ def _load_catalog_frames(
     return frames_by_kind
 
 
-def _resolve_feedback(
+def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL completo.
     features: pd.DataFrame, predictions: pd.DataFrame, validations: pd.DataFrame
 ) -> pd.DataFrame:
     if features.empty or predictions.empty:
         raise ValueError("Active HITL packages contain no compatible features and predictions.")
     if validations.empty:
         return pd.DataFrame()
+    features = _deduplicate_uuid_rows(features, name="features")
+    predictions = _deduplicate_uuid_rows(predictions, name="predictions")
+    validations = _deduplicate_uuid_rows(validations, name="validations")
     if not set(predictions["telemetry_feature_id"].astype(str)).issubset(
         set(features["id"].astype(str))
     ):
         raise ValueError("Catalog predictions reference missing feature UUIDs.")
-    if not set(validations["prediction_id"].astype(str)).issubset(set(predictions["id"].astype(str))):
+    if not set(validations["prediction_id"].astype(str)).issubset(
+        set(predictions["id"].astype(str))
+    ):
         raise ValueError("Catalog validations reference missing prediction UUIDs.")
-    latest = _resolve_validation_graph(validations)
-    required_prediction_columns = {
-        "id", "telemetry_feature_id", "model_version", "model_revision"
-    }
+    validated_flags = validations.get("is_human_validated")
+    if validated_flags is None or not validated_flags.map(_strict_boolean).all():
+        raise ValueError("HITL validation history contains records without human confirmation.")
+    latest = _resolve_validation_graph(validations).rename(columns={"id": "validation_id"})
+    required_prediction_columns = {"id", "telemetry_feature_id", "model_version", "model_revision"}
     if missing := sorted(required_prediction_columns - set(predictions.columns)):
         raise ValueError(f"Catalog predictions are missing fields: {missing}")
-    projection = predictions[
-        ["id", "telemetry_feature_id", "model_version", "model_revision"]
-    ]
+    projection = predictions[["id", "telemetry_feature_id", "model_version", "model_revision"]]
     feedback = features.merge(
         projection,
         left_on="id",
         right_on="telemetry_feature_id",
         suffixes=("", "_prediction"),
     ).merge(latest, left_on="id_prediction", right_on="prediction_id")
-    feedback["traffic_state"] = pd.to_numeric(feedback["validated_state"], errors="raise").astype(int)
+    states = pd.to_numeric(feedback["validated_state"], errors="raise")
+    if (
+        not states.map(lambda value: float(value).is_integer()).all()
+        or not states.isin((0, 1, 2, 3)).all()
+    ):
+        raise ValueError("Human validations require integer states from 0 through 3.")
+    feedback["traffic_state"] = states.astype(int)
     feedback["is_human_validated"] = True
+    feedback["record_time"] = normalize_timestamp_series(feedback["record_time"])
+    comparison = [*FEATURE_COLS, "traffic_state"]
+    if "continuity_id" in feedback:
+        comparison.append("continuity_id")
+    for _, group in feedback.groupby(["clip_id", "record_time"], dropna=False):
+        if len(group[comparison].drop_duplicates()) > 1:
+            raise ValueError("Conflicting effective human feedback exists for the same minute.")
+    feedback["source_prediction_ids"] = feedback.groupby(["clip_id", "record_time"], dropna=False)[
+        "prediction_id"
+    ].transform(lambda values: ",".join(sorted({str(value) for value in values.dropna()})))
+    feedback["source_validation_ids"] = feedback.groupby(["clip_id", "record_time"], dropna=False)[
+        "validation_id"
+    ].transform(lambda values: ",".join(sorted({str(value) for value in values.dropna()})))
+    feedback = feedback.drop_duplicates(["clip_id", "record_time"], keep="last")
     return normalize_continuity_frame(feedback)
 
 
@@ -368,6 +415,10 @@ def _deduplicate_uuid_rows(frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
     for identifier, group in frame.groupby("id", dropna=False):
         normalized = group[comparison].fillna("<NULL>").astype(str)
         if len(normalized.drop_duplicates()) > 1:
+            if name == "validations":
+                raise ValueError(
+                    f"Conflicting human labels or validation payloads exist for UUID {identifier}."
+                )
             raise ValueError(f"Conflicting catalog {name} rows for UUID {identifier}.")
     return frame.drop_duplicates("id", keep="last").reset_index(drop=True)
 
@@ -380,16 +431,39 @@ def _resolve_validation_graph(validations: pd.DataFrame) -> pd.DataFrame:
     _require_linear_validation_chains(children)
     roots_by_prediction = _validation_roots(parents, prediction_by_id)
     _require_unambiguous_roots(roots_by_prediction)
-    leaves = [_validation_leaf(root[0], children, prediction) for prediction, root in roots_by_prediction.items()]
+    leaves = [
+        _validation_leaf(root[0], children, prediction)
+        for prediction, root in roots_by_prediction.items()
+    ]
     return validations.loc[validations["id"].astype(str).isin(leaves)].copy()
 
 
 def _validate_validation_graph_columns(validations: pd.DataFrame) -> None:
-    required = {"id", "prediction_id", "validated_state", "supersedes_validation_id"}
+    required = {
+        "id",
+        "prediction_id",
+        "validated_state",
+        "is_human_validated",
+        "supersedes_validation_id",
+    }
     if missing := sorted(required - set(validations.columns)):
         raise ValueError(f"Catalog validations are missing fields: {missing}")
     if not validations["prediction_id"].map(valid_uuid).all():
         raise ValueError("Catalog validation prediction_id values must be UUIDs.")
+    states = pd.to_numeric(validations["validated_state"], errors="raise")
+    if (
+        not states.map(lambda value: float(value).is_integer()).all()
+        or not states.isin((0, 1, 2, 3)).all()
+    ):
+        raise ValueError("Human validations require integer states from 0 through 3.")
+
+
+def _strict_boolean(value: object) -> bool:
+    if type(value) is bool:
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    raise ValueError("Human validation flags must be contractual booleans.")
 
 
 def _validation_relationships(
@@ -433,7 +507,7 @@ def _require_linear_validation_chains(children: Mapping[str, list[str]]) -> None
 def _validation_roots(
     parents: Mapping[str, str | None], prediction_by_id: Mapping[str, str]
 ) -> dict[str, list[str]]:
-    roots: dict[str, list[str]] = {}
+    roots: dict[str, list[str]] = {prediction: [] for prediction in set(prediction_by_id.values())}
     for identifier, parent in parents.items():
         if parent is None:
             roots.setdefault(prediction_by_id[identifier], []).append(identifier)
@@ -441,8 +515,11 @@ def _validation_roots(
 
 
 def _require_unambiguous_roots(roots_by_prediction: Mapping[str, list[str]]) -> None:
+    rootless = [prediction for prediction, roots in roots_by_prediction.items() if not roots]
+    if rootless:
+        raise ValueError(f"Human validation graph contains a cycle or lacks a root: {rootless}")
     ambiguous = {
-        prediction: roots for prediction, roots in roots_by_prediction.items() if len(roots) != 1
+        prediction: roots for prediction, roots in roots_by_prediction.items() if len(roots) > 1
     }
     if ambiguous:
         raise ValueError(f"Human validation graph has conflicting roots: {ambiguous}")
@@ -468,4 +545,6 @@ __all__ = [
     "HitlCatalogSource",
     "HitlReviewCatalog",
     "load_hitl_catalog_feedback",
+    "load_hitl_catalog_components",
+    "resolve_effective_human_feedback",
 ]

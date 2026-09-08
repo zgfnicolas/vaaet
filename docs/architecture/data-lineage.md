@@ -1,4 +1,4 @@
-# Linaje de datos — VAAET ML 4.6.0
+# Linaje de datos — VAAET ML 4.6.1
 
 ## Flujo operacional
 
@@ -62,6 +62,10 @@ supervisados y nunca son targets.
 Cada predicción conserva `model_version` como etiqueta y `model_revision` como
 SHA-256 del bundle exacto. Una reinferencia crea otra feature y predicción por
 ejecución; no modifica la fila a la que apunta una validación humana.
+Antes de formar ground truth, las fuentes PostgreSQL, backup y paquetes se
+consolidan globalmente. Un único resolutor recorre las cadenas UUID, rechaza
+ciclos, ramas y referencias cruzadas, y conserva todos los IDs de reinferencias
+equivalentes. No se elige una fila sólo por tener la fecha más reciente.
 
 ## Entrenamiento
 
@@ -108,3 +112,6 @@ reemplaza PostgreSQL.
 La exportación construye los cuatro archivos del bundle en un directorio
 temporal, calcula `model_revision`, valida el manifiesto y sólo entonces
 reemplaza de manera atómica la copia de trabajo seguida por DVC.
+El algoritmo vigente incorpora también `input_policy`. Las revisiones con el
+algoritmo anterior son sólo históricas y no habilitan persistencia, HITL o
+promoción.

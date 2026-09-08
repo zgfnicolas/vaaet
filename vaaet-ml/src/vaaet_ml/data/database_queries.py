@@ -55,6 +55,43 @@ WHERE (:feature_schema_version IS NULL OR feature_schema_version = :feature_sche
 ORDER BY clip_id, record_time
 """
 
+HUMAN_FEATURES_QUERY = """
+SELECT f.id, f.source_record_id, f.pipeline_run_id, f.clip_id, f.continuity_id,
+       f.record_time, f.feature_schema_version, f.avg_speed, f.total_vehicles,
+       f.count_car, f.count_truck, f.count_bus, f.count_motorcycle,
+       f.count_bicycle, f.heavy_vehicle_ratio, f.delta_speed, f.delta_count,
+       f.transition_flag, f.speed_variance, f.cumulative_delta_speed,
+       f.low_speed_persistence, f.speed_measurement_quality,
+       f.optical_flow_tracking_ratio, f.near_zero_motion_ratio,
+       f.stationary_confirmed_ratio, f.near_zero_motion_count,
+       f.stationary_confirmed_count, f.rejected_speed_count,
+       f.recovered_track_count, f.speed_sample_count,
+       f.telemetry_schema_version, f.data_origin, f.synthetic_scenario,
+       f.hour_of_day, f.weather_condition, f.created_at
+FROM vaaet_ml.telemetry_features f
+WHERE (:feature_schema_version IS NULL OR f.feature_schema_version = :feature_schema_version)
+ORDER BY f.clip_id, f.record_time, f.id
+"""
+
+HUMAN_PREDICTIONS_QUERY = """
+SELECT p.id, p.telemetry_feature_id, p.model_version, p.model_revision
+FROM vaaet_ml.traffic_predictions p
+JOIN vaaet_ml.telemetry_features f ON f.id = p.telemetry_feature_id
+WHERE (:feature_schema_version IS NULL OR f.feature_schema_version = :feature_schema_version)
+ORDER BY p.id
+"""
+
+HUMAN_VALIDATIONS_QUERY = """
+SELECT hv.id, hv.prediction_id, hv.validated_state, hv.is_human_validated,
+       hv.reviewer_id, hv.reviewed_at, hv.notes, hv.supersedes_validation_id,
+       hv.pipeline_run_id
+FROM vaaet_feedback.human_validations hv
+JOIN vaaet_ml.traffic_predictions p ON p.id = hv.prediction_id
+JOIN vaaet_ml.telemetry_features f ON f.id = p.telemetry_feature_id
+WHERE (:feature_schema_version IS NULL OR f.feature_schema_version = :feature_schema_version)
+ORDER BY hv.reviewed_at, hv.id
+"""
+
 _LEGACY_MISSING_COLUMNS = (
     "pipeline_run_id",
     "continuity_id",
@@ -129,7 +166,7 @@ SELECT id, pipeline_run_id, clip_id, continuity_id, record_time, avg_speed,
        speed_measurement_quality, optical_flow_tracking_ratio,
        telemetry_schema_version
 FROM {RAW_TABLE}
-WHERE {' AND '.join(clauses)}
+WHERE {" AND ".join(clauses)}
 ORDER BY clip_id, record_time
 """
     )
@@ -168,13 +205,39 @@ def load_human_ground_truth(
             active_engine.dispose()
 
 
+def load_human_feedback_components(
+    settings: DatabaseSettings | Mapping[str, str] | None = None,
+    engine: Engine | None = None,
+    *,
+    feature_schema_version: str | None = FEATURE_SCHEMA_VERSION,
+) -> dict[str, pd.DataFrame]:
+    """Carga la historia HITL completa para resolver correcciones globalmente."""
+
+    owns_engine = engine is None
+    active_engine = engine or get_engine(settings)
+    params = {"feature_schema_version": feature_schema_version}
+    try:
+        return {
+            "features": pd.read_sql(text(HUMAN_FEATURES_QUERY), active_engine, params=params),
+            "predictions": pd.read_sql(text(HUMAN_PREDICTIONS_QUERY), active_engine, params=params),
+            "validations": pd.read_sql(text(HUMAN_VALIDATIONS_QUERY), active_engine, params=params),
+        }
+    finally:
+        if owns_engine:
+            active_engine.dispose()
+
+
 __all__ = [
     "EFFECTIVE_LABELS_VIEW",
     "HUMAN_GROUND_TRUTH_QUERY",
+    "HUMAN_FEATURES_QUERY",
+    "HUMAN_PREDICTIONS_QUERY",
+    "HUMAN_VALIDATIONS_QUERY",
     "LEGACY_TELEMETRY_QUERY",
     "RAW_TABLE",
     "TELEMETRY_QUERY",
     "load_human_ground_truth",
+    "load_human_feedback_components",
     "load_telemetry",
     "load_telemetry_window",
 ]

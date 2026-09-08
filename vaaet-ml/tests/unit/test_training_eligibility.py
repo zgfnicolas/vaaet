@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from vaaet_ml.evaluation.reporting import false_alert_rate_upper_bound
 from vaaet_ml.training.eligibility import evaluate_candidate_eligibility
 from vaaet_ml.training.lifecycle import TrainingMode
 
@@ -43,8 +44,13 @@ def _passing_intervals() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "metric": metrics,
+            "value": [1.0] * 7 + [0.0, 0.0],
             "ci_95_low": [1.0] * 7 + [0.0, 0.0],
             "ci_95_high": [1.0] * 7 + [0.0, 0.0],
+            "evaluable_fraction": [1.0] * len(metrics),
+            "method": ["grouped-bootstrap"] * len(metrics),
+            "group_count": [20] * len(metrics),
+            "bootstrap_samples": [2_000] * len(metrics),
             "sufficient": [True] * len(metrics),
         }
     )
@@ -67,7 +73,8 @@ def test_human_candidate_uses_existing_gates_without_new_blockers() -> None:
         false_candidates_per_hour=0.0,
         direct_intervals=_passing_intervals(),
         final_intervals=_passing_intervals(),
-        false_candidates_upper_95=0.009,
+        false_candidates_upper_95=false_alert_rate_upper_bound(0, 300.0),
+        false_candidate_count=0,
     )
 
     assert all(eligibility.metric_gates.values())
@@ -95,7 +102,33 @@ def test_seed_candidate_remains_pilot_even_when_metrics_pass() -> None:
     )
 
     assert eligibility.production_eligible is False
-    assert "seed bootstrap uses weak proxy supervision and is pilot-only" in eligibility.promotion_blockers
+    assert "seed bootstrap uses weak proxy supervision and is pilot-only" in (
+        eligibility.promotion_blockers
+    )
+
+
+@pytest.mark.parametrize("invalid_bound", [float("nan"), -1.0, float("inf")])
+def test_invalid_false_alert_upper_bound_is_rejected(invalid_bound: float) -> None:
+    test_frame, truth = _human_test_frame()
+
+    with pytest.raises(ValueError, match="false_candidates_upper_95"):
+        evaluate_candidate_eligibility(
+            training_mode=TrainingMode.HITL_RETRAINING,
+            dataset_blockers=(),
+            human_holdout=True,
+            test_frame=test_frame,
+            actual=truth,
+            predicted=truth,
+            f1_macro=1.0,
+            direct_normal_congested_error=0.0,
+            expected_calibration_error=0.0,
+            negative_exposure_hours=300.0,
+            false_candidates_per_hour=0.0,
+            direct_intervals=_passing_intervals(),
+            final_intervals=_passing_intervals(),
+            false_candidates_upper_95=invalid_bound,
+            false_candidate_count=0,
+        )
 
 
 def test_direct_predictions_cannot_include_accident() -> None:
@@ -120,5 +153,53 @@ def test_direct_predictions_cannot_include_accident() -> None:
             false_candidates_per_hour=0.0,
             direct_intervals=_passing_intervals(),
             final_intervals=_passing_intervals(),
-            false_candidates_upper_95=0.009,
+            false_candidates_upper_95=false_alert_rate_upper_bound(0, 300.0),
+            false_candidate_count=0,
+        )
+
+
+def test_incomplete_or_inconsistent_grouped_evidence_is_rejected() -> None:
+    test_frame, truth = _human_test_frame()
+    incomplete = _passing_intervals().query("metric != 'recall_congested'")
+
+    with pytest.raises(ValueError, match="evidence is incomplete"):
+        evaluate_candidate_eligibility(
+            training_mode=TrainingMode.HITL_RETRAINING,
+            dataset_blockers=(),
+            human_holdout=True,
+            test_frame=test_frame,
+            actual=truth,
+            predicted=truth,
+            f1_macro=1.0,
+            direct_normal_congested_error=0.0,
+            expected_calibration_error=0.0,
+            negative_exposure_hours=300.0,
+            false_candidates_per_hour=0.0,
+            direct_intervals=incomplete,
+            final_intervals=_passing_intervals(),
+            false_candidates_upper_95=false_alert_rate_upper_bound(0, 300.0),
+            false_candidate_count=0,
+        )
+
+
+def test_declared_metric_must_match_grouped_evidence() -> None:
+    test_frame, truth = _human_test_frame()
+
+    with pytest.raises(ValueError, match="final f1_macro is inconsistent"):
+        evaluate_candidate_eligibility(
+            training_mode=TrainingMode.HITL_RETRAINING,
+            dataset_blockers=(),
+            human_holdout=True,
+            test_frame=test_frame,
+            actual=truth,
+            predicted=truth,
+            f1_macro=0.99,
+            direct_normal_congested_error=0.0,
+            expected_calibration_error=0.0,
+            negative_exposure_hours=300.0,
+            false_candidates_per_hour=0.0,
+            direct_intervals=_passing_intervals(),
+            final_intervals=_passing_intervals(),
+            false_candidates_upper_95=false_alert_rate_upper_bound(0, 300.0),
+            false_candidate_count=0,
         )

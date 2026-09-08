@@ -15,6 +15,35 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.6.1] - 2026-09-07
+
+### Añadido
+
+- `model_revision_algorithm=sha256-inference-contract-v2`, que incorpora la
+  política de entrada a la identidad exacta del bundle.
+- Propósito explícito de evaluación histórica para inspeccionar bundles con la
+  identidad anterior sin habilitar inferencia operacional, HITL o promoción.
+- Contrato puro en el core para comprobar que la evidencia de producción, los
+  intervalos agrupados y la metadata de elegibilidad sean coherentes.
+
+### Corregido
+
+- Publicación recuperable del bundle ante fallos de movimiento, instalación,
+  validación, restauración o limpieza, con exclusión de escritores concurrentes.
+- Normalización de continuidad idempotente ante vistas y huecos temporales.
+- Resolución HITL global y lineal entre PostgreSQL, backups y paquetes, con
+  deduplicación previa, tipos estrictos y conservación de IDs de procedencia.
+- Propagación de errores reales de inferencia; sólo el contexto temporal
+  insuficiente conserva el resultado vacío esperado.
+- Reportes e intervalos Champion--Challenger basados exclusivamente en clips
+  completos, con evidencia insuficiente cuando faltan grupos independientes.
+
+### Cambiado
+
+- `vaaet-core` se publica como 0.2.1 y `vaaet-ml` como 4.6.1.
+- Las identidades históricas se conservan sin reescritura y requieren una
+  reexportación explícita a otro destino para adoptar el algoritmo corregido.
+
 ## [4.6.0] - 2026-09-05
 
 ### Añadido

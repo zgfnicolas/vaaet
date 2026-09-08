@@ -19,6 +19,13 @@ class RegistryProvider(str, Enum):
     CLOUDFLARE_R2 = "r2"
 
 
+class RegistryMaterializationPurpose(str, Enum):
+    """Separa recuperación operacional de inspección histórica explícita."""
+
+    INFERENCE = "inference"
+    HISTORICAL_EVALUATION = "historical-evaluation"
+
+
 @dataclass(frozen=True)
 class RemoteConfiguration:
     """Valores no secretos necesarios para preparar un remoto local de DVC."""
@@ -77,6 +84,7 @@ class RegistryEntry:
     provenance_origin: str | None
     input_lock_id: str | None
     promotion_blockers: tuple[str, ...]
+    historical_only: bool
     available: bool
 
     def as_dict(self) -> dict[str, object]:
@@ -93,5 +101,6 @@ class RegistryEntry:
             "provenance_origin": self.provenance_origin,
             "input_lock_id": self.input_lock_id,
             "promotion_blockers": list(self.promotion_blockers),
+            "historical_only": self.historical_only,
             "available": self.available,
         }

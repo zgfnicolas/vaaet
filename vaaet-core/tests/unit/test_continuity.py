@@ -48,6 +48,17 @@ def test_long_gap_creates_a_new_continuity_and_feature_baseline() -> None:
     ]
 
 
+def test_continuity_normalization_is_idempotent_across_a_gap() -> None:
+    raw = _raw_frame(["2026-09-05T12:00:00Z", "2026-09-05T12:04:00Z", "2026-09-05T12:05:00Z"])
+    raw["continuity_id"] = "camera-a"
+
+    first = normalize_continuity_frame(raw)
+    second = normalize_continuity_frame(first)
+
+    pd.testing.assert_frame_equal(first, second)
+    assert first.loc[1, "continuity_id"].endswith("20260905T120400000000Z")
+
+
 @pytest.mark.parametrize(
     "times, message",
     [

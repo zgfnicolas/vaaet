@@ -34,7 +34,7 @@ from vaaet_ml.training.lifecycle import TrainingMode
 def _features(state: int = 1) -> pd.DataFrame:
     row: dict[str, object] = {column: 1.0 for column in FEATURE_COLS}
     row.update(
-        id=10,
+        id="11111111-1111-4111-8111-111111111111",
         clip_id="clip-a",
         continuity_id="clip-a:continuity-0001",
         record_time="2026-08-04T12:00:00Z",
@@ -50,8 +50,8 @@ def _package_tables(path: Path, state: int = 1) -> Path:
     predictions = pd.DataFrame(
         [
             {
-                "id": 20,
-                "telemetry_feature_id": 10,
+                "id": "22222222-2222-4222-8222-222222222222",
+                "telemetry_feature_id": "11111111-1111-4111-8111-111111111111",
                 "model_version": "mlp-v3.0",
                 "model_revision": "a" * 64,
             }
@@ -61,9 +61,11 @@ def _package_tables(path: Path, state: int = 1) -> Path:
         [
             {
                 "id": "d266e373-f8ce-405e-8144-2f508a5bdc85",
-                "prediction_id": 20,
+                "prediction_id": "22222222-2222-4222-8222-222222222222",
                 "validated_state": state,
+                "is_human_validated": True,
                 "reviewed_at": "2026-08-04T13:00:00Z",
+                "supersedes_validation_id": pd.NA,
             }
         ]
     )
@@ -242,7 +244,7 @@ def test_conflicting_human_labels_stop_ingestion(tmp_path: Path) -> None:
         load_training_inputs(
             TrainingIngestionPlan(
                 mode=TrainingMode.HITL_RETRAINING,
-                feedback_sources=(DatasetPackageSource(first), DatasetPackageSource(second))
+                feedback_sources=(DatasetPackageSource(first), DatasetPackageSource(second)),
             )
         )
 
@@ -257,8 +259,8 @@ def test_feedback_rejects_reordered_feature_contract(tmp_path: Path) -> None:
         predictions=pd.DataFrame(
             [
                 {
-                    "id": 20,
-                    "telemetry_feature_id": 10,
+                    "id": "22222222-2222-4222-8222-222222222222",
+                    "telemetry_feature_id": "11111111-1111-4111-8111-111111111111",
                     "model_version": "mlp-v3.0",
                     "model_revision": "a" * 64,
                 }
@@ -268,9 +270,11 @@ def test_feedback_rejects_reordered_feature_contract(tmp_path: Path) -> None:
             [
                 {
                     "id": "d266e373-f8ce-405e-8144-2f508a5bdc85",
-                    "prediction_id": 20,
+                    "prediction_id": "22222222-2222-4222-8222-222222222222",
                     "validated_state": 1,
+                    "is_human_validated": True,
                     "reviewed_at": "2026-08-04T13:00:00Z",
+                    "supersedes_validation_id": pd.NA,
                 }
             ]
         ),

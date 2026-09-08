@@ -1,6 +1,6 @@
 # Modelo PostgreSQL — `vaaet-db-v3`
 
-VAAET ML 4.6.0 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
+VAAET ML 4.6.1 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
 portabilidad por capacidades y la configuración administrativa se rigen por
 [ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
 Los notebooks nunca crean ni alteran tablas. La revisión vigente encadena la

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaaet-ml"
-version = "4.6.0"
+version = "4.6.1"
 description = "Video Advanced Analysis of Traffic — Sistema de análisis vehicular avanzado para el Puente Gral. Manuel Belgrano"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -26,19 +26,19 @@ classifiers = [
 ]
 
 dependencies = [
-    "vaaet-core==0.2.0",
+    "vaaet-core==0.2.1",
 ]
 
 [project.optional-dependencies]
 vision = [
-    "vaaet-core[vision]==0.2.0",
+    "vaaet-core[vision]==0.2.1",
 ]
 training = [
-    "vaaet-core[inference]==0.2.0",
+    "vaaet-core[inference]==0.2.1",
     "imbalanced-learn>=0.13,<1",
 ]
 evaluation = [
-    "vaaet-core[inference]==0.2.0",
+    "vaaet-core[inference]==0.2.1",
 ]
 database = [
     "sqlalchemy>=2,<3",

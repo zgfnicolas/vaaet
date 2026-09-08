@@ -8,7 +8,7 @@ Complementa USER_GUIDE.md y SAD.md. -->
 | Campo | Detalles |
 |---|---|
 | **Nombre del Proyecto** | VAAET — Video Advanced Analysis of Traffic |
-| **Versión** | 4.6.0 |
+| **Versión** | 4.6.1 |
 | **Estado** | Aprobado |
 | **Responsable Técnico** | Facundo Nicolás González |
 | **Última Revisión** | 2026-08-27 |
@@ -193,7 +193,7 @@ En caso de error en los artefactos del modelo:
 
 - [ ] Core y ML pasan sus pruebas, Ruff y `pip check` desde instalaciones locales
 - [ ] Notebooks compilan sin errores de sintaxis
-- [ ] Bundle v2, si existe, fue validado manifest-first antes de cargarlo
+- [ ] Bundle v3, si existe, fue validado manifest-first antes de cargarlo
 - [ ] Secretos PostgreSQL están configurados por perfil fuera de Git, si se habilita persistencia
 - [ ] Drive/DVC se usan sólo para activos aprobados; no se asumen como infraestructura de serving
 - [ ] Documentación actualizada si hay cambios en features o flujo

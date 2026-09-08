@@ -4,8 +4,8 @@ Antes de editar: leer `AGENTS.md`, este archivo, `docs/index.md`, ADR-0021 y, si
 el cambio afecta serving con YOLO, ADR-0022. Los ADRs, contratos y reglas de
 seguridad prevalecen sobre este resumen.
 
-Monorepo único: `vaaet-core/` (distribución `vaaet-core==0.2.0`, import
-`vaaet`), `vaaet-ml/` (distribución `vaaet-ml==4.6.0`, import `vaaet_ml`),
+Monorepo único: `vaaet-core/` (distribución `vaaet-core==0.2.1`, import
+`vaaet`), `vaaet-ml/` (distribución `vaaet-ml==4.6.1`, import `vaaet_ml`),
 `vaaet-app/` (reservado), `docs/`, `.dvc/` y `.github/`. No existe paquete
 instalable en la raíz. Instalar core antes que ML; DVC permanece en la raíz y
 versiona `vaaet-ml/artifacts/traffic-state/`. El remoto lógico único es
@@ -39,7 +39,7 @@ Los workflows usan `VAAET_DB_*` y una credencial por perfil; Alembic usa
 `VAAET_ADMIN_DB_USER/PASSWORD` fuera de Colab. ADR-0024 mantiene Alembic como
 única autoridad DDL y no adopta ORM declarativo ni `create_all`.
 
-Invariantes: las 19 `FEATURE_COLS` v2 mantienen orden exacto; el MLP aprende
+Invariantes: las 19 `FEATURE_COLS` contractuales mantienen orden exacto; el MLP aprende
 `Normal`, `Reduced` y `Congested`; `Accident` sólo se publica tras validación
 humana; validar el manifiesto del bundle v3 antes de deserializar. No versionar
 secretos, videos, datos privados ni binarios ML con Git. La web futura sólo

@@ -13,7 +13,7 @@ Antes de cambiar comportamiento, leé `AGENTS.md`, `llms.txt`, `docs/quality/tes
 
 | Límite | Qué se prueba | Qué no debe cruzar |
 | --- | --- | --- |
-| `vaaet-core/` | Visión, telemetría, 19 features, estados, bundle v2 e inferencia portable | `vaaet_ml`, PostgreSQL, DVC, Drive y notebooks |
+| `vaaet-core/` | Visión, telemetría, 19 features, estados, bundle v3 e inferencia portable | `vaaet_ml`, PostgreSQL, DVC, Drive y notebooks |
 | `vaaet-ml/` | Datasets, entrenamiento, evaluación, notebooks, DVC y persistencia de laboratorio | Contratos públicos ni lógica portable duplicada |
 | `vaaet-app/` futuro | Contrato HTTP, validación de requests y adaptadores de serving | Acceso web directo al core, DVC, Drive, PostgreSQL o bundles |
 

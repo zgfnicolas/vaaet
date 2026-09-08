@@ -126,6 +126,10 @@ Drive ni rutas de artefactos. Los workers futuros usarán `vaaet-core`, no
   un bundle exacto. Ningún estado, incidente o revisión puede atravesar esos
   límites o sobrescribir historia. Consultá
   [ADR-0026](docs/architecture/decisions/0026-temporal-continuity-and-immutable-model-revisions.md).
+- La identidad vigente incluye `input_policy`; las identidades anteriores son
+  sólo históricas. La publicación recuperable y la resolución HITL uniforme
+  están gobernadas por
+  [ADR-0027](docs/architecture/decisions/0027-complete-bundle-identity-and-hitl-integrity.md).
 - La visión mantiene un pipeline Pipe-and-Filter síncrono y ordenado. No
   introduzcas threads, procesos, colas o Producer--Consumer sin mediciones
   comparables en Colab y aprobación explícita.

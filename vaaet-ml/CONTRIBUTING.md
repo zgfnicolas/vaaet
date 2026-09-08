@@ -1,18 +1,19 @@
-# Guía de contribución — VAAET ML 4.6.1
+# Guía de contribución — VAAET ML 4.7.0
 
 Antes de modificar el proyecto, leé el [contexto raíz](../AGENTS.md), el
 [resumen portable](../llms.txt), [AGENTS.md](AGENTS.md) y el ADR aplicable en
 [`../docs/architecture/decisions/`](../docs/architecture/decisions/). ADR-0021
-define los límites core--ML--app; ADR-0022 gobierna cualquier serving futuro
-con YOLO.
+y ADR-0028 definen core, persistencia, ML y app; ADR-0022 gobierna serving con
+YOLO.
 
 ## Reglas fundamentales
 
 - La lógica portable vive en `../vaaet-core/src/vaaet/`; los notebooks sólo orquestan.
-- Los imports de laboratorio usan `vaaet_ml.*`; las operaciones usan `vaaet.*`.
+- Los imports de laboratorio usan `vaaet_ml.*`; el dominio usa `vaaet.*` y las
+  operaciones PostgreSQL compartidas usan `vaaet_persistence.*`.
 - `../vaaet-core/src/vaaet/settings.py` define contratos y umbrales; este
-  componente define rutas de laboratorio y configuración DB en `src/vaaet_ml/settings.py`.
-- Los notebooks instalan primero el core y luego ML.
+  componente define rutas y adaptadores de laboratorio; persistencia define DB.
+- Los notebooks instalan core, persistencia y ML en ese orden.
 - Las 19 features, cuatro estados, esquema PostgreSQL y arquitectura MLP son
   contratos; cualquier cambio requiere aprobación y un ADR nuevo.
 - Los pesos YOLO y binarios `.keras`/`.joblib` no se versionan con Git. El bundle
@@ -27,6 +28,7 @@ Python soportado: 3.10–3.13.
 
 ```bash
 python -m pip install -e "../vaaet-core[vision,inference,dev]"
+python -m pip install -e "../vaaet-persistence[admin,dev]"
 python -m pip install -e ".[training,visualization,database,dev]"
 ruff check src tests scripts
 pytest tests/ -v --tb=short

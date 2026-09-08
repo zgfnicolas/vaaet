@@ -11,7 +11,7 @@ import pytest
 
 ML_ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP_PATH = ML_ROOT / "scripts" / "notebook_bootstrap.py"
-RUNTIME_PREFIXES = ("PIL", "ultralytics", "vaaet", "vaaet_ml")
+RUNTIME_PREFIXES = ("PIL", "ultralytics", "vaaet", "vaaet_persistence", "vaaet_ml")
 
 
 @pytest.fixture(autouse=True)
@@ -46,15 +46,21 @@ def install_spec(tmp_path: Path) -> object:
     module = _bootstrap_module()
     workspace = tmp_path / "vaaet"
     core = workspace / "vaaet-core"
+    persistence = workspace / "vaaet-persistence"
     ml = workspace / "vaaet-ml"
     (workspace / ".git").mkdir(parents=True)
     core.mkdir()
+    persistence.mkdir()
     ml.mkdir()
     (core / "pyproject.toml").write_text("[project]\nname='core'\n", encoding="utf-8")
+    (persistence / "pyproject.toml").write_text(
+        "[project]\nname='persistence'\n", encoding="utf-8"
+    )
     (ml / "pyproject.toml").write_text("[project]\nname='ml'\n", encoding="utf-8")
     return module.NotebookInstallSpec(
         workspace_root=workspace,
         core_root=core,
+        persistence_root=persistence,
         ml_root=ml,
         core_extras=("vision",),
         ml_extras=("database",),
@@ -117,15 +123,21 @@ def test_local_development_uses_editable_components(tmp_path: Path) -> None:
     module = _bootstrap_module()
     workspace = tmp_path / "vaaet"
     core = workspace / "vaaet-core"
+    persistence = workspace / "vaaet-persistence"
     ml = workspace / "vaaet-ml"
     (workspace / ".git").mkdir(parents=True)
     core.mkdir()
+    persistence.mkdir()
     ml.mkdir()
     (core / "pyproject.toml").write_text("[project]\nname='core'\n", encoding="utf-8")
+    (persistence / "pyproject.toml").write_text(
+        "[project]\nname='persistence'\n", encoding="utf-8"
+    )
     (ml / "pyproject.toml").write_text("[project]\nname='ml'\n", encoding="utf-8")
     spec = module.NotebookInstallSpec(
         workspace_root=workspace,
         core_root=core,
+        persistence_root=persistence,
         ml_root=ml,
         core_extras=("inference",),
         ml_extras=("training",),
@@ -140,7 +152,7 @@ def test_local_development_uses_editable_components(tmp_path: Path) -> None:
         runtime_validator=lambda _spec: None,
     )
 
-    assert all(call.count("--editable") == 2 for call in calls)
+    assert all(call.count("--editable") == 3 for call in calls)
 
 
 def test_pyproject_change_resolves_dependencies_again(install_spec: object, tmp_path: Path) -> None:
@@ -216,6 +228,7 @@ def test_visual_install_clears_loaded_pillow_and_ultralytics_modules(
         "ultralytics": ModuleType("ultralytics"),
         "ultralytics.models": ModuleType("ultralytics.models"),
         "vaaet": ModuleType("vaaet"),
+        "vaaet_persistence": ModuleType("vaaet_persistence"),
         "vaaet_ml": ModuleType("vaaet_ml"),
     }
     prefixes = RUNTIME_PREFIXES
@@ -303,6 +316,7 @@ def test_invalid_component_layout_fails_fast(tmp_path: Path) -> None:
         module.NotebookInstallSpec(
             workspace_root=workspace,
             core_root=workspace / "vaaet-core",
+            persistence_root=workspace / "vaaet-persistence",
             ml_root=workspace / "vaaet-ml",
             core_extras=("vision",),
             ml_extras=("database",),

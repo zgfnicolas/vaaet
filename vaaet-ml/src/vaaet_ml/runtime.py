@@ -29,8 +29,10 @@ class RuntimeDiagnostics:
     in_colab: bool
     workspace_root: Path
     core_root: Path
+    persistence_root: Path
     ml_root: Path
     package_file: Path
+    persistence_package_file: Path
     ml_package_file: Path
     git_commit: str
     python_version: str
@@ -53,8 +55,8 @@ def _validate_python_version(version: tuple[int, int]) -> None:
 
 def _clear_vaaet_modules() -> None:
     for module_name in tuple(sys.modules):
-        if module_name in {"vaaet", "vaaet_ml"} or module_name.startswith(
-            ("vaaet.", "vaaet_ml.")
+        if module_name in {"vaaet", "vaaet_persistence", "vaaet_ml"} or module_name.startswith(
+            ("vaaet.", "vaaet_persistence.", "vaaet_ml.")
         ):
             sys.modules.pop(module_name, None)
     importlib.invalidate_caches()
@@ -151,6 +153,7 @@ def bootstrap_notebook_runtime(
     *,
     workspace_root: Path,
     core_root: Path,
+    persistence_root: Path,
     ml_root: Path,
     in_colab: bool,
     framework: str | None,
@@ -161,16 +164,21 @@ def bootstrap_notebook_runtime(
     configure_logging()
     _validate_python_version((sys.version_info.major, sys.version_info.minor))
     if not (workspace_root / ".git").is_dir() or not all(
-        path.joinpath("pyproject.toml").is_file() for path in (core_root, ml_root)
+        path.joinpath("pyproject.toml").is_file()
+        for path in (core_root, persistence_root, ml_root)
     ):
         raise RuntimeConfigurationError("VAAET workspace, core, or ML component was not found.")
 
     _clear_vaaet_modules()
     import vaaet
+    import vaaet_persistence
 
     import vaaet_ml
 
     package_file = _validate_package_origin(vaaet, core_root, "vaaet", in_colab)
+    persistence_package_file = _validate_package_origin(
+        vaaet_persistence, persistence_root, "vaaet_persistence", in_colab
+    )
     ml_package_file = _validate_package_origin(vaaet_ml, ml_root, "vaaet_ml", in_colab)
     framework_gpu_available = _framework_gpu_available(framework)
     if require_gpu and not framework_gpu_available:
@@ -186,8 +194,10 @@ def bootstrap_notebook_runtime(
         in_colab=in_colab,
         workspace_root=workspace_root.resolve(),
         core_root=core_root.resolve(),
+        persistence_root=persistence_root.resolve(),
         ml_root=ml_root.resolve(),
         package_file=package_file,
+        persistence_package_file=persistence_package_file,
         ml_package_file=ml_package_file,
         git_commit=_git_commit(workspace_root),
         python_version=sys.version.split()[0],

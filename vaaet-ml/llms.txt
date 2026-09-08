@@ -1,27 +1,30 @@
-# VAAET ML 4.6.1 — contexto de laboratorio
+# VAAET ML 4.7.0 — contexto de laboratorio
 
 Leé primero `../AGENTS.md`, `../llms.txt`, `AGENTS.md`, ADR-0021 y los ADRs de
-datos/HITL aplicables. Este componente es la distribución `vaaet-ml==4.6.1`,
-con import `vaaet_ml`; depende de `vaaet-core==0.2.1`, cuyo import operativo es
-`vaaet`. No existe un paquete instalable en la raíz.
+datos/HITL aplicables. Este componente es `vaaet-ml==4.7.0`, con import
+`vaaet_ml`; depende de `vaaet-core==0.2.1` y
+`vaaet-persistence==0.1.0`. No existe un paquete instalable en la raíz.
 
-`src/vaaet_ml/` contiene rutas y configuración de laboratorio, datos,
-PostgreSQL, entrenamiento, evaluación y utilidades Colab. `../vaaet-core/src/vaaet/`
+`src/vaaet_ml/` contiene rutas, adaptadores Colab, datasets, entrenamiento y
+evaluación. `../vaaet-persistence/src/vaaet_persistence/` contiene la única
+implementación PostgreSQL y Alembic. `../vaaet-core/src/vaaet/`
 contiene percepción, telemetría, features, política de estados y bundle. ML no
 traslada esa lógica al notebook ni al paquete de laboratorio.
 
-PostgreSQL 14+ es portable por capacidades y sólo usa adaptadores estándar. Los
+PostgreSQL 14+ es portable por capacidades y lo centraliza
+`vaaet-persistence`. Los
 perfiles de workflow cargan `VAAET_DB_*` y `VAAET_<PROFILE>_DB_*`; Alembic usa
 `VAAET_ADMIN_DB_USER/PASSWORD` desde local o CI, nunca Colab. ADR-0024 mantiene
 revisiones Alembic explícitas como única autoridad DDL: no usar ORM declarativo,
-`create_all`, `drop_all` ni autogeneración.
+`create_all`, `drop_all` ni autogeneración. ADR-0028 gobierna esta frontera.
 
 Los cuatro notebooks son: adquisición opcional
 `notebooks/data-collection/collect_traffic_telemetry.ipynb`, entrenamiento
 `notebooks/training/train_traffic_state_classifier.ipynb`, inferencia
 `notebooks/inference/analyze_traffic_video.ipynb` y evaluación read-only
-`notebooks/evaluation/evaluate_models_and_eda.ipynb`. Instalan core antes que
-ML, importan `vaaet` para operaciones y `vaaet_ml` para laboratorio, y nunca
+`notebooks/evaluation/evaluate_models_and_eda.ipynb`. Instalan core,
+persistencia y ML en orden, importan `vaaet`, `vaaet_persistence` y `vaaet_ml`
+según responsabilidad, y nunca
 modifican `sys.path`.
 
 Colección e inferencia aceptan `VIEW_PLAN_PATH` sólo como ruta local privada a
@@ -30,14 +33,14 @@ un `vaaet-view-plan-v1`; `None` conserva la vista única. El adaptador
 versionar perfiles reales, referencias geométricas ni videos; ADR-0025 y la
 guía multi-vista gobiernan el flujo.
 
-Invariantes: 19 `FEATURE_COLS` v2 en orden exacto; tres salidas aprendidas y
+Invariantes: 19 `FEATURE_COLS` v3 en orden exacto; tres salidas aprendidas y
 cuatro estados públicos; `Accident` sólo mediante validación humana append-only.
 `SEED_BOOTSTRAP` y `HITL_RETRAINING` aceptan fuentes explícitas; predicciones no
 validadas nunca son etiquetas. Seed, HITL, input locks y holdouts son inmutables.
-El bundle DVC v2 contiene Keras, scaler, mapping y manifiesto; validar el
+El bundle DVC v3 contiene Keras, scaler, mapping y manifiesto; validar el
 manifiesto antes de deserializar.
 
-Desde el workspace, instalar primero core y luego los extras ML del workflow.
+Desde el workspace, instalar core, persistencia y los extras ML del workflow.
 Validar con Ruff, pytest, compileall, AST de los cuatro notebooks, enlaces y
 `git diff --check`. GPU, Drive, DVC remoto, YOLO y PostgreSQL se verifican
 manualmente en Colab. DVC se administra desde la raíz: instalar `dvc` y sólo el

@@ -1,8 +1,8 @@
-# VAAET ML 4.6.1
+# VAAET ML 4.7.0
 
 PostgreSQL se organiza en `vaaet_raw`, `vaaet_ml`, `vaaet_feedback` y
-`vaaet_ops`. Este último registra el ciclo de cada workflow sin almacenar
-credenciales ni mensajes sensibles; Alembic es la única autoridad DDL.
+`vaaet_ops`. La implementación y Alembic pertenecen a `vaaet-persistence`; ML
+conserva adaptadores Colab y compatibilidad 4.x sin duplicar SQL.
 
 VAAET ML es el componente de laboratorio del monorepo para analizar el tránsito
 del Puente General Manuel Belgrano. Implementa adquisición de telemetría bajo
@@ -28,6 +28,8 @@ predictions -> explicit HITL review -> vaaet_feedback.human_validations
 - `notebooks/evaluation/evaluate_models_and_eda.ipynb`: auditoría read-only Champion--Challenger y drift de las 19 features sobre cohortes explícitas.
 - `../vaaet-core/src/vaaet/`: lógica portable de percepción, telemetría,
   clasificación y bundles; los notebooks la importan como `vaaet`.
+- `../vaaet-persistence/src/vaaet_persistence/`: configuración, consultas,
+  escrituras y migraciones PostgreSQL compartidas.
 - `src/vaaet_ml/`: datos, entrenamiento, evaluación y runtime de laboratorio.
 - `data/sample/`: ejemplos pequeños, anónimos y aptos para Git.
 
@@ -40,14 +42,15 @@ laboratorio; una futura demo web con YOLO debe respetar la vía pública AGPL o
 la licencia Enterprise indicada en el
 [registro de licencias de terceros](../docs/governance/third-party-licenses.md).
 
-Desde la raíz del monorepo, creá y activá una `.venv` aislada. Instalá primero
-el core y luego el laboratorio, siempre con `python -m pip`:
+Desde la raíz del monorepo, creá y activá una `.venv` aislada. Instalá core,
+persistencia y laboratorio en ese orden, siempre con `python -m pip`:
 
 ```bash
 python -m venv .venv
 # Activá .venv con tu shell.
 python -m pip install --upgrade pip
 python -m pip install -e "./vaaet-core[vision,inference,dev]"
+python -m pip install -e "./vaaet-persistence[admin,dev]"
 python -m pip install -e "./vaaet-ml[training,evaluation,visualization,database,dev]"
 python -m pip check
 ruff check vaaet-ml/src vaaet-ml/tests vaaet-ml/scripts
@@ -62,9 +65,9 @@ del registro de artefactos.
 
 Cada notebook tiene una sola celda de preparación: clona o actualiza
 `https://github.com/zgfnicolas/vaaet` en `/content/vaaet`, resuelve
-`CORE_ROOT=/content/vaaet/vaaet-core` y `ML_ROOT=/content/vaaet/vaaet-ml`,
-instala ambos componentes con los extras del workflow y ejecuta el preflight
-tipado. Los imports operativos usan `vaaet`; los de laboratorio, `vaaet_ml`.
+`CORE_ROOT`, `PERSISTENCE_ROOT` y `ML_ROOT`, instala los tres componentes con
+los extras del workflow y ejecuta el preflight tipado. Los imports operativos
+usan `vaaet` y `vaaet_persistence`; los de laboratorio, `vaaet_ml`.
 No se usan `requirements.txt`, `sys.path` ni instaladores ad hoc.
 
 Los notebooks versionados no almacenan ejecuciones, gráficos ni binarios. En Colab,
@@ -134,10 +137,11 @@ export VAAET_DB_SSLMODE="verify-full"
 export VAAET_DB_SSLROOTCERT="/ruta/privada/proveedor-ca.pem"
 export VAAET_ADMIN_DB_USER="vaaet_admin"
 export VAAET_ADMIN_DB_PASSWORD="<secreto-fuera-de-git>"
-alembic upgrade head
+cd ../vaaet-persistence
+alembic -c alembic.ini upgrade head
 # Exportá PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE y
 # PGSSLROOTCERT sólo para este comando, como indica la guía PostgreSQL.
-psql -v ON_ERROR_STOP=1 -f migrations/provision-roles.sql
+psql -v ON_ERROR_STOP=1 -f src/vaaet_persistence/migrations/provision-roles.sql
 ```
 
 El entrenamiento declara `TrainingMode.SEED_BOOTSTRAP` o
@@ -151,5 +155,7 @@ Consultá [ADR-0015](../docs/architecture/decisions/0015-postgresql-namespaces-s
 [ADR-0019](../docs/architecture/decisions/0019-immutable-seed-and-hitl-datasets.md).
 La portabilidad por capacidades y las migraciones como código se rigen por
 [ADR-0024](../docs/architecture/decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
+La implementación compartida y la futura reutilización por backend se rigen por
+[ADR-0028](../docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
 El provisionamiento, backup, rotación y recuperación están en la
 [guía PostgreSQL](../docs/operations/postgresql-guide.md).

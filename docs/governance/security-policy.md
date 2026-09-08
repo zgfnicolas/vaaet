@@ -1,6 +1,7 @@
-# Política de seguridad y privacidad — VAAET ML 4.6.1
+# Política de seguridad y privacidad — VAAET ML 4.7.0
 
-PostgreSQL usa identidades separadas por workflow, TLS `verify-full`, permisos
+`vaaet-persistence` centraliza PostgreSQL para notebooks y futuros backends.
+Cada proceso usa una identidad separada, TLS `verify-full`, permisos
 mínimos y funciones operativas con `search_path` fijo. La base exclusiva revoca
 `CREATE` global sobre `public` y los default privileges niegan acceso a objetos
 nuevos hasta que una migración conceda permisos explícitos.
@@ -18,7 +19,8 @@ y conservan CSV/video local si falla la persistencia.
 
 ## Secretos y conexión
 
-- Colab: panel Secrets; el paquete consulta valores sin copiarlos a celdas u outputs.
+- Colab: el adaptador ML consulta Secrets sin copiarlos a celdas u outputs.
+- Backend futuro: identidad propia del servicio; nunca reutiliza contraseñas de notebooks.
 - Local: entorno o `.env` cargado sólo al pasar `env_file=` explícitamente.
 - CI: credenciales efímeras del servicio PostgreSQL.
 - La URL se construye con `sqlalchemy.URL.create()`; passwords con caracteres
@@ -63,3 +65,5 @@ tratarse conforme a la política del operador, aunque no se versiona en Git.
    evidencia y coordinación administrativa.
 
 El diseño completo está en [ADR-0015](../architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md).
+La frontera compartida se define en
+[ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md).

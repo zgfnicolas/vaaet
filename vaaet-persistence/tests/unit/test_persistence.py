@@ -7,18 +7,24 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from vaaet_ml.data.persistence import (
+from vaaet_persistence.persistence import (
     INSERT_FEATURE_SQL,
     INSERT_PREDICTION_SQL,
     INSERT_RAW_SQL,
+    SELECT_RAW_SQL,
+    _assert_idempotent,
     _feature_payload,
     _prediction_payload,
     _raw_payload,
+    persist_raw_telemetry,
 )
+from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
 
 def test_queries_use_versioned_schemas() -> None:
     assert "vaaet_raw.traffic_data" in INSERT_RAW_SQL
+    assert "RETURNING id" in INSERT_RAW_SQL
+    assert "vaaet_raw.traffic_data" in SELECT_RAW_SQL
     assert "vaaet_ml.telemetry_features" in INSERT_FEATURE_SQL
     assert "vaaet_ml.traffic_predictions" in INSERT_PREDICTION_SQL
     assert "is_human_validated" not in INSERT_PREDICTION_SQL
@@ -99,3 +105,74 @@ def test_prediction_preserves_incident_candidate_as_congested() -> None:
     )
     assert payload["traffic_state"] == 2
     assert payload["accident_rule_triggered"] is True
+
+
+def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "clip_id": "clip",
+                "record_time": pd.Timestamp("2026-09-08T00:00:00Z"),
+                "avg_speed": 10.0,
+                "count_car": 1,
+                "count_truck": 0,
+                "count_bus": 0,
+                "count_motorcycle": 0,
+                "count_bicycle": 0,
+                "total_vehicles": 1,
+            }
+        ]
+    )
+    settings = DatabaseSettings(
+        DatabaseProfile.COLLECTION,
+        "localhost",
+        5432,
+        "vaaet",
+        "collection",
+        "secret",
+        "disable",
+    )
+    created = False
+
+    def unexpected_engine(_settings):
+        nonlocal created
+        created = True
+        return object()
+
+    monkeypatch.setattr("vaaet_persistence.persistence.get_engine", unexpected_engine)
+
+    with pytest.raises(ValueError, match="application_name"):
+        persist_raw_telemetry(frame, settings=settings)
+
+    assert not created
+
+
+def test_raw_idempotency_ignores_lineage_but_rejects_changed_measurements() -> None:
+    existing = {
+        "id": 1,
+        "pipeline_run_id": "first-run",
+        "clip_id": "clip",
+        "record_time": pd.Timestamp("2026-09-08T00:00:00Z"),
+        "avg_speed": 10.0,
+    }
+    retry = {
+        "pipeline_run_id": "second-run",
+        "clip_id": "clip",
+        "record_time": pd.Timestamp("2026-09-08T00:00:00Z"),
+        "avg_speed": 10.0,
+    }
+
+    _assert_idempotent(
+        existing,
+        retry,
+        "raw telemetry",
+        ignored_fields={"pipeline_run_id"},
+    )
+
+    with pytest.raises(ValueError, match="avg_speed"):
+        _assert_idempotent(
+            existing,
+            {**retry, "avg_speed": 11.0},
+            "raw telemetry",
+            ignored_fields={"pipeline_run_id"},
+        )

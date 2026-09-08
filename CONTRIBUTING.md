@@ -2,13 +2,15 @@
 
 Leé [AGENTS.md](AGENTS.md), [llms.txt](llms.txt), el
 [índice documental](docs/index.md) y el ADR aplicable antes de modificar el
-repositorio. ADR-0021 define los límites core--ML--app; ADR-0022 aplica a
-cualquier serving futuro con YOLO.
+repositorio. ADR-0021 y ADR-0028 definen los límites entre core, persistencia,
+ML y app; ADR-0022 aplica a cualquier serving futuro con YOLO.
 
 - Los cambios core se realizan desde `vaaet-core/`; sus reglas y comandos están
   en [`vaaet-core/AGENTS.md`](vaaet-core/AGENTS.md).
 - Los cambios ML se realizan desde `vaaet-ml/`; sus reglas y comandos están en
   [`vaaet-ml/CONTRIBUTING.md`](vaaet-ml/CONTRIBUTING.md).
+- Los cambios PostgreSQL compartidos se realizan desde `vaaet-persistence/` y
+  siguen [`vaaet-persistence/AGENTS.md`](vaaet-persistence/AGENTS.md).
 - La documentación y configuración compartida se mantienen en la raíz.
 - No crear repositorios Git o remotos DVC anidados.
 - No agregar código a `vaaet-app/` hasta aprobar el contrato HTTP y el alcance
@@ -28,8 +30,8 @@ algoritmo no evidente; evitá comentarios que repitan el código.
 ## Calidad local
 
 El tipado estático se configura desde [`pyrightconfig.json`](pyrightconfig.json)
-con alcance exclusivo sobre ambos directorios `src/`. Instalá los extras `dev`
+con alcance sobre los directorios `src/`. Instalá los extras `dev`
 del componente que modifiques y los extras operativos requeridos por su
-workflow. Desde la raíz, una verificación completa instala primero core y luego
-ML, ejecuta `python -m pip check`, Ruff, Pyright, pruebas, compilación y la
-auditoría de notebooks.
+workflow. Una verificación completa instala core, persistencia y ML en ese
+orden, y ejecuta `pip check`, Ruff, Pyright, pruebas, compilación y auditoría de
+notebooks.

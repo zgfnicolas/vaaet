@@ -8,6 +8,7 @@ from pathlib import Path
 ML_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = ML_ROOT.parent
 CORE_SOURCE_ROOT = WORKSPACE_ROOT / "vaaet-core" / "src" / "vaaet"
+PERSISTENCE_SOURCE_ROOT = WORKSPACE_ROOT / "vaaet-persistence" / "src" / "vaaet_persistence"
 ML_SOURCE_ROOT = ML_ROOT / "src" / "vaaet_ml"
 
 CRITICAL_DOCSTRINGS = {
@@ -22,16 +23,16 @@ CRITICAL_DOCSTRINGS = {
         "_deduplicate_feedback",
         "load_training_inputs",
     ),
-    ML_SOURCE_ROOT / "data" / "persistence.py": (
+    PERSISTENCE_SOURCE_ROOT / "persistence.py": (
         "PersistResult",
         "persist_raw_telemetry",
         "persist_classified_telemetry",
     ),
-    ML_SOURCE_ROOT / "data" / "pipeline_runs.py": (
+    PERSISTENCE_SOURCE_ROOT / "pipeline_runs.py": (
         "PipelineWorkflow",
-        "PipelineRunMetadata",
         "PipelineRunHandle",
     ),
+    ML_SOURCE_ROOT / "data" / "pipeline_runs.py": ("PipelineRunMetadata",),
     ML_SOURCE_ROOT / "evaluation" / "dataset_validation.py": (
         "DatasetAudit",
         "_build_audit_evidence",
@@ -51,6 +52,7 @@ CRITICAL_DOCSTRINGS = {
 def _active_python_files() -> list[Path]:
     return [
         *CORE_SOURCE_ROOT.rglob("*.py"),
+        *PERSISTENCE_SOURCE_ROOT.rglob("*.py"),
         *ML_SOURCE_ROOT.rglob("*.py"),
         *ML_ROOT.joinpath("scripts").glob("*.py"),
     ]

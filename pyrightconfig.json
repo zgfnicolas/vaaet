@@ -1,5 +1,5 @@
 {
-  "include": ["vaaet-core/src", "vaaet-ml/src"],
+  "include": ["vaaet-core/src", "vaaet-persistence/src", "vaaet-ml/src"],
   "exclude": ["**/__pycache__", ".venv", "build", "dist"],
   "pythonVersion": "3.10",
   "venvPath": ".",
@@ -34,8 +34,12 @@
       "extraPaths": ["vaaet-core/src"]
     },
     {
+      "root": "vaaet-persistence/src",
+      "extraPaths": ["vaaet-core/src", "vaaet-persistence/src"]
+    },
+    {
       "root": "vaaet-ml/src",
-      "extraPaths": ["vaaet-core/src", "vaaet-ml/src"]
+      "extraPaths": ["vaaet-core/src", "vaaet-persistence/src", "vaaet-ml/src"]
     }
   ]
 }

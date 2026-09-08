@@ -3,7 +3,8 @@
 ## Contexto
 
 VAAET es un monorepo con `vaaet-core==0.2.1` (import `vaaet`) y
-`vaaet-ml==4.6.1` (import `vaaet_ml`). [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
+`vaaet-persistence==0.1.0` (import `vaaet_persistence`) y
+`vaaet-ml==4.7.0` (import `vaaet_ml`). [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
 define los límites; las reglas para agentes están en
 [AGENTS.md](../../AGENTS.md) y [llms.txt](../../llms.txt). Este plan cubre
 validación automática y evidencia manual; no reemplaza contratos de datos,
@@ -22,8 +23,8 @@ remoto, videos privados ni credenciales personales.
 - Verificar el modo opcional de vistas calibradas: plan continuo, referencias
   geométricas válidas, reinicio por transición y descarte de minutos mixtos,
   sin alterar el modo legado de una vista.
-- Mantener aislado el laboratorio: datos, entrenamiento, evaluación, Colab,
-  PostgreSQL, DVC y utilidades bajo `vaaet_ml`.
+- Mantener aisladas las capas: PostgreSQL bajo `vaaet_persistence`; datos,
+  entrenamiento, evaluación, Colab, DVC y utilidades bajo `vaaet_ml`.
 - Comprobar que los cuatro notebooks sean orquestadores delgados y sintácticamente
   válidos.
 - Detectar regresiones de estructura, documentación, licencias y límites de
@@ -34,8 +35,8 @@ remoto, videos privados ni credenciales personales.
 | Nivel | Propiedad | Ubicación principal |
 | --- | --- | --- |
 | Unitario y contractual | Core portable, paquetes del pipeline, bundle e inferencia | `vaaet-core/tests/` |
-| Unitario y de integración local | Datos, entrenamiento, evaluación, runtime y persistencia de laboratorio | `vaaet-ml/tests/` |
-| PostgreSQL | Migraciones, roles, grants y contratos reales | `vaaet-ml/tests/integration/` con PostgreSQL 17 en CI |
+| Unitario y de integración local | Datos, entrenamiento, evaluación y runtime del laboratorio | `vaaet-ml/tests/` |
+| PostgreSQL | Migraciones, roles, grants y contratos reales | `vaaet-persistence/tests/integration/` y compatibilidad ML con PostgreSQL 17 en CI |
 | Repositorio | Imports separados, contexto de agentes, notebooks, enlaces, licencias y layout | `vaaet-ml/tests/repository/` |
 | Notebook | Flujo lineal, configuración y nombres entre celdas | auditor, `ast.parse()` y Ruff `F821` |
 | Sintaxis | Código Python de paquetes, scripts y migraciones | `compileall` |
@@ -51,7 +52,7 @@ evaluación es read-only y no crea `pipeline_run` ni persiste datos.
 | `vaaet-core` | Ruff, Pyright, pytest core y compileall | 19 features, bundle v3 manifest-first y `Accident` sólo humano |
 | Visión o `VideoViewPlan` | Suite core con fakes de detector, reloj y writer | orden, reinicio por transición y descarte de minutos mixtos |
 | `vaaet-ml/src` | Ruff, Pyright, pytest ML sin `postgres` y compileall | locks, snapshots, HITL, holdouts, gates humanos y diagnósticos redactados |
-| PostgreSQL/Alembic/roles | Suite ML e integración `postgres` | migraciones, grants, mínimo privilegio e idempotencia en PostgreSQL 17 desechable |
+| PostgreSQL/Alembic/roles | Suite de persistencia e integración `postgres` | migraciones, grants, mínimo privilegio e idempotencia en PostgreSQL 17 desechable |
 | DVC o `vaaet-registry` | Suite pertinente y job DVC | configuración neutral, manifiesto antes de DVC y ausencia de red en CI |
 | Notebook | Auditor, AST, Ruff `F821`, paridad y suite ML | Run All lineal, configuración única y sin outputs ni nombres ocultos |
 | CI, contexto o docs | Tests de repositorio, enlaces y diff check | límites core--ML--app y comandos vigentes |
@@ -67,6 +68,7 @@ workflow. No existe un paquete instalable raíz.
 
 ```bash
 python -m pip install -e "./vaaet-core[vision,inference,dev]"
+python -m pip install -e "./vaaet-persistence[admin,dev]"
 python -m pip install -e "./vaaet-ml[training,visualization,database,dev]"
 python -m pip check
 ```
@@ -77,6 +79,11 @@ Luego, desde cada componente:
 # vaaet-core/
 ruff check src tests
 pytest tests -v --tb=short
+python -m compileall -q src tests
+
+# vaaet-persistence/
+ruff check src tests
+pytest tests -v --tb=short -m "not postgres"
 python -m compileall -q src tests
 
 # vaaet-ml/
@@ -96,7 +103,7 @@ no autentican ni transfieren artefactos.
 
 ## CI y evidencia manual
 
-GitHub Actions ejecuta la matriz Python 3.10--3.13 de core y ML, tipado,
+GitHub Actions ejecuta la matriz Python 3.10--3.13 de core, persistencia y ML, tipado,
 instalaciones mínimas aisladas, integración del workspace, PostgreSQL, enlaces,
 calidad de repositorio y DVC. La calidad de repositorio revisa
 `git diff --check` en el rango completo de cada evento. Los cambios en

@@ -2,8 +2,8 @@
 
 ```mermaid
 flowchart TD
-    A[(vaaet_raw.traffic_data v1/v2)] --> B[Auditoría contractual]
-    B --> C[19 features v2 por clip y segmento continuo]
+    A[(vaaet_raw.traffic_data v1/v2/v3)] --> B[Auditoría contractual]
+    B --> C[19 features v3 por clip y segmento continuo]
     C --> D[Etiquetas proxy o humanas<br/>Normal / Reduced / Congested]
     D --> E[Holdout humano congelado por grupos]
     D --> F[Validation por grupos]
@@ -33,4 +33,4 @@ El MLP nunca emite `Accident`. Validation/test no contienen sintéticos y una ve
 | `traffic_classifier.keras` | MLP de tres salidas |
 | `feature_scaler.joblib` | Scaler ajustado con train |
 | `label_mapping.joblib` | Cuatro estados públicos |
-| `model-manifest.json` | Contrato v2, política, métricas, procedencia y checksums |
+| `model-manifest.json` | Contrato v3, política, métricas, procedencia y checksums |

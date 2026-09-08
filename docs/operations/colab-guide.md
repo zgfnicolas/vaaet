@@ -31,11 +31,11 @@ la [instalación headless de Ultralytics](https://docs.ultralytics.com/quickstar
    experimental independiente.
 
 Cada notebook clona o actualiza el repositorio en `/content/vaaet`, define
-`CORE_ROOT=/content/vaaet/vaaet-core` y `ML_ROOT=/content/vaaet/vaaet-ml`, e
-instala primero el core y luego ML de forma no editable. La instalación no es
+`CORE_ROOT`, `PERSISTENCE_ROOT` y `ML_ROOT` bajo `/content/vaaet`, e instala
+core, persistencia y ML en ese orden de forma no editable. La instalación no es
 editable en Colab porque el checkout puede ocultar paquetes locales; después se
-limpia el caché de módulos y se valida el origen real de `vaaet` y `vaaet_ml`.
-El desarrollo local sí conserva `pip install -e` para ambos componentes.
+limpia el caché de módulos y valida el origen real de los tres imports. El
+desarrollo local sí conserva `pip install -e`.
 
 Antes de tareas costosas, la misma celda informa commit, versión de Python, origen instalado, RAM, disco libre en `/content`, GPU del framework y `nvidia-smi` si existe. Colección, entrenamiento e inferencia se detienen si Colab no tiene GPU; evaluación continúa read-only sin exigirla.
 
@@ -92,12 +92,14 @@ Los notebooks consultan Secrets directamente: no copian contraseñas a variables
 celdas ni outputs. `sslmode=require` se admite con advertencia; `disable` sólo en
 localhost. Los nombres `DB_*` funcionan de forma deprecada durante 4.x.
 
-La migración se aplica una sola vez desde un entorno administrativo, nunca desde
+La conexión y las operaciones provienen de `vaaet-persistence`; el adaptador de
+Secrets permanece en ML. La migración se aplica una sola vez desde un entorno administrativo, nunca desde
 Colab:
 
 ```bash
-alembic upgrade head
-psql 'postgresql://admin:...@host:5432/vaaet' -f vaaet-ml/migrations/provision-roles.sql
+cd vaaet-persistence
+alembic -c alembic.ini upgrade head
+psql -v ON_ERROR_STOP=1 -f src/vaaet_persistence/migrations/provision-roles.sql
 ```
 
 ## Artefactos y Drive

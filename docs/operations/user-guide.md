@@ -15,7 +15,7 @@ sólo para diagnóstico técnico. Un candidato de incidente se muestra como `POS
 INCIDENTE - REVISAR` y conserva el estado automático `Congested`.
 
 Ejecutá cada notebook de arriba hacia abajo. La única celda de preparación
-resuelve primero `vaaet-core` y después `vaaet-ml` con los extras justos del
+resuelve `vaaet-core`, `vaaet-persistence` y `vaaet-ml` en ese orden con los extras justos del
 workflow; no agregues instalaciones ad hoc. Colección, entrenamiento e
 inferencia fallan temprano sin GPU; evaluación continúa read-only. La
 persistencia PostgreSQL está deshabilitada por defecto y requiere Secrets de

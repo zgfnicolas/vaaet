@@ -7,7 +7,7 @@ description: Configure, review, diagnose, or safely evolve VAAET PostgreSQL pers
 
 ## Preserve the database contract
 
-Use PostgreSQL 14+ only from the ML laboratory and preserve the existing VAAET contracts. Read ADR-0021, ADR-0015, and ADR-0016 before changing persistence behavior. `vaaet-core` must not depend on PostgreSQL. Do not change schemas, tables, views, grants, roles, migrations, the 19 features, or state semantics without explicit authorization and an ADR.
+Use PostgreSQL 14+ through `vaaet-persistence` and preserve the existing VAAET contracts. Read ADR-0024 and ADR-0028 before changing persistence behavior. `vaaet-core` must not depend on PostgreSQL and `vaaet-persistence` must not depend on ML, Colab, DVC, Drive, YOLO, or TensorFlow. Do not change schemas, tables, views, grants, roles, migrations, the 19 features, or state semantics without explicit authorization and an ADR.
 
 Use qualified names and their responsibilities:
 
@@ -22,7 +22,7 @@ Keep `public` views read-only compatibility only. Treat PostgreSQL as the operat
 
 ## Connect securely with least privilege
 
-Use `DatabaseProfile` and `load_database_settings()` from `vaaet_ml.data.database`. Select exactly one of `collection`, `inference`, `training`, or `review` per operation. Load shared endpoint values and profile-specific credentials from Colab Secrets first, then local environment; never display, serialize, or log them.
+Use `DatabaseProfile` and `load_database_settings()` from `vaaet_persistence`. Select exactly one of `collection`, `inference`, `training`, or `review` per operation and provide the consumer's application name and version. In notebooks, keep Secrets-to-environment adaptation in `vaaet_ml`; never move Colab imports into persistence or display, serialize, or log credentials.
 
 Build URLs through `sqlalchemy.URL.create()` and engines through the project factory. Reuse its small `QueuePool`, pre-ping, timeout, health check, redacted `DatabaseSettings`, and cleanup behavior. Do not open one connection per row or build a DSN with string interpolation.
 
@@ -38,7 +38,7 @@ Do not call `Base.metadata.create_all()`, `drop_all()`, ad-hoc DDL, `ALTER TABLE
 
 ## Persist atomically and idempotently
 
-Use the existing `vaaet_ml` persistence and pipeline-run APIs. Start a run before an enabled workflow, attach its UUID to raw/features/predictions or review data as applicable, and finish it with only typed, redacted metadata. Without PostgreSQL, retain the local redacted manifest and outputs.
+Use the concrete `vaaet_persistence` persistence and pipeline-run APIs. The `vaaet_ml.data` paths are compatibility facades only and must not contain duplicate SQL. Start a run before an enabled workflow, attach its UUID to raw/features/predictions or review data as applicable, and finish it with only typed, redacted metadata. Without PostgreSQL, retain the local redacted manifest and outputs.
 
 Write related telemetry, features, and predictions in bounded batches and transactional units. Use the existing natural keys and upsert contracts; do not commit per frame, silently overwrite append-only feedback, or make persistence an implicit side effect of offline analysis.
 
@@ -58,6 +58,7 @@ Before accepting a PostgreSQL change, confirm:
 
 - The workflow profile, TLS mode, and endpoint are appropriate and no secret is exposed.
 - The latest Alembic revision and grants already exist; no notebook attempts schema creation.
+- Alembic discovers one revision chain from installed persistence resources, and administration runs outside notebooks.
 - Schema-qualified SQL, parameter binding, transaction scope, batch size, idempotency, and rollback behavior are explicit.
 - `pipeline_run` lineage and local fallback metadata are complete and redacted.
 - Constraints and immutable HITL relationships remain intact.

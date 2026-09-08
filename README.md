@@ -38,8 +38,8 @@ recorrer adquisición, entrenamiento, inferencia y evaluación en Google Colab.
 ### Google Colab — recomendado
 
 No necesitás instalar el proyecto en tu equipo. Abrí el workflow que corresponda
-y seguí sus recetas iniciales; cada notebook instala primero `vaaet-core` y luego
-`vaaet-ml` dentro del runtime efímero.
+y seguí sus recetas iniciales; cada notebook instala `vaaet-core`,
+`vaaet-persistence` y luego `vaaet-ml` dentro del runtime efímero.
 
 | Objetivo | Notebook | Requisito principal |
 |---|---|---|
@@ -67,6 +67,7 @@ python -m venv .venv
 
 python -m pip install --upgrade pip
 python -m pip install -e "./vaaet-core[vision,inference,dev]"
+python -m pip install -e "./vaaet-persistence[admin,dev]"
 python -m pip install -e "./vaaet-ml[training,evaluation,visualization,database,dev]"
 python -m pip check
 ```
@@ -89,9 +90,10 @@ flowchart LR
     P --> H["Revisión humana HITL"]
     H --> T["Reentrenamiento"]
     T --> B
-    R -. "opcional" .-> DB[("PostgreSQL")]
-    P -. "opcional" .-> DB
-    H -. "opcional" .-> DB
+    R -. "opcional" .-> PS["vaaet-persistence"]
+    P -. "opcional" .-> PS
+    H -. "opcional" .-> PS
+    PS --> DB[("PostgreSQL")]
     B -. "versionado" .-> DVC[("Registro DVC")]
 ```
 
@@ -106,14 +108,17 @@ candidato hasta superar una evaluación comparable sobre un holdout congelado.
 | Componente | Responsabilidad | Interfaz y límites |
 |---|---|---|
 | [`vaaet-core/`](vaaet-core/README.md) | Percepción, telemetría, 19 features, política de estados y carga segura del bundle | Distribución `vaaet-core`, import `vaaet`; no accede a PostgreSQL, DVC, Drive ni notebooks |
-| [`vaaet-ml/`](vaaet-ml/README.md) | Notebooks, datos, entrenamiento, evaluación, PostgreSQL, migraciones y artefactos ML | Distribución `vaaet-ml`, import `vaaet_ml`; consume el core y no se usa para serving |
+| [`vaaet-persistence/`](vaaet-persistence/README.md) | Configuración, consultas, escrituras, auditoría y migraciones PostgreSQL | Distribución `vaaet-persistence`, import `vaaet_persistence`; consume sólo el core base y sirve a notebooks o backends |
+| [`vaaet-ml/`](vaaet-ml/README.md) | Notebooks, datasets, entrenamiento, evaluación, adaptadores Colab y artefactos ML | Distribución `vaaet-ml`, import `vaaet_ml`; consume core/persistencia y no se usa para serving |
 | [`vaaet-app/`](vaaet-app/README.md) | Frontera reservada para una futura API y Web App | No contiene aplicación ejecutable; la Web futura sólo podrá consumir una API HTTP versionada |
 | [`docs/`](docs/index.md), [`.dvc/`](.dvc) y [`.github/`](.github) | Decisiones, contratos, registro de modelos y automatización compartida | Un único Git, una única raíz DVC y CI común |
 
 La separación está gobernada por
-[ADR-0021](docs/architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md).
-Una futura API deberá validar el manifiesto antes de deserializar el modelo y
-usar `vaaet-core`; nunca podrá importar el laboratorio ML.
+[ADR-0021](docs/architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
+y [ADR-0028](docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
+Una futura API deberá validar el manifiesto antes de deserializar el modelo,
+usar `vaaet-core` y acceder a PostgreSQL mediante `vaaet-persistence` con una
+identidad propia; nunca podrá importar el laboratorio ML.
 
 ## Workflows disponibles
 
@@ -160,7 +165,7 @@ y la [model card](docs/ml/model-card.md).
 | Visión artificial | YOLO 11, Ultralytics headless, OpenCV | Detección, tracking, flujo óptico, velocidad y video anotado |
 | Machine Learning | TensorFlow/Keras, scikit-learn, imbalanced-learn | MLP, escalado, calibración, balanceo y evaluación |
 | Datos | NumPy, pandas | Contratos tabulares, features y auditoría |
-| Persistencia opcional | PostgreSQL 14+, SQLAlchemy, Alembic | Raw, predicciones, feedback humano y linaje operacional |
+| Persistencia opcional | `vaaet-persistence`, PostgreSQL 14+, SQLAlchemy, Alembic | Raw, predicciones, feedback humano, linaje y schema compartidos |
 | MLOps | DVC, manifests, checksums e input locks | Historial reproducible de bundles y datasets |
 | Ejecución | Google Colab | GPU administrada y workflows interactivos |
 | Calidad | Ruff, Pyright, pytest, GitHub Actions | Lint, tipado, pruebas y validación de contratos |

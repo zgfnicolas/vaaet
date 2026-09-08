@@ -8,7 +8,7 @@ Complementa USER_GUIDE.md y SAD.md. -->
 | Campo | Detalles |
 |---|---|
 | **Nombre del Proyecto** | VAAET — Video Advanced Analysis of Traffic |
-| **Versión** | 4.6.1 |
+| **Versión** | 4.7.0 |
 | **Estado** | Aprobado |
 | **Responsable Técnico** | Facundo Nicolás González |
 | **Última Revisión** | 2026-08-27 |
@@ -51,7 +51,7 @@ flowchart LR
 
 | Entorno | Plataforma | Propósito | Datos |
 |---|---|---|---|
-| **Desarrollo local** | Python 3.10–3.13 | Desarrollo y testing de `vaaet-core/src/vaaet/` y `vaaet-ml/src/vaaet_ml/` | Datos sintéticos, sin GPU |
+| **Desarrollo local** | Python 3.10–3.13 | Desarrollo y testing de core, persistencia y ML | Datos sintéticos, sin GPU |
 | **Google Colab** | Colab Free/Pro | Ejecución manual de notebooks | Videos reales; GPU gestionada no garantizada |
 | **CI** | GitHub Actions + PostgreSQL 17 | Validación automática | Tests puros y migración/grants reales, sin GPU |
 
@@ -67,14 +67,14 @@ Pipeline definido en `.github/workflows/ci.yml`:
 
 1. **Core**: instala `vaaet-core[vision,inference,dev]` y valida percepción,
    inferencia, Ruff y tests en Python 3.10–3.13.
-2. **Laboratorio ML**: instala primero el core local y luego los extras ML de
-   entrenamiento, visualización, base de datos y desarrollo.
-3. **Integración**: instala ambos componentes desde el workspace y verifica sus
+2. **Persistencia**: instala core base y valida `vaaet-persistence` sin ML.
+3. **Laboratorio ML**: instala core, persistencia y luego los extras ML.
+4. **Integración**: instala los tres componentes desde el workspace y verifica sus
    imports y el bundle DVC de raíz.
-4. **PostgreSQL**: instala core + ML local, aplica migraciones en el servicio de
+5. **PostgreSQL**: instala core + persistencia, aplica migraciones en el servicio de
    prueba y ejecuta las pruebas marcadas `postgres`.
-5. **Documentación**: verifica enlaces internos del monorepo desde la raíz.
-6. **DVC**: instala `./vaaet-ml[dvc,dvc-gdrive,dvc-s3]` sobre el core local,
+6. **Documentación**: verifica enlaces internos del monorepo desde la raíz.
+7. **DVC**: instala `./vaaet-ml[dvc,dvc-gdrive,dvc-s3]` sobre core y persistencia,
    ejecuta `pip check`, `dvc doctor`, `dvc status` y `vaaet-registry --help`
    desde la raíz; no autentica ni transfiere bundles.
 
@@ -85,7 +85,7 @@ laboratorio consiste en:
 
 1. El usuario abre el notebook en Colab desde GitHub
 2. La primera celda clona o actualiza el repo, resuelve extras sólo cuando
-   cambian los `pyproject.toml`, refresca los dos paquetes locales sin reinstalar
+   cambian los `pyproject.toml`, refresca los tres paquetes locales sin reinstalar
    dependencias pesadas y ejecuta el preflight con `pip check`
 3. Entrenamiento genera el bundle; inferencia lo valida antes de cargarlo
 
@@ -104,20 +104,21 @@ y el [runbook temporal de AWS](aws-temporary-demo-runbook.md).
 ### Primera celda — Setup del entorno
 
 Ejecutá la primera celda del notebook sin añadir comandos manuales. Esta clona o
-actualiza `/content/vaaet`, resuelve `vaaet-core` y `vaaet-ml`, instala ambos componentes locales con los extras del workflow,
-limpia imports anteriores y valida que `vaaet` provenga del paquete instalado.
+actualiza `/content/vaaet`, resuelve core, persistencia y ML, los instala con
+los extras del workflow, limpia imports anteriores y valida sus orígenes.
 El modo editable se reserva para desarrollo local.
 
 ## 4.1 Instalación local del monorepo
 
 Desde la raíz, creá y activá una `.venv` con Python 3.10–3.13. Instalá siempre
-el core antes del laboratorio y elegí sólo los extras del workflow:
+core, persistencia y laboratorio en ese orden:
 
 ```bash
 python -m venv .venv
 # Activá .venv con tu shell.
 python -m pip install --upgrade pip
 python -m pip install -e "./vaaet-core[vision,inference,dev]"
+python -m pip install -e "./vaaet-persistence[admin,dev]"
 python -m pip install -e "./vaaet-ml[training,visualization,database,dev]"
 python -m pip check
 ```
@@ -157,9 +158,9 @@ proveedor.
 
 ### Migraciones
 
-Alembic es la única autoridad DDL. Ejecutá `alembic upgrade head` con
-`VAAET_ADMIN_DB_USER/PASSWORD` y después
-`vaaet-ml/migrations/provision-roles.sql`. Los notebooks sólo comprueban el
+Alembic es la única autoridad DDL. Desde `vaaet-persistence`, ejecutá
+`alembic -c alembic.ini upgrade head` con `VAAET_ADMIN_DB_USER/PASSWORD` y
+después `src/vaaet_persistence/migrations/provision-roles.sql`. Los notebooks sólo comprueban el
 contrato y fallan con un mensaje claro si la migración falta.
 
 ### Backups

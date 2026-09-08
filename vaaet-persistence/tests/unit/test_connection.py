@@ -10,17 +10,17 @@ import pytest
 from sqlalchemy import URL
 from sqlalchemy.exc import OperationalError
 
-from vaaet_ml.data.database_connection import (
+from vaaet_persistence.connection import (
     database_engine,
     execute_with_retry,
     get_engine,
     inspect_database,
 )
-from vaaet_ml.data.database_connection import (
+from vaaet_persistence.connection import (
     test_connection as check_connection,
 )
-from vaaet_ml.data.database_settings import DatabaseProfile, DatabaseSettings
-from vaaet_ml.exceptions import DatabaseOperationError
+from vaaet_persistence.exceptions import DatabaseOperationError
+from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
 
 def _settings() -> DatabaseSettings:
@@ -47,7 +47,7 @@ def test_get_engine_configures_a_bounded_redacted_pool(monkeypatch: pytest.Monke
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr("vaaet_ml.data.database_connection.create_engine", fake_create_engine)
+    monkeypatch.setattr("vaaet_persistence.connection.create_engine", fake_create_engine)
 
     assert get_engine(_settings()) is not None
     assert captured["pool_size"] == 2
@@ -55,24 +55,9 @@ def test_get_engine_configures_a_bounded_redacted_pool(monkeypatch: pytest.Monke
     assert captured["hide_parameters"] is True
 
 
-def test_get_engine_accepts_legacy_mapping_with_deprecation() -> None:
-    with pytest.warns(DeprecationWarning):
-        engine = get_engine(
-            {
-                "host": "localhost",
-                "port": "5432",
-                "database": "vaaet",
-                "username": "user",
-                "password": "secret",
-                "sslmode": "disable",
-            }
-        )
-    engine.dispose()
-
-
 def test_execute_with_retry_retries_only_operational_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = {"count": 0}
-    monkeypatch.setattr("vaaet_ml.data.database_connection.time.sleep", lambda _: None)
+    monkeypatch.setattr("vaaet_persistence.connection.time.sleep", lambda _: None)
 
     def eventually_available() -> str:
         attempts["count"] += 1
@@ -127,9 +112,9 @@ class _FakeEngine:
 
 def test_database_engine_and_inspection_release_resources(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = _FakeEngine()
-    monkeypatch.setattr("vaaet_ml.data.database_connection.get_engine", lambda _: engine)
+    monkeypatch.setattr("vaaet_persistence.connection.get_engine", lambda _: engine)
     monkeypatch.setattr(
-        "vaaet_ml.data.database_connection._probe_connection", lambda *_args, **_kwargs: None
+        "vaaet_persistence.connection._probe_connection", lambda *_args, **_kwargs: None
     )
 
     with database_engine(_settings()) as active_engine:
@@ -144,7 +129,7 @@ def test_connection_returns_false_only_for_expected_database_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "vaaet_ml.data.database_connection.execute_with_retry",
+        "vaaet_persistence.connection.execute_with_retry",
         lambda _: (_ for _ in ()).throw(DatabaseOperationError("offline")),
     )
 

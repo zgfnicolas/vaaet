@@ -9,7 +9,7 @@ description: Guide safe VAAET tabular MLP training and review. Use for seed boot
 
 Preserve VAAET's human-first learning lifecycle. Treat a seed model as an auditable pilot, not as production evidence, and use visual diagnostics to explain measured behavior without overstating model confidence.
 
-Keep model contracts, feature policy, bundle validation, and serving-compatible inference in `vaaet-core/`; keep datasets, training, diagnostics, notebooks, DVC, and PostgreSQL in `vaaet-ml/`. The laboratory may depend on core; core must not depend on ML.
+Keep model contracts, feature policy, bundle validation, and serving-compatible inference in `vaaet-core/`; keep PostgreSQL operations in `vaaet-persistence/`; keep datasets, training, diagnostics, notebooks, DVC, and Colab adapters in `vaaet-ml/`. The laboratory may depend on both; neither core nor persistence may depend on ML.
 
 ## Preserve the public learning contract
 

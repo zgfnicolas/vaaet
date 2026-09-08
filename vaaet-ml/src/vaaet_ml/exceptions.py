@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from vaaet.exceptions import VAAETError
+from vaaet_persistence.exceptions import DatabaseNotConfiguredError, DatabaseOperationError
 
 
 class LaboratoryError(VAAETError):
@@ -13,14 +14,6 @@ class LaboratoryError(VAAETError):
 
 class RuntimeConfigurationError(RuntimeError, LaboratoryError):
     """Indica que el runtime local o Colab no cumple un requisito explícito."""
-
-
-class DatabaseNotConfiguredError(RuntimeError, LaboratoryError):
-    """Indica que un workflow con PostgreSQL no recibió su configuración segura."""
-
-
-class DatabaseOperationError(RuntimeError, LaboratoryError):
-    """Indica un fallo no recuperable al ejecutar una operación de PostgreSQL."""
 
 
 class DatasetArtifactValidationError(ValueError, LaboratoryError):
@@ -41,3 +34,16 @@ class DvcRegistryConfigurationError(DvcRegistryError):
 
 class DvcRegistryOperationError(DvcRegistryError):
     """Indica un fallo de Git o DVC sin exponer diagnósticos sensibles."""
+
+
+__all__ = [
+    "DatabaseNotConfiguredError",
+    "DatabaseOperationError",
+    "DatasetArtifactValidationError",
+    "DvcRegistryConfigurationError",
+    "DvcRegistryError",
+    "DvcRegistryOperationError",
+    "LaboratoryError",
+    "RuntimeConfigurationError",
+    "TrainingStabilityError",
+]

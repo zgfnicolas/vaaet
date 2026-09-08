@@ -27,6 +27,8 @@ from vaaet.settings import (
     TRAFFIC_LOCAL_TIMEZONE,
     VEHICLE_TYPES,
 )
+from vaaet_persistence.constants import DATABASE_SCHEMA_VERSION, DATABASE_SCHEMAS
+from vaaet_persistence.constants import DEFAULT_DB_PORT as _SHARED_DEFAULT_DB_PORT
 
 RANDOM_SEED: int = 42
 MODEL_DIR: str = os.path.join("artifacts", "traffic-state")
@@ -37,14 +39,7 @@ SCALER_PATH: str = os.path.join(MODEL_DIR, "feature_scaler.joblib")
 LABEL_MAP_PATH: str = os.path.join(MODEL_DIR, "label_mapping.joblib")
 DRIVE_ARTIFACT_DIR: str = os.path.join("MyDrive", "vaaet-ml", "artifacts", "traffic-state")
 DB_ENV_VARS: tuple[str, ...] = ("VAAET_DB_HOST", "VAAET_DB_PORT", "VAAET_DB_NAME")
-DEFAULT_DB_PORT: str = "5432"
-DATABASE_SCHEMA_VERSION: str = "vaaet-db-v3"
-DATABASE_SCHEMAS: tuple[str, ...] = (
-    "vaaet_raw",
-    "vaaet_ml",
-    "vaaet_feedback",
-    "vaaet_ops",
-)
+DEFAULT_DB_PORT: str = str(_SHARED_DEFAULT_DB_PORT)
 
 # Estos nombres conservan la compatibilidad de notebooks 4.x. El código nuevo
 # debe importar los contratos portables directamente desde ``vaaet.settings``.
@@ -52,6 +47,7 @@ __all__ = [
     "ACCIDENT_GATE_MIN_EVIDENCE_SCORE",
     "CANONICAL_TIMEZONE",
     "DATABASE_SCHEMAS",
+    "DATABASE_SCHEMA_VERSION",
     "DATA_ORIGINS",
     "DATA_ORIGIN_COL",
     "DATA_PROCESSED_DIR",

@@ -1,81 +1,33 @@
 # SPDX-FileCopyrightText: 2026 VAAET Contributors
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Conexión, reintentos y diagnóstico seguro de PostgreSQL."""
+"""Fachada 4.x de conexión; la implementación canónica es compartida."""
 
 from __future__ import annotations
 
-import time
 import warnings
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
-from dataclasses import dataclass
+from collections.abc import Mapping
 
-from sqlalchemy import URL, create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.pool import NullPool, QueuePool
-from vaaet.logging import get_logger
-
-from vaaet_ml.data.database_settings import (
-    DatabaseAdminSettings,
-    DatabaseProfile,
-    DatabaseSettings,
-    cleanup_temporary_root_certificate,
-    load_database_settings,
+from vaaet_persistence.connection import (
+    DatabaseHealth,
+    _settings_url,
+    create_admin_engine,
+    database_engine,
+    execute_with_retry,
+    inspect_database,
+    test_connection,
 )
-from vaaet_ml.exceptions import DatabaseOperationError
-from vaaet_ml.settings import DATABASE_SCHEMAS, DEFAULT_DB_PORT
+from vaaet_persistence.connection import get_engine as _get_engine
+from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
-logger = get_logger(__name__)
+from vaaet_ml.data.database_settings import load_database_settings
+from vaaet_ml.settings import DEFAULT_DB_PORT
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
-@dataclass(frozen=True)
-class DatabaseHealth:
-    """Diagnóstico no secreto que puede mostrarse en una salida de notebook."""
-
-    profile: str
-    host: str
-    port: int
-    database: str
-    server_version: str
-    current_role: str
-    ssl_enabled: bool
-    available_schemas: tuple[str, ...]
-
-
-DatabaseConnectionSettings = DatabaseSettings | DatabaseAdminSettings
-
-
-def _settings_url(settings: DatabaseConnectionSettings) -> URL:
-    """Construye una URL SQLAlchemy sin convertir credenciales en texto plano."""
-
-    return URL.create(
-        "postgresql+psycopg2",
-        username=settings.username,
-        password=settings.password,
-        host=settings.host,
-        port=settings.port,
-        database=settings.database,
-    )
-
-
-def _connect_args(settings: DatabaseConnectionSettings) -> dict[str, object]:
-    """Construye parámetros de conexión comunes sin serializar credenciales."""
-
-    connect_args: dict[str, object] = {
-        "connect_timeout": settings.connect_timeout_seconds,
-        "application_name": settings.application,
-        "sslmode": settings.sslmode,
-    }
-    if settings.sslrootcert:
-        connect_args["sslrootcert"] = settings.sslrootcert
-    return connect_args
-
-
 def get_engine(settings: DatabaseSettings | Mapping[str, str] | None = None) -> Engine:
-    """Crea un engine con pool acotado y compatibilidad temporal 4.x para mappings."""
+    """Conserva mappings y perfil training implícito sólo durante VAAET 4.x."""
 
     if settings is None:
         settings = load_database_settings(DatabaseProfile.TRAINING)
@@ -86,7 +38,6 @@ def get_engine(settings: DatabaseSettings | Mapping[str, str] | None = None) -> 
             stacklevel=2,
         )
         host = settings.get("host", "")
-        sslmode = settings.get("sslmode", "disable" if host in _LOCAL_HOSTS else "require")
         settings = DatabaseSettings(
             profile=DatabaseProfile.TRAINING,
             host=host,
@@ -94,122 +45,19 @@ def get_engine(settings: DatabaseSettings | Mapping[str, str] | None = None) -> 
             database=settings.get("dbname", settings.get("database", "")),
             username=settings.get("user", settings.get("username", "")),
             password=settings.get("password", ""),
-            sslmode=sslmode,
+            sslmode=settings.get(
+                "sslmode", "disable" if host in _LOCAL_HOSTS else "require"
+            ),
             sslrootcert=settings.get("sslrootcert"),
+            application_name="vaaet-ml-training",
+            application_version="4.x-compatibility",
         )
-    return create_engine(
-        _settings_url(settings),
-        connect_args=_connect_args(settings),
-        poolclass=QueuePool,
-        pool_size=settings.pool.pool_size,
-        max_overflow=settings.pool.max_overflow,
-        pool_pre_ping=True,
-        pool_recycle=settings.pool.recycle_seconds,
-        hide_parameters=True,
-    )
-
-
-def create_admin_engine(settings: DatabaseAdminSettings) -> Engine:
-    """Crea una conexión administrativa efímera para Alembic fuera de notebooks."""
-
-    return create_engine(
-        _settings_url(settings),
-        connect_args=_connect_args(settings),
-        poolclass=NullPool,
-        hide_parameters=True,
-    )
-
-
-@contextmanager
-def database_engine(settings: DatabaseSettings) -> Iterator[Engine]:
-    """Expone un engine comprobado y elimina certificados PEM temporales al cerrar."""
-
-    engine = get_engine(settings)
-    try:
-        execute_with_retry(
-            lambda: _probe_connection(engine),
-            attempts=settings.retry.attempts,
-            initial_delay_seconds=settings.retry.base_delay_seconds,
-        )
-        yield engine
-    finally:
-        engine.dispose()
-        cleanup_temporary_root_certificate(settings)
-
-
-def _probe_connection(engine: Engine) -> None:
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
-
-
-def inspect_database(engine: Engine, profile: DatabaseProfile | str) -> DatabaseHealth:
-    """Consulta información operativa sin leer tablas ni mostrar credenciales."""
-
-    with engine.connect() as connection:
-        row = connection.execute(
-            text(
-                "SELECT current_setting('server_version'), current_user, "
-                "COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), FALSE)"
-            )
-        ).one()
-        available = tuple(
-            schema
-            for schema in DATABASE_SCHEMAS
-            if connection.execute(text("SELECT to_regnamespace(:schema)"), {"schema": schema}).scalar()
-        )
-    url = engine.url
-    return DatabaseHealth(
-        profile=DatabaseProfile(profile).value,
-        host=str(url.host or ""),
-        port=int(url.port or DEFAULT_DB_PORT),
-        database=str(url.database or ""),
-        server_version=str(row[0]),
-        current_role=str(row[1]),
-        ssl_enabled=bool(row[2]),
-        available_schemas=available,
-    )
-
-
-def test_connection(engine: Engine) -> bool:
-    """Devuelve un diagnóstico booleano sin filtrar la excepción de infraestructura."""
-
-    try:
-        execute_with_retry(lambda: _probe_connection(engine))
-        return True
-    except OperationalError:  # pragma: no cover - servicio externo
-        logger.warning("PostgreSQL connection test failed: OperationalError")
-        return False
-    except DatabaseOperationError:  # pragma: no cover - servicio externo
-        logger.warning("PostgreSQL connection test failed after bounded retries")
-        return False
-
-
-def execute_with_retry(
-    operation: Callable[[], object],
-    *,
-    attempts: int = 3,
-    initial_delay_seconds: float = 0.5,
-) -> object:
-    """Reintenta sólo fallos operativos transitorios y redacta su causa externa."""
-
-    if attempts < 1:
-        raise ValueError("Database retry attempts must be positive.")
-    if initial_delay_seconds < 0:
-        raise ValueError("Database retry delay must be non-negative.")
-    for attempt in range(1, attempts + 1):
-        try:
-            return operation()
-        except OperationalError as exc:
-            if attempt == attempts:
-                raise DatabaseOperationError(
-                    "PostgreSQL operation failed after bounded retries."
-                ) from exc
-            time.sleep(initial_delay_seconds * (2 ** (attempt - 1)))
-    raise AssertionError("unreachable")
+    return _get_engine(settings)
 
 
 __all__ = [
     "DatabaseHealth",
+    "_settings_url",
     "create_admin_engine",
     "database_engine",
     "execute_with_retry",

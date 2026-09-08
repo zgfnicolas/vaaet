@@ -105,10 +105,13 @@ def test_database_review_and_reporting_keep_presentation_at_the_edge() -> None:
 
 
 def test_postgresql_configuration_is_portable_and_keeps_alembic_as_ddl_authority() -> None:
-    settings = REPO_ROOT.joinpath("src", "vaaet_ml", "data", "database_settings.py").read_text(
+    persistence_root = WORKSPACE_ROOT / "vaaet-persistence"
+    settings = persistence_root.joinpath("src", "vaaet_persistence", "settings.py").read_text(
         encoding="utf-8"
     )
-    migration_environment = REPO_ROOT.joinpath("migrations", "env.py").read_text(encoding="utf-8")
+    migration_environment = persistence_root.joinpath(
+        "src", "vaaet_persistence", "migrations", "env.py"
+    ).read_text(encoding="utf-8")
     workflow = WORKSPACE_ROOT.joinpath(".github", "workflows", "ci.yml").read_text(encoding="utf-8")
     guide = WORKSPACE_ROOT.joinpath("docs", "operations", "postgresql-guide.md").read_text(
         encoding="utf-8"
@@ -127,17 +130,18 @@ def test_postgresql_configuration_is_portable_and_keeps_alembic_as_ddl_authority
     assert "VAAET_DATABASE_ADMIN_URL" not in workflow
     assert "VAAET_ADMIN_DB_USER" in workflow
     assert "VAAET_DB_SSLMODE" in workflow
-    assert "alembic upgrade head" in guide
-    assert "endpoint administrativo directo" in guide
+    assert "alembic -c alembic.ini upgrade head" in guide
+    assert "identidad administrativa" in guide
     assert "create_all" in guide
 
 
-def test_pyright_strict_profile_and_ci_job_cover_both_source_roots() -> None:
+def test_pyright_strict_profile_and_ci_job_cover_all_source_roots() -> None:
     configuration = (WORKSPACE_ROOT / "pyrightconfig.json").read_text(encoding="utf-8")
     workflow = (WORKSPACE_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert '"typeCheckingMode": "strict"' in configuration
     assert '"vaaet-core/src"' in configuration
+    assert '"vaaet-persistence/src"' in configuration
     assert '"vaaet-ml/src"' in configuration
     assert "typing:" in workflow
     assert "pyright --project pyrightconfig.json --level error" in workflow
@@ -410,13 +414,15 @@ def test_portable_agent_context_describes_the_active_monorepo() -> None:
     normalized_core_rules = " ".join(core_rules.split())
 
     assert "vaaet-core==0.2.1" in root_context
-    assert "vaaet-ml==4.6.1" in root_context
+    assert "vaaet-persistence==0.1.0" in root_context
+    assert "vaaet-ml==4.7.0" in root_context
     assert "import `vaaet_ml`" in root_context
     assert "cuatro notebooks" in root_context
     assert "No puede importar `vaaet_ml`, PostgreSQL, DVC, Google Drive" in normalized_core_rules
     assert "Pipe-and-Filter síncrono" in core_rules
     assert "ADR-0025" in root_context
-    assert "con import `vaaet_ml`" in ml_context
+    assert "`vaaet_ml`" in ml_context
+    assert "`vaaet-persistence==0.1.0`" in ml_context
     assert "`src/vaaet_ml/`" in ml_context
     assert "Los cuatro notebooks" in ml_context
     assert "Tres workflows Colab" not in ml_context

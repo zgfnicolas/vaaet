@@ -1,13 +1,13 @@
 # Arquitectura de software — VAAET
 
-VAAET separa un core operativo portable de un laboratorio MLOps batch. Colab
-orquesta ejecuciones manuales; `vaaet-core` expone `vaaet` y `vaaet-ml` expone
-`vaaet_ml` para datos, entrenamiento, evaluación y notebooks.
+VAAET separa un core operativo, una persistencia PostgreSQL compartida y un
+laboratorio MLOps batch. Colab orquesta ejecuciones manuales; los imports son
+`vaaet`, `vaaet_persistence` y `vaaet_ml`.
 
 ```mermaid
 flowchart LR
     V["Video SISE"] --> C["Data collection notebook"]
-    C --> R["Raw CSV / vaaet_raw.traffic_data"]
+    C --> R["Raw CSV / telemetría"]
     R --> S["Seed bootstrap"]
     S --> D["Processed seed package"]
     D --> T["HITL retraining"]
@@ -15,12 +15,16 @@ flowchart LR
     V --> I["Inference notebook"]
     B --> I
     I --> O["Annotated video + traffic state"]
-    I --> F["vaaet_ml features + predictions"]
+    I --> F["Features + predicciones"]
     F --> H["Explicit HITL review"]
-    H --> HV["vaaet_feedback.human_validations"]
+    H --> HV["Validaciones humanas"]
     HV --> HO["Frozen human holdout"]
     HO --> T
     HV -.-> T
+    R -.-> P["vaaet-persistence"]
+    F -.-> P
+    HV -.-> P
+    P --> DB[("PostgreSQL")]
 ```
 
 ## Capas
@@ -29,7 +33,8 @@ flowchart LR
 |---|---|---|
 | Orquestación | `vaaet-ml/notebooks/` | UI Colab, selección de entradas y descargas |
 | Core operativo | `vaaet-core/src/vaaet/` | Visión, telemetría, 19 features, estados, contratos e inferencia manifest-first |
-| Datos de laboratorio | `vaaet-ml/src/vaaet_ml/data/` | CSV, PostgreSQL, snapshots, catálogo HITL e input locks |
+| Persistencia | `vaaet-persistence/src/vaaet_persistence/` | Perfiles, engines, consultas, escrituras, auditoría y Alembic |
+| Datos de laboratorio | `vaaet-ml/src/vaaet_ml/data/` | CSV/backups, snapshots, catálogo HITL, input locks y adaptadores Colab |
 | Evaluación | `vaaet-ml/src/vaaet_ml/evaluation/` | Comparación, drift y reporting |
 | Entrenamiento | `vaaet-ml/src/vaaet_ml/training/` | Modos seed/HITL, memoria proxy, holdout y balanceo |
 | Features sintéticas | `vaaet-ml/src/vaaet_ml/features/` | Datos trazables exclusivamente de entrenamiento |
@@ -66,7 +71,7 @@ Una transición reinicia flujo óptico, SORT, velocidad, estacionario y contexto
 de clasificación. No hay reidentificación entre vistas. Un minuto que cruza una
 transición se descarta en lugar de mezclar conteos o geometrías; los reportes de
 segmento quedan en `VideoAnalysisResult.view_segments` sin alterar telemetría
-v2 ni las 19 features. La guía operativa está en
+v3 ni las 19 features. La guía operativa está en
 [calibración multi-vista](../operations/multi-view-calibration-guide.md).
 
 El notebook de entrenamiento expone dos entradas explícitas que convergen antes
@@ -77,7 +82,9 @@ exacta en un input lock. El mismo `input_policy` del manifiesto se usa en servin
 
 ## Integraciones
 
-- PostgreSQL es opcional y portable entre proveedores. `vaaet_raw`, `vaaet_ml` y `vaaet_feedback` separan adquisición, inferencia y ground truth; `vaaet_ops` registra ejecuciones redactadas y cuatro perfiles aplican mínimo privilegio.
+- PostgreSQL es opcional y portable entre proveedores. `vaaet-persistence`
+  centraliza su contrato para notebooks y futuros backends; cuatro perfiles
+  aplican mínimo privilegio y cada proceso aporta su identidad.
 - Google Drive transporta el bundle y conserva semilla, sesiones HITL, input locks y holdouts humanos entre sesiones Colab.
 - DVC versiona el directorio `vaaet-ml/artifacts/traffic-state` como una unidad;
   Git identifica cada versión por commit o tag y cada entorno configura su
@@ -85,16 +92,17 @@ exacta en un input lock. El mismo `input_policy` del manifiesto se usa en servin
 - Los pesos YOLO se descargan en runtime y no pertenecen al repositorio.
 - La futura Web App vivirá en `vaaet-app/`, consumirá únicamente una API
   versionada y nunca accederá directamente a bundles, DVC, Drive, PostgreSQL ni
-  módulos Python. Los workers de API usarán `vaaet-core`; el adaptador API será
-  dueño de trabajos asíncronos, storage y persistencia.
+  módulos Python. Los workers de API usarán `vaaet-core` y
+  `vaaet-persistence`; el adaptador API será dueño de trabajos asíncronos,
+  storage, contratos HTTP e identidad de servicio.
 
 ## Calidad
 
-GitHub Actions cubre Python 3.10–3.13, instalación de los extras declarados,
+GitHub Actions cubre Python 3.10–3.13 y las tres distribuciones,
 `pip check`, smoke imports, Ruff, pytest, compilación de los cuatro notebooks,
 enlaces, DVC y ausencia de binarios ML en Git. GPU, Drive, videos reales y
 PostgreSQL se validan manualmente en Colab.
 
-Decisiones principales: [ADR-0009](decisions/0009-modular-three-stage-architecture.md), [ADR-0010](decisions/0010-mlops-pipeline-19-features.md), [ADR-0013](decisions/0013-on-demand-data-collection-workflow.md), [ADR-0014](decisions/0014-hierarchical-traffic-state-and-incident-policy.md), [ADR-0015](decisions/0015-postgresql-namespaces-security-and-hitl.md), [ADR-0016](decisions/0016-postgresql-hardening-and-pipeline-runs.md), [ADR-0017](decisions/0017-seed-bootstrap-and-hitl-retraining.md), [ADR-0018](decisions/0018-versioned-frozen-human-holdouts.md), [ADR-0019](decisions/0019-immutable-seed-and-hitl-datasets.md), [ADR-0021](decisions/0021-portable-core-and-ml-laboratory-boundary.md), [ADR-0023](decisions/0023-provider-neutral-dvc-registry.md) y [ADR-0025](decisions/0025-calibrated-multi-view-video-segments.md).
+Decisiones principales: [ADR-0021](decisions/0021-portable-core-and-ml-laboratory-boundary.md), [ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md), [ADR-0026](decisions/0026-temporal-continuity-and-immutable-model-revisions.md), [ADR-0027](decisions/0027-complete-bundle-identity-and-hitl-integrity.md) y [ADR-0028](decisions/0028-shared-postgresql-persistence-layer.md).
 
 Los diagramas complementarios están en el [índice de diagramas](diagrams/index.md).

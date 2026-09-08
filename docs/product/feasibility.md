@@ -9,14 +9,14 @@ operación comercial ni un despliegue web; esos alcances aún no existen.
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.6.1 |
+| Versión del laboratorio | 4.7.0 |
 | Última revisión | 2026-08-27 |
 
 ## Factibilidad técnica
 
 El laboratorio es viable para análisis batch de videos finitos: el core separa
-percepción, telemetría, features, bundle e inferencia de los adaptadores de
-Colab, DVC, Drive y PostgreSQL. La calidad operacional sigue condicionada a
+percepción, telemetría, features, bundle e inferencia; persistencia separa
+PostgreSQL; y ML conserva Colab, DVC y Drive. La calidad operacional sigue condicionada a
 calibración local y ground truth: detección, velocidad y throughput no cuentan
 con benchmarks públicos suficientes.
 
@@ -28,8 +28,8 @@ fallan temprano sin GPU y las validaciones reales siguen siendo manuales.
 
 - Los videos y datos HITL requieren autorización y no se distribuyen por el
   carácter público del repositorio.
-- PostgreSQL, Drive y DVC remoto son adaptadores opcionales; no forman parte del
-  core ni habilitan serving.
+- PostgreSQL, Drive y DVC remoto son opcionales. PostgreSQL vive en la capa
+  compartida, no en core, y ninguna de estas capacidades habilita serving.
 - Los snapshots, holdouts e input locks hacen reproducible el laboratorio, pero
   no sustituyen autorización, backup ni revisión humana.
 

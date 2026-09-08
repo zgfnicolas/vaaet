@@ -27,7 +27,7 @@ For GPU-required training or visual processing, fail early if no GPU is assigned
 
 ### Environment
 
-Use the existing `# Environment setup — run once per Colab runtime` cell as the sole setup path. It must detect Colab, clone or fast-forward `/content/vaaet`, quietly install declared core and ML extras in order, clear stale `vaaet` and `vaaet_ml` modules, validate both import origins, run `pip check` diagnostically, and print versions plus commit—never credentials.
+Use the existing `# Environment setup — run once per Colab runtime` cell as the sole setup path. It must detect Colab, clone or fast-forward `/content/vaaet`, quietly install declared core, persistence, and ML extras in order, clear stale `vaaet`, `vaaet_persistence`, and `vaaet_ml` modules, validate all import origins, run `pip check` diagnostically, and print versions plus commit—never credentials.
 
 Do not install dependencies or repeatedly import heavyweight modules inside loops. Prefer `subprocess` argument lists to shell strings.
 

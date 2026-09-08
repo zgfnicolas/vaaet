@@ -15,6 +15,31 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.7.0] - 2026-09-08
+
+### Añadido
+
+- Distribución independiente `vaaet-persistence==0.1.0` para configuración,
+  conexiones, operaciones, auditoría y migraciones PostgreSQL compartidas.
+- Identidad de aplicación aportada por cada consumidor y prueba de integración
+  sin instalar ML, Colab, TensorFlow, YOLO, DVC o Drive.
+- ADR-0028 y guía operativa común para notebooks y futuros backends.
+
+### Cambiado
+
+- Los notebooks instalan core, persistencia y ML en ese orden y consumen la API
+  PostgreSQL compartida; las fachadas `vaaet_ml.data` conservan compatibilidad
+  durante VAAET 4.x.
+- Alembic, las revisiones históricas byte a byte, roles y auditor administrativo
+  tienen una sola ubicación canónica dentro de `vaaet-persistence`.
+
+### Seguridad
+
+- Cada consumidor selecciona un perfil explícito, aporta su identidad y conserva
+  pools, TLS, redacción y mínimo privilegio sin reintentar escrituras.
+- Se documentan bases separadas por entorno, privilegios por rol creador,
+  backups diarios, 30 días de retención, restauración trimestral y RPO de 24 h.
+
 ## [4.6.1] - 2026-09-07
 
 ### Añadido

@@ -78,8 +78,12 @@ def test_training_runtime_evidence_redacts_paths_and_normalizes_gpu_lines(tmp_pa
         in_colab=True,
         workspace_root=tmp_path,
         core_root=tmp_path / "core",
+        persistence_root=tmp_path / "persistence",
         ml_root=tmp_path / "ml",
         package_file=tmp_path / "site-packages" / "vaaet" / "__init__.py",
+        persistence_package_file=(
+            tmp_path / "site-packages" / "vaaet_persistence" / "__init__.py"
+        ),
         ml_package_file=tmp_path / "site-packages" / "vaaet_ml" / "__init__.py",
         git_commit="1234abc",
         python_version="3.12.0",

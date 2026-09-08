@@ -8,21 +8,23 @@
 
 VAAET analiza tránsito vehicular del Puente General Manuel Belgrano mediante
 percepción, telemetría por minuto y clasificación de estado. El monorepo mantiene
-un único Git y DVC, con tres componentes:
+un único Git y DVC, con cuatro componentes delimitados:
 
 | Componente | Estado | Responsabilidad |
 | --- | --- | --- |
 | `vaaet-core` | Activo | Percepción, telemetría, 19 features, política de estados, bundle e inferencia portable (`vaaet`) |
-| `vaaet-ml` | Activo | Colab, datasets, entrenamiento, evaluación, PostgreSQL, DVC y laboratorio (`vaaet_ml`) |
+| `vaaet-persistence` | Activo | Acceso, operaciones, auditoría y migraciones PostgreSQL compartidas (`vaaet_persistence`) |
+| `vaaet-ml` | Activo | Colab, datasets, entrenamiento, evaluación, adaptadores DB, DVC y laboratorio (`vaaet_ml`) |
 | `vaaet-app` | Reservado | Futura API y Web App, sin código, framework ni dependencias aún |
 
 [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
-define esos límites. La web futura sólo consumirá una API HTTP versionada; sus
-workers usarán core y validarán el manifiesto v2 antes de deserializar.
+y [ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md)
+definen esos límites. La web futura sólo consumirá HTTP; sus workers usarán
+core + persistencia con identidad propia y validarán el manifiesto vigente.
 
 ## Invariantes de gestión
 
-- Se preservan las 19 features v2, tres salidas aprendidas, cuatro estados
+- Se preservan las 19 features contractuales, tres salidas aprendidas, cuatro estados
   públicos y la política humana exclusiva de `Accident`.
 - El laboratorio mantiene separación entre `SEED_BOOTSTRAP`, `HITL_RETRAINING`,
   snapshots, input locks y holdouts humanos inmutables.
@@ -40,7 +42,7 @@ Las fuentes de contexto portables son [AGENTS.md](../../AGENTS.md),
 [llms.txt](../../llms.txt) y [docs/index.md](../index.md); los ADRs y contratos
 prevalecen sobre resúmenes y README.
 
-CI valida core y ML por separado, integración del workspace, PostgreSQL,
+CI valida core, persistencia y ML por separado, integración del workspace, PostgreSQL,
 enlaces y DVC. Los gates locales incluyen Ruff, pytest, compileall, AST de los
 cuatro notebooks y `git diff --check`. GPU, Drive, DVC remoto, YOLO y PostgreSQL
 con Secrets mantienen validación manual en Colab antes de promoción externa.

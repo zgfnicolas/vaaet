@@ -9,16 +9,17 @@ contratos y ADRs vigentes prevalecen ante cualquier resumen.
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.6.1 |
+| Versión del laboratorio | 4.7.0 |
 | Última revisión | 2026-08-30 |
 | Responsable técnico | Facundo Nicolás González |
 
 ## Arquitectura y restricciones
 
-VAAET es un monorepo con dos distribuciones internas: `vaaet-core==0.2.1`
-(import `vaaet`) y `vaaet-ml==4.6.1` (import `vaaet_ml`). El core procesa
-videos finitos con Pipe-and-Filter síncrono y ordenado; el laboratorio conserva
-entrenamiento, evaluación, Colab, DVC y PostgreSQL. La aplicación futura no
+VAAET es un monorepo con tres distribuciones internas: `vaaet-core==0.2.1`
+(import `vaaet`), `vaaet-persistence==0.1.0` (import `vaaet_persistence`) y
+`vaaet-ml==4.7.0` (import `vaaet_ml`). El core procesa
+videos finitos con Pipe-and-Filter síncrono y ordenado; persistencia centraliza
+PostgreSQL; el laboratorio conserva entrenamiento, evaluación, Colab y DVC. La aplicación futura no
 tiene código y sólo podrá usar una API HTTP versionada.
 
 - Python 3.10–3.13.
@@ -40,9 +41,9 @@ tiene código y sólo podrá usar una API HTTP versionada.
 | RF-004 | Mantener tracking SORT con IDs por clip y poda de tracks. | P0 |
 | RF-005 | Estimar velocidad con flujo óptico, compensación de cámara, perspectiva, plausibilidad y agregación robusta. | P0 |
 | RF-006 | Confirmar estacionario con la política conservadora e histéresis vigente. | P1 |
-| RF-007 | Generar telemetría v2 y las 19 features de `vaaet.settings.FEATURE_COLS`. | P0 |
+| RF-007 | Generar telemetría v3 y las 19 features de `vaaet.settings.FEATURE_COLS`. | P0 |
 | RF-008 | Clasificar sólo Normal/Reduced/Congested; `Accident` requiere validación humana. | P0 |
-| RF-009 | Persistir opt-in mediante el laboratorio con upserts idempotentes y estado visible de persistencia. | P1 |
+| RF-009 | Persistir opt-in mediante `vaaet-persistence`, con operaciones idempotentes y estado visible. | P1 |
 | RF-010 | Generar video anotado con HUD, tracks, tipos y velocidad cuando corresponda. | P1 |
 | RF-011 | Registrar datos sintéticos y entrenamiento HITL conforme a los contratos de procedencia y holdout. | P1 |
 | RF-012 | Procesar segmentos offline de vistas declaradas con calibración local, reinicio de estado y descarte de minutos mixtos. | P1 |
@@ -63,15 +64,15 @@ y calibrado conforme a ADR-0025.
 - Un error de decodificación no promete recuperación frame a frame: el runtime
   termina el procesamiento de manera segura y conserva sólo resultados ya
   materializados.
-- Los fallos de PostgreSQL no bloquean los frames: la persistencia se realiza
-  como adaptador de laboratorio y se informa al usuario.
+- Los fallos de PostgreSQL no invalidan el video ya procesado: la persistencia
+  es una etapa separada y se informa al usuario.
 
 ### Seguridad y mantenibilidad
 
 - Los secretos se leen desde Colab Secrets o variables de entorno locales; no se
   usa `getpass` ni se imprimen valores sensibles.
 - El core no depende de PostgreSQL, DVC, Drive, notebooks ni `vaaet_ml`.
-- El laboratorio importa el core; ambos se instalan desde sus `pyproject.toml`,
+- Persistencia depende sólo del core base; ML consume ambos. Los tres se instalan desde sus `pyproject.toml`,
   sin `requirements.txt` ni lockfiles.
 - Los cuatro notebooks sólo orquestan módulos testeados. La evaluación no crea
   `pipeline_run` ni persiste datos.

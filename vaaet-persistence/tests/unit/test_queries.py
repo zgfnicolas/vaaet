@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import ProgrammingError
 
-from vaaet_ml.data.database_queries import (
+from vaaet_persistence.queries import (
     HUMAN_FEATURES_QUERY,
     HUMAN_PREDICTIONS_QUERY,
     HUMAN_VALIDATIONS_QUERY,
@@ -17,6 +17,7 @@ from vaaet_ml.data.database_queries import (
     load_telemetry,
     load_telemetry_window,
 )
+from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
 
 class _DisposableEngine:
@@ -25,6 +26,20 @@ class _DisposableEngine:
 
     def dispose(self) -> None:
         self.disposed = True
+
+
+def _settings() -> DatabaseSettings:
+    return DatabaseSettings(
+        DatabaseProfile.TRAINING,
+        "localhost",
+        5432,
+        "vaaet",
+        "reader",
+        "secret",
+        "disable",
+        application_name="test-consumer",
+        application_version="1.0.0",
+    )
 
 
 def test_load_telemetry_falls_back_to_legacy_schema(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,7 +52,7 @@ def test_load_telemetry_falls_back_to_legacy_schema(monkeypatch: pytest.MonkeyPa
             raise ProgrammingError(str(statement), {}, RuntimeError("missing v2"))
         return pd.DataFrame({"clip_id": ["legacy"]})
 
-    monkeypatch.setattr("vaaet_ml.data.database_queries.pd.read_sql", fake_read_sql)
+    monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
     result = load_telemetry(engine=engine)
 
     assert result["clip_id"].tolist() == ["legacy"]
@@ -47,13 +62,13 @@ def test_load_telemetry_falls_back_to_legacy_schema(monkeypatch: pytest.MonkeyPa
 
 def test_read_only_queries_dispose_owned_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = _DisposableEngine()
-    monkeypatch.setattr("vaaet_ml.data.database_queries.get_engine", lambda _: engine)
+    monkeypatch.setattr("vaaet_persistence.queries.get_engine", lambda _: engine)
     monkeypatch.setattr(
-        "vaaet_ml.data.database_queries.pd.read_sql",
+        "vaaet_persistence.queries.pd.read_sql",
         lambda *_args, **_kwargs: pd.DataFrame({"clip_id": ["clip-a"]}),
     )
 
-    assert len(load_human_ground_truth(settings={"host": "unused"})) == 1
+    assert len(load_human_ground_truth(settings=_settings())) == 1
     assert engine.disposed
 
 
@@ -68,7 +83,7 @@ def test_human_history_queries_are_explicit_and_load_every_component(
         assert params == {"feature_schema_version": "traffic-features-v3"}
         return pd.DataFrame({"id": [len(statements)]})
 
-    monkeypatch.setattr("vaaet_ml.data.database_queries.pd.read_sql", fake_read_sql)
+    monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
     components = load_human_feedback_components(engine=engine)
 
     assert set(components) == {"features", "predictions", "validations"}

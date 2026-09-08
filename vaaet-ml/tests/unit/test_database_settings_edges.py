@@ -18,7 +18,7 @@ from vaaet_ml.exceptions import DatabaseNotConfiguredError
 
 
 def test_optional_settings_and_reviewer_id_fail_safely(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("vaaet_ml.data.database_settings._setting", lambda _: None)
+    monkeypatch.setattr("vaaet_ml.data.database_settings._notebook_value", lambda _: None)
 
     assert get_optional_database_settings(DatabaseProfile.REVIEW) is None
     with pytest.raises(DatabaseNotConfiguredError, match="REVIEWER_ID"):

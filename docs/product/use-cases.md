@@ -9,7 +9,7 @@ implementado; su frontera está definida por ADR-0021.
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.6.1 |
+| Versión del laboratorio | 4.7.0 |
 | Última revisión | 2026-08-27 |
 
 ## CU-001 — Procesar video
@@ -18,7 +18,7 @@ implementado; su frontera está definida por ADR-0021.
 |---|---|
 | Actor | Operador o investigador |
 | Precondición | Video MP4 y GPU disponible para el workflow de visión |
-| Resultado | Telemetría v2 de minutos completos y video anotado opcional |
+| Resultado | Telemetría v3 de minutos completos y video anotado opcional |
 
 El notebook de adquisición o inferencia procesa en orden detección, tracking,
 velocidad, telemetría y render. Con nombre libre conserva la hora de ejecución
@@ -45,7 +45,7 @@ estado automático permanece `Congested`; `Accident` requiere revisión humana.
 |---|---|
 | Actor | Investigador que habilita el adaptador PostgreSQL |
 | Precondición | Perfil de mínimo privilegio en Colab Secrets o variables locales |
-| Resultado | Upserts idempotentes de raw, features, predicciones o feedback autorizados |
+| Resultado | Escrituras idempotentes de raw, features, predicciones o feedback autorizados |
 
 Sin credenciales o ante una conexión fallida, el notebook informa que no hubo
 persistencia y mantiene los outputs locales disponibles. Alembic, roles y
@@ -59,7 +59,7 @@ credenciales administrativas nunca se ejecutan desde Colab.
 | Precondición | Plan `SEED_BOOTSTRAP` o `HITL_RETRAINING` válido y GPU disponible |
 | Resultado | Bundle v3 candidato con procedencia, checksums y gates |
 
-El entrenamiento audita telemetría v2, usa las 19 features, conserva la
+El entrenamiento audita telemetría v3 y fuentes legacy declaradas, usa las 19 features, conserva la
 proveniencia de datos reales/sintéticos y separa los tres estados aprendidos de
 la política humana de `Accident`.
 

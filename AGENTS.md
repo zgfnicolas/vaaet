@@ -13,7 +13,7 @@ ni la documentación normativa de [`docs/`](docs/index.md).
 | Propósito | Convertir videos de tránsito en telemetría por minuto, estados de circulación y evidencia revisable por una persona. |
 | Producto actual | Laboratorio ML y procesamiento batch; los workflows principales se ejecutan en Google Colab. |
 | Runtime | Python 3.10–3.13. |
-| Componentes activos | `vaaet-core/` portable y `vaaet-ml/` como laboratorio. |
+| Componentes activos | `vaaet-core/` portable, `vaaet-persistence/` compartido y `vaaet-ml/` como laboratorio. |
 | Componente reservado | `vaaet-app/`; todavía no existe API ni Web App ejecutable. |
 | Modelo de estados | El MLP aprende `Normal`, `Reduced` y `Congested`; `Accident` requiere confirmación humana. |
 | Licencia | AGPL-3.0-only, con condiciones adicionales para serving que utilice Ultralytics YOLO. |
@@ -45,7 +45,8 @@ Antes de editar:
 | [`llms.txt`](llms.txt) | Resumen portable y compacto para herramientas. |
 | [`docs/index.md`](docs/index.md) | Navegación hacia arquitectura, contratos, operación, calidad y gobernanza. |
 | [`vaaet-core/AGENTS.md`](vaaet-core/AGENTS.md) | Reglas de percepción, telemetría, features, bundle e inferencia portable. |
-| [`vaaet-ml/AGENTS.md`](vaaet-ml/AGENTS.md) | Reglas de notebooks, entrenamiento, evaluación, datos, PostgreSQL y DVC. |
+| [`vaaet-persistence/AGENTS.md`](vaaet-persistence/AGENTS.md) | Reglas de conexión, SQL, transacciones, seguridad y migraciones PostgreSQL. |
+| [`vaaet-ml/AGENTS.md`](vaaet-ml/AGENTS.md) | Reglas de notebooks, entrenamiento, evaluación, datasets, adaptadores Colab y DVC. |
 
 No crees raíces de contexto paralelas ni dupliques ADRs completos en archivos
 introductorios. Si dos fuentes se contradicen, detené el cambio y señalá las
@@ -56,12 +57,13 @@ fuentes concretas antes de elegir una interpretación.
 | Si la tarea afecta... | Propietario | Regla principal |
 | --- | --- | --- |
 | Percepción, tracking, velocidad, telemetría, timestamps, 19 features, política de estados, HUD o bundle | `vaaet-core/` | Implementar con import `vaaet`; no incorporar dependencias del laboratorio. |
-| Notebooks, ingestión, datasets, entrenamiento, evaluación, HITL, PostgreSQL, Alembic o registro DVC | `vaaet-ml/` | Implementar con import `vaaet_ml` y consumir el core mediante `vaaet`. |
+| Conexión, consultas, escrituras, linaje, roles, auditoría o Alembic PostgreSQL | `vaaet-persistence/` | Implementar con import `vaaet_persistence`; no depender del laboratorio ni de la futura aplicación. |
+| Notebooks, ingestión, datasets, entrenamiento, evaluación, UI HITL, backups o registro DVC | `vaaet-ml/` | Implementar con import `vaaet_ml` y consumir core/persistencia mediante sus APIs públicas. |
 | API, frontend, workers o aplicación desplegable | `vaaet-app/` | Está reservado: requiere alcance aprobado y contrato HTTP versionado antes de agregar código o dependencias. |
-| Documentación, CI, configuración Git/DVC o políticas compartidas | Raíz | Mantener un único workspace y comprobar el impacto sobre ambos componentes. |
+| Documentación, CI, configuración Git/DVC o políticas compartidas | Raíz | Mantener un único workspace y comprobar el impacto sobre los componentes. |
 
 No existe un paquete Python instalable en la raíz. En desarrollo, CI y Colab se
-instala primero `vaaet-core` y después `vaaet-ml`.
+instala `vaaet-core`, luego `vaaet-persistence` y finalmente `vaaet-ml`.
 
 ## Convención de código y documentación interna
 
@@ -84,17 +86,24 @@ resueltos por el consumidor; no decide de dónde provienen.
 ### `vaaet-ml/`
 
 Contiene el laboratorio: notebooks, fuentes de datos, entrenamiento,
-evaluación, migraciones, PostgreSQL y artefactos ML. Puede consumir el core,
-pero nunca debe convertirse en dependencia de serving. El notebook de
+evaluación, adaptadores Colab y artefactos ML. Puede consumir core y
+persistencia, pero nunca debe convertirse en dependencia de serving. El notebook de
 evaluación es read-only y no promociona modelos ni persiste resultados
 operacionales.
+
+### `vaaet-persistence/`
+
+Contiene el acceso compartido a PostgreSQL, contratos de configuración,
+consultas y escrituras concretas, auditoría y la única cadena Alembic. Puede
+depender del core base, pero no de ML, Colab, DVC, Drive o la aplicación.
 
 ### `vaaet-app/`
 
 Permanece reservado. Una futura Web App sólo podrá consumir una API HTTP
-versionada; no accederá directamente a módulos Python, PostgreSQL, DVC, Google
-Drive ni rutas de artefactos. Los workers futuros usarán `vaaet-core`, no
-`vaaet-ml`, y validarán el manifiesto antes de deserializar un bundle.
+versionada; el navegador no accederá directamente a módulos Python,
+PostgreSQL, DVC, Google Drive ni rutas de artefactos. El backend podrá consumir
+`vaaet-core` y `vaaet-persistence`, nunca `vaaet-ml`, y validará el manifiesto
+antes de deserializar un bundle.
 
 ## Invariantes no negociables
 
@@ -110,10 +119,12 @@ Drive ni rutas de artefactos. Los workers futuros usarán `vaaet-core`, no
   Git/DVC y un único remoto lógico `vaaet-registry`, configurado por entorno en
   `.dvc/config.local`. [ADR-0023](docs/architecture/decisions/0023-provider-neutral-dvc-registry.md)
   gobierna esta operación.
-- PostgreSQL pertenece exclusivamente al laboratorio ML. Alembic es la única
+- PostgreSQL pertenece a la capa compartida `vaaet-persistence`. Alembic es la única
   autoridad DDL y los perfiles aplican TLS y mínimo privilegio. No ejecutes
   migraciones administrativas desde notebooks. Consultá
   [ADR-0024](docs/architecture/decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
+- La extracción compartida y la frontera con el futuro backend están gobernadas
+  por [ADR-0028](docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.
@@ -155,7 +166,7 @@ redistribución.
 | Nivel | Conducta esperada |
 | --- | --- |
 | **Always** | Leer las fuentes aplicables; inspeccionar código, pruebas y estado Git; preservar cambios ajenos; mantener el cambio acotado; validar en proporción al riesgo; documentar el resultado real. |
-| **Ask** | Cambiar contratos, 19 features, estados, umbrales, MLP, dependencias, schema o permisos PostgreSQL, migraciones, remotos DVC, serving, límites core--ML--app o iniciar una refactorización arquitectónica. |
+| **Ask** | Cambiar contratos, 19 features, estados, umbrales, MLP, dependencias, schema o permisos PostgreSQL, migraciones, remotos DVC, serving, límites core--persistencia--ML--app o iniciar una refactorización arquitectónica. |
 | **Never** | Versionar secretos, datos privados, videos, calibraciones o binarios ML; saltar la validación manifest-first; eliminar o debilitar pruebas para obtener un resultado verde; introducir dependencias ML/infraestructura en el core; agregar silenciosamente API, frontend o framework en `vaaet-app/`. |
 
 Los cambios arquitectónicos, de contratos, seguridad, datos persistidos,
@@ -172,11 +183,12 @@ sólo los extras necesarios.
 | Alcance | Evidencia mínima |
 | --- | --- |
 | `vaaet-core/` | Ruff, Pyright, pytest y `compileall` según [`vaaet-core/AGENTS.md`](vaaet-core/AGENTS.md). |
+| `vaaet-persistence/` | Ruff, Pyright, pytest, `compileall` e integración PostgreSQL 17 según [`vaaet-persistence/AGENTS.md`](vaaet-persistence/AGENTS.md). |
 | `vaaet-ml/` | Ruff, Pyright, pytest, `compileall`, AST y auditoría de notebooks según [`vaaet-ml/AGENTS.md`](vaaet-ml/AGENTS.md). |
 | Documentación o contexto | Enlaces Markdown internos, coherencia con ADRs y contratos, y `git diff --check`. |
 | PostgreSQL | Pruebas unitarias más integración PostgreSQL 17 cuando corresponda; la validación real de TLS y proveedor es manual. |
 | DVC, Drive, GPU o YOLO | Pruebas sin red cuando existan y validación manual explícita en el entorno real. |
-| Cambio transversal | Validaciones de ambos componentes y controles de integración del workspace. |
+| Cambio transversal | Validaciones de todos los componentes afectados y controles de integración del workspace. |
 
 No presentes una comprobación manual pendiente como si hubiera pasado. Si una
 prueba no puede ejecutarse, indicá el motivo, el riesgo que queda abierto y el

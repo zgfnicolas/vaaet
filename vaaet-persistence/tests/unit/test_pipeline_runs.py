@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from vaaet_ml.data.pipeline_runs import (
+from vaaet_persistence.pipeline_runs import (
     PipelineRunMetadata,
     PipelineWorkflow,
     pipeline_run,
@@ -19,6 +19,8 @@ from vaaet_ml.data.pipeline_runs import (
 def test_local_pipeline_run_records_success_without_arbitrary_metadata(tmp_path) -> None:
     metadata = PipelineRunMetadata(
         workflow=PipelineWorkflow.COLLECTION,
+        application_name="test-consumer",
+        application_version="1.0.0",
         git_commit="abc1234",
         source_kind="video",
         clip_id="bridge-test",
@@ -41,7 +43,11 @@ def test_pipeline_run_preserves_a_preallocated_training_identifier(tmp_path) -> 
     run_id = uuid4()
 
     with pipeline_run(
-        PipelineRunMetadata(workflow=PipelineWorkflow.TRAINING),
+        PipelineRunMetadata(
+            workflow=PipelineWorkflow.TRAINING,
+            application_name="test-consumer",
+            application_version="1.0.0",
+        ),
         local_manifest_directory=tmp_path,
         run_id=run_id,
     ) as run:
@@ -55,7 +61,11 @@ def test_training_run_records_revision_resolved_after_bundle_validation(tmp_path
     revision = "a" * 64
 
     with pipeline_run(
-        PipelineRunMetadata(workflow=PipelineWorkflow.TRAINING),
+        PipelineRunMetadata(
+            workflow=PipelineWorkflow.TRAINING,
+            application_name="test-consumer",
+            application_version="1.0.0",
+        ),
         local_manifest_directory=tmp_path,
     ) as run:
         run.set_model_revision(revision)
@@ -65,7 +75,11 @@ def test_training_run_records_revision_resolved_after_bundle_validation(tmp_path
 
 
 def test_local_pipeline_run_records_only_exception_category(tmp_path) -> None:
-    metadata = PipelineRunMetadata(workflow=PipelineWorkflow.INFERENCE)
+    metadata = PipelineRunMetadata(
+        workflow=PipelineWorkflow.INFERENCE,
+        application_name="test-consumer",
+        application_version="1.0.0",
+    )
 
     with pytest.raises(RuntimeError, match="sensitive detail"):
         with pipeline_run(metadata, local_manifest_directory=tmp_path) as run:
@@ -86,12 +100,23 @@ def test_local_pipeline_run_records_only_exception_category(tmp_path) -> None:
     ],
 )
 def test_pipeline_metadata_rejects_connection_material(field, value) -> None:
-    arguments = {"workflow": PipelineWorkflow.TRAINING, field: value}
+    arguments = {
+        "workflow": PipelineWorkflow.TRAINING,
+        "application_name": "test-consumer",
+        "application_version": "1.0.0",
+        field: value,
+    }
     with pytest.raises(ValueError, match="credentials|filesystem path"):
         PipelineRunMetadata(**arguments)
 
 
 def test_local_fallback_requires_explicit_destination() -> None:
     with pytest.raises(ValueError, match="local manifest directory"):
-        with pipeline_run(PipelineRunMetadata(PipelineWorkflow.TRAINING)):
+        with pipeline_run(
+            PipelineRunMetadata(
+                PipelineWorkflow.TRAINING,
+                "test-consumer",
+                "1.0.0",
+            )
+        ):
             pass

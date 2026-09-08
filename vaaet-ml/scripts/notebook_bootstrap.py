@@ -46,6 +46,7 @@ class NotebookInstallSpec:
 
     workspace_root: Path
     core_root: Path
+    persistence_root: Path
     ml_root: Path
     core_extras: tuple[str, ...]
     ml_extras: tuple[str, ...]
@@ -56,21 +57,22 @@ class NotebookInstallSpec:
             raise NotebookBootstrapError("Cada workflow debe declarar extras para core y ML.")
         if not (self.workspace_root / ".git").is_dir():
             raise NotebookBootstrapError("No se encontró el checkout Git de VAAET.")
-        for component_root in (self.core_root, self.ml_root):
+        for component_root in (self.core_root, self.persistence_root, self.ml_root):
             if not (component_root / "pyproject.toml").is_file():
                 raise NotebookBootstrapError(
                     f"No se encontró pyproject.toml en el componente: {component_root.name}."
                 )
 
-    def requirements(self) -> tuple[str, str]:
+    def requirements(self) -> tuple[str, str, str]:
         return (
             _format_requirement(self.core_root, self.core_extras),
+            _format_requirement(self.persistence_root, ()),
             _format_requirement(self.ml_root, self.ml_extras),
         )
 
 
 def _format_requirement(project_root: Path, extras: tuple[str, ...]) -> str:
-    return f"{project_root}[{','.join(extras)}]"
+    return f"{project_root}[{','.join(extras)}]" if extras else str(project_root)
 
 
 def _dependency_fingerprint(spec: NotebookInstallSpec) -> str:
@@ -79,6 +81,7 @@ def _dependency_fingerprint(spec: NotebookInstallSpec) -> str:
     digest = hashlib.sha256()
     for project_root, extras in (
         (spec.core_root, spec.core_extras),
+        (spec.persistence_root, ()),
         (spec.ml_root, spec.ml_extras),
     ):
         digest.update((project_root / "pyproject.toml").read_bytes())
@@ -141,7 +144,7 @@ def _run_pip(command: list[str], runner: CommandRunner) -> None:
 def _clear_installed_modules(spec: NotebookInstallSpec) -> None:
     """Descarta módulos que podrían haber quedado cargados antes de la instalación."""
 
-    prefixes = ["vaaet", "vaaet_ml"]
+    prefixes = ["vaaet", "vaaet_persistence", "vaaet_ml"]
     if "vision" in spec.core_extras:
         prefixes.extend(("PIL", "ultralytics"))
     for module_name in tuple(sys.modules):
@@ -200,7 +203,7 @@ def install_notebook_components(
         _run_pip(_pip_command(spec), runner)
     else:
         print("✅ Extras sin cambios; se reutilizan las dependencias del runtime.")
-        print("🔄 Actualizando vaaet-core y vaaet-ml desde el checkout actual...")
+        print("🔄 Actualizando core, persistence y ML desde el checkout actual...")
         _run_pip(_pip_command(spec, "--force-reinstall", "--no-deps"), runner)
     _clear_installed_modules(spec)
     validator = runtime_validator or _validate_declared_runtime
@@ -210,8 +213,8 @@ def install_notebook_components(
 
 def _clear_vaaet_modules() -> None:
     for module_name in tuple(sys.modules):
-        if module_name in {"vaaet", "vaaet_ml"} or module_name.startswith(
-            ("vaaet.", "vaaet_ml.")
+        if module_name in {"vaaet", "vaaet_persistence", "vaaet_ml"} or module_name.startswith(
+            ("vaaet.", "vaaet_persistence.", "vaaet_ml.")
         ):
             sys.modules.pop(module_name, None)
     importlib.invalidate_caches()
@@ -221,6 +224,7 @@ def bootstrap_notebook(
     *,
     workspace_root: Path,
     core_root: Path,
+    persistence_root: Path,
     ml_root: Path,
     core_extras: tuple[str, ...],
     ml_extras: tuple[str, ...],
@@ -233,6 +237,7 @@ def bootstrap_notebook(
     spec = NotebookInstallSpec(
         workspace_root=workspace_root,
         core_root=core_root,
+        persistence_root=persistence_root,
         ml_root=ml_root,
         core_extras=core_extras,
         ml_extras=ml_extras,
@@ -246,6 +251,7 @@ def bootstrap_notebook(
     return bootstrap_notebook_runtime(
         workspace_root=workspace_root,
         core_root=core_root,
+        persistence_root=persistence_root,
         ml_root=ml_root,
         in_colab=in_colab,
         framework=framework,

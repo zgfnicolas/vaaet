@@ -3,10 +3,11 @@
 Este directorio reserva la futura aplicación VAAET. No contiene API, frontend,
 framework, dependencias ni acceso directo a datos en esta etapa.
 
-La futura API instalará `../vaaet-core`, validará el bundle v2 mediante
-`vaaet.artifacts.validate_manifest()` antes de deserializarlo y expondrá un
-contrato HTTP versionado. La Web App consumirá exclusivamente esa API; no debe
-acceder a PostgreSQL, DVC, Google Drive, artefactos binarios ni módulos Python.
+La futura API instalará `../vaaet-core` y `../vaaet-persistence`, validará el
+bundle vigente mediante `vaaet.artifacts.validate_manifest()` antes de
+deserializarlo y expondrá un contrato HTTP versionado. El backend usará una
+identidad PostgreSQL propia; la Web App consumirá exclusivamente la API y no
+accederá a PostgreSQL, DVC, Drive, artefactos binarios ni módulos Python.
 
 Una API que ejecute `vaaet-core[vision]` sólo podrá desplegarse tras elegir una
 vía de licencia: demo pública AGPL-3.0 con código reproducible y activos
@@ -21,3 +22,5 @@ de cualquier despliegue futuro.
 
 La arquitectura está gobernada por
 [ADR-0021](../docs/architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md).
+La persistencia compartida está gobernada por
+[ADR-0028](../docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).

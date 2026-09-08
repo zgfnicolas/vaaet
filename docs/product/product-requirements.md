@@ -7,13 +7,15 @@
 **Normativo y vigente.** Define el producto de laboratorio actual; no autoriza
 una API, frontend ni despliegue web. Para decisiones de arquitectura prevalecen
 [ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
-y [ADR-0022](../architecture/decisions/0022-agpl-public-demo-path.md), y para
+y [ADR-0022](../architecture/decisions/0022-agpl-public-demo-path.md), la
+persistencia compartida sigue
+[ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md), y para
 cinemática multi-vista
 [ADR-0025](../architecture/decisions/0025-calibrated-multi-view-video-segments.md).
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.6.1 |
+| Versión del laboratorio | 4.7.0 |
 | Última revisión | 2026-08-30 |
 | Responsable técnico | Facundo Nicolás González |
 
@@ -22,8 +24,8 @@ cinemática multi-vista
 VAAET analiza videos del Puente General Manuel Belgrano para producir
 telemetría por minuto, video anotado y una clasificación conservadora del
 tráfico. `vaaet-core` aporta percepción, telemetría, 19 features, política de
-estados y bundle portable; `vaaet-ml` aporta los cuatro notebooks, datasets,
-entrenamiento, evaluación y persistencia opcional.
+estados y bundle portable; `vaaet-persistence` aporta PostgreSQL compartido; y
+`vaaet-ml` aporta notebooks, datasets, entrenamiento y evaluación.
 
 El MLP predice `Normal`, `Reduced` y `Congested`. `Accident` es un estado
 público exclusivamente humano; un candidato de incidente conserva `Congested`
@@ -35,7 +37,7 @@ hasta una revisión explícita.
   conservador sobre videos finitos y ordenados.
 - Plan opcional de segmentos multi-vista offline, con calibración local por
   referencias medidas, reinicio temporal y descarte de minutos mixtos.
-- Telemetría v2 por minutos completos, video anotado y métricas de pipeline.
+- Telemetría v3 por minutos completos, video anotado y métricas de pipeline.
 - Ingeniería de 19 features, MLP de tres salidas, política temporal y bundle v3
   validado antes de deserializar.
 - Cuatro notebooks: adquisición, entrenamiento, inferencia y evaluación

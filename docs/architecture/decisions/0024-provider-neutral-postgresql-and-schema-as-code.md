@@ -5,6 +5,7 @@
 - Decisores: Facundo Nicolás González
 - Actualiza: aspectos operativos de ADR-0015
 - Complementa: ADR-0016 y ADR-0021
+- Actualizada por: ADR-0028
 
 ## Contexto
 
@@ -54,3 +55,14 @@ SQL, las funciones de seguridad y las migraciones históricas.
   una base desechable. No existe un modo reducido que debilite mínimo privilegio.
 - La conexión administrativa continúa fuera de notebooks. La futura API y Web
   App no reciben acceso directo a PostgreSQL; el core sigue siendo portable.
+
+## Actualización por ADR-0028
+
+La implementación y las revisiones Alembic pasan a `vaaet-persistence`, sin
+cambiar el contrato `vaaet-db-v3` ni crear una revisión `0004`. Los adaptadores
+Colab y la compatibilidad con variables legacy permanecen en `vaaet-ml`.
+
+Una futura API podrá usar la biblioteca compartida con una identidad de proceso
+propia; la Web App seguirá sin acceso directo. Los nuevos roles o grants de la
+aplicación se definirán junto con su contrato HTTP. Consultá
+[ADR-0028](0028-shared-postgresql-persistence-layer.md).

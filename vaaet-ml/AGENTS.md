@@ -5,7 +5,7 @@
 | Campo | Detalle |
 |---|---|
 | Proyecto | VAAET ML — Video Advanced Analysis of Traffic |
-| Versión | 4.6.1 |
+| Versión | 4.7.0 |
 | Runtime objetivo | Python 3.10–3.13; Google Colab |
 | Responsable | Facundo Nicolás González |
 | Última revisión | 2026-08-27 |
@@ -29,9 +29,10 @@ tests/                      pruebas unitarias, contractuales y de repositorio
 Adquisición, entrenamiento e inferencia son workflows operacionales. Evaluación
 no crea `pipeline_run` ni persiste datos.
 
-La lógica operativa reutilizable vive en `../vaaet-core/src/vaaet/`; este
-componente la consume como `vaaet`. La Web App futura sólo consumirá una API
-que usará el core y validará el bundle v3. El MLP aprende tres estados estables;
+La lógica operativa reutilizable vive en `../vaaet-core/src/vaaet/` y el acceso
+PostgreSQL en `../vaaet-persistence/src/vaaet_persistence/`; este componente
+consume ambas bibliotecas. La Web App futura sólo consumirá una API cuyo backend
+usará core/persistencia y validará el bundle v3. El MLP aprende tres estados estables;
 Accident es un estado público exclusivamente humano conforme a ADR-0014.
 ADR-0021 gobierna esta frontera junto con los ADRs de datos, HITL y holdouts.
 
@@ -47,14 +48,17 @@ ADR-0021 gobierna esta frontera junto con los ADRs de datos, HITL y holdouts.
 
 - `../vaaet-core/src/vaaet/`: contratos, umbrales algorítmicos, percepción,
   features, política de estados e inferencia portable.
-- `settings.py`: rutas de laboratorio, configuración de datos y DB. DVC se
+- `settings.py`: rutas y configuración exclusiva del laboratorio. DVC se
   configura desde la raíz mediante `vaaet-registry` y nunca desde settings.
-- `data/`: datasets, conexión y persistencia.
+- `data/`: datasets, backups, adaptadores Colab y fachadas PostgreSQL 4.x.
+- `../vaaet-persistence/`: configuración, conexiones, SQL, escrituras,
+  auditoría, roles y única cadena Alembic.
 - `features/`: ingeniería, etiquetado y generación sintética de entrenamiento.
 - `evaluation/`: comparación, drift y reporting de laboratorio.
 
-Los notebooks instalan primero `vaaet-core` y luego `vaaet-ml`: importan
-`vaaet.*` para operaciones y `vaaet_ml.*` para laboratorio. Nunca modifican
+Los notebooks instalan `vaaet-core`, `vaaet-persistence` y luego `vaaet-ml`:
+importan `vaaet.*` para operaciones, `vaaet_persistence.*` para PostgreSQL y
+`vaaet_ml.*` para laboratorio. Nunca modifican
 `sys.path`. El core no puede importar este paquete ni PostgreSQL, DVC o Drive.
 
 ## Comentarios y docstrings
@@ -68,7 +72,7 @@ su estilo documental.
 
 ## Validación
 
-1. Instalar `../vaaet-core` y luego este componente local.
+1. Instalar `../vaaet-core`, `../vaaet-persistence` y luego este componente local.
 2. `ruff check src tests scripts`
 3. `pyright --project ../pyrightconfig.json`
 4. `pytest tests/ -v --tb=short`
@@ -79,4 +83,4 @@ su estilo documental.
 
 GPU, Drive, PostgreSQL, descarga de YOLO y DVC remoto se validan manualmente en Colab.
 
-No agregar, quitar ni reordenar las 19 `FEATURE_COLS`; no cambiar los cuatro estados públicos ni el esquema PostgreSQL sin autorización y un ADR. ADR-0021 gobierna el core/laboratorio; ADR-0013 el workflow de adquisición, ADR-0014 la arquitectura jerárquica, ADR-0015 los namespaces/HITL, ADR-0016 el hardening y linaje operacional, ADR-0017 los modos semilla/HITL, ADR-0018 el benchmark humano versionado, ADR-0019 los datasets inmutables y ADR-0024 la configuración PostgreSQL portable y las migraciones como código.
+No agregar, quitar ni reordenar las 19 `FEATURE_COLS`; no cambiar los cuatro estados públicos ni el esquema PostgreSQL sin autorización y un ADR. ADR-0021 gobierna el core/laboratorio; ADR-0013 el workflow de adquisición, ADR-0014 la arquitectura jerárquica, ADR-0015 los namespaces/HITL, ADR-0016 el hardening y linaje operacional, ADR-0017 los modos semilla/HITL, ADR-0018 el benchmark humano versionado, ADR-0019 los datasets inmutables, ADR-0024 la configuración PostgreSQL portable y ADR-0028 la capa compartida.

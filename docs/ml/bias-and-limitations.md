@@ -102,7 +102,7 @@ El sistema NO ha sido evaluado sistemáticamente bajo:
 | Pool limitado | El engine usa un pool pequeño; no existe una cola durable de persistencia |
 | Sin replay automático | Un fallo preserva outputs locales, pero exige una acción explícita para reintentar |
 | TLS operativo | `verify-full` requiere CA; `require` no verifica identidad y `disable` sólo sirve en localhost |
-| Migración manual | La migración SQL v2 es retrocompatible, pero su aplicación y permisos siguen siendo operativos |
+| Migración manual | La cadena Alembic de `vaaet-db-v3` es retrocompatible, pero su aplicación y permisos siguen siendo operativos |
 
 ---
 
@@ -166,7 +166,7 @@ El dataset del Puente Belgrano (abril-julio 2025, ~2.000 registros) no contiene 
 
 **Mitigaciones**:
 1. **Secuencias sintéticas** (`vaaet-ml/src/vaaet_ml/features/synthetic.py`): Telemetría plausible de casos extremos inyectada antes del feature engineering. IDs ≥ 50.001 para trazabilidad.
-2. **Balanceo conservador**: El baseline v2 usa class weights limitados; no aplica SMOTE 1:1.
+2. **Balanceo conservador**: El modelo semilla actual usa class weights limitados; no aplica SMOTE 1:1.
 3. **Separación jerárquica**: Accident no es una salida aprendida y exige confirmación humana.
 
 **Limitación**: Las muestras sintéticas de Accidente y Congestión son aproximaciones de ingeniería, no eventos observados. Accident sintético sólo prueba sensibilidad técnica del detector y no respalda recall operacional. Véase [ADR-0014](../architecture/decisions/0014-hierarchical-traffic-state-and-incident-policy.md).

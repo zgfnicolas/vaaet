@@ -19,7 +19,11 @@ def test_root_license_is_agpl_v3() -> None:
 
 
 def test_packages_declare_agpl_v3_only() -> None:
-    for project_root in (WORKSPACE_ROOT / "vaaet-core", ML_ROOT):
+    for project_root in (
+        WORKSPACE_ROOT / "vaaet-core",
+        WORKSPACE_ROOT / "vaaet-persistence",
+        ML_ROOT,
+    ):
         metadata = (project_root / "pyproject.toml").read_text(encoding="utf-8")
         assert 'license = "AGPL-3.0-only"' in metadata
 
@@ -41,6 +45,8 @@ def test_executable_sources_and_notebooks_carry_agpl_notices() -> None:
     source_roots = (
         WORKSPACE_ROOT / "vaaet-core/src",
         WORKSPACE_ROOT / "vaaet-core/tests",
+        WORKSPACE_ROOT / "vaaet-persistence/src",
+        WORKSPACE_ROOT / "vaaet-persistence/tests",
         ML_ROOT / "src",
         ML_ROOT / "tests",
         ML_ROOT / "scripts",

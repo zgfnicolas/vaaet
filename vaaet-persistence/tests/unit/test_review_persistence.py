@@ -9,9 +9,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pandas as pd
+import pytest
 
-from vaaet_ml.data.review_domain import HumanValidation
-from vaaet_ml.data.review_persistence import load_review_queue, persist_human_validation
+from vaaet_persistence.review_domain import HumanValidation
+from vaaet_persistence.review_persistence import load_review_queue, persist_human_validation
+from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
 
 class _Connection:
@@ -35,11 +37,25 @@ class _Engine:
         self.disposed = True
 
 
+def _settings() -> DatabaseSettings:
+    return DatabaseSettings(
+        DatabaseProfile.REVIEW,
+        "localhost",
+        5432,
+        "vaaet",
+        "reviewer",
+        "secret",
+        "disable",
+        application_name="test-review",
+        application_version="1.0.0",
+    )
+
+
 def test_load_review_queue_is_read_only_and_filters_in_memory(monkeypatch) -> None:
     frame = pd.DataFrame(
         [{"prediction_id": 1, "traffic_state": 1, "confidence": 0.5, "clip_id": "clip"}]
     )
-    monkeypatch.setattr("vaaet_ml.data.review_persistence.pd.read_sql", lambda *_args, **_kwargs: frame)
+    monkeypatch.setattr("vaaet_persistence.review_persistence.pd.read_sql", lambda *_args, **_kwargs: frame)
 
     result = load_review_queue(engine=_Engine(), pipeline_run_id="run", mode="priority")
 
@@ -48,10 +64,12 @@ def test_load_review_queue_is_read_only_and_filters_in_memory(monkeypatch) -> No
 
 def test_persist_validation_uses_supplied_pipeline_run_and_disposes_owned_engine(monkeypatch) -> None:
     engine = _Engine()
-    monkeypatch.setattr("vaaet_ml.data.review_persistence.get_engine", lambda _: engine)
+    monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", lambda _: engine)
     decision = HumanValidation(1, 1, "reviewer", validation_id=uuid4())
 
-    identifier = persist_human_validation(decision, settings={"host": "unused"}, pipeline_run_id="run")
+    identifier = persist_human_validation(
+        decision, settings=_settings(), pipeline_run_id="run"
+    )
 
     assert identifier == decision.validation_id
     assert engine.connection.payloads[0]["pipeline_run_id"] == "run"
@@ -66,11 +84,32 @@ def test_persist_validation_creates_review_lineage_when_run_is_missing(monkeypat
     def fake_pipeline_run(*_args, **_kwargs):
         yield run
 
-    monkeypatch.setattr("vaaet_ml.data.review_persistence.get_engine", lambda _: engine)
-    monkeypatch.setattr("vaaet_ml.data.review_persistence.pipeline_run", fake_pipeline_run)
+    monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", lambda _: engine)
+    monkeypatch.setattr("vaaet_persistence.review_persistence.pipeline_run", fake_pipeline_run)
 
-    identifier = persist_human_validation(HumanValidation(1, 2, "reviewer"), settings={"host": "unused"})
+    identifier = persist_human_validation(
+        HumanValidation(1, 2, "reviewer"),
+        settings=_settings(),
+        application_name="test-review",
+        application_version="1.0.0",
+    )
 
     assert identifier
     assert run.rows == 1
     assert engine.disposed
+
+
+def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:
+    created = False
+
+    def unexpected_engine(_settings):
+        nonlocal created
+        created = True
+        return _Engine()
+
+    monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", unexpected_engine)
+
+    with pytest.raises(ValueError, match="application_name"):
+        persist_human_validation(HumanValidation(1, 1, "reviewer"), settings=_settings())
+
+    assert not created

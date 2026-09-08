@@ -41,7 +41,7 @@ def test_administrator_uses_shared_typed_endpoint_outside_colab(
     settings = load_database_admin_settings(allow_legacy=False)
 
     assert settings.host == "localhost"
-    assert settings.application == "vaaet-migration-4.6.1"
+    assert settings.application == "vaaet-ml-migration/4.7.0"
     assert "not-a-real-secret" not in repr(settings)
 
 
@@ -170,7 +170,7 @@ def test_admin_engine_uses_null_pool_and_common_tls_arguments(
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr("vaaet_ml.data.database_connection.create_engine", fake_create_engine)
+    monkeypatch.setattr("vaaet_persistence.connection.create_engine", fake_create_engine)
     settings = DatabaseAdminSettings(
         endpoint=DatabaseEndpointSettings("localhost", 5432, "vaaet", "disable"),
         username="administrator",
@@ -181,23 +181,40 @@ def test_admin_engine_uses_null_pool_and_common_tls_arguments(
     assert captured["poolclass"] is NullPool
     assert captured["connect_args"] == {
         "connect_timeout": 10,
-        "application_name": "vaaet-migration-4.6.1",
+        "application_name": "vaaet-migration",
         "sslmode": "disable",
     }
 
 
 def test_alembic_environment_uses_typed_admin_settings_and_injected_connections() -> None:
-    environment = Path(__file__).parents[2] / "migrations" / "env.py"
+    workspace = Path(__file__).parents[3]
+    environment = (
+        workspace
+        / "vaaet-persistence"
+        / "src"
+        / "vaaet_persistence"
+        / "migrations"
+        / "env.py"
+    )
     source = environment.read_text(encoding="utf-8")
 
     assert "load_database_admin_settings" in source
     assert 'config.attributes.get("connection")' in source
     assert "create_admin_engine" in source
     assert "VAAET_DATABASE_ADMIN_URL" not in source
+    legacy_environment = Path(__file__).parents[2] / "migrations" / "env.py"
+    assert "vaaet_persistence.migrations" in legacy_environment.read_text(encoding="utf-8")
 
 
 def test_role_provisioning_matches_v3_functions_and_immutable_inference() -> None:
-    provisioning = Path(__file__).parents[2] / "migrations" / "provision-roles.sql"
+    provisioning = (
+        Path(__file__).parents[3]
+        / "vaaet-persistence"
+        / "src"
+        / "vaaet_persistence"
+        / "migrations"
+        / "provision-roles.sql"
+    )
     source = provisioning.read_text(encoding="utf-8")
 
     assert (

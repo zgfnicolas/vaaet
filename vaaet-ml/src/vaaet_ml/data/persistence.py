@@ -10,6 +10,7 @@ from uuid import UUID
 import pandas as pd
 from sqlalchemy.engine import Engine
 from vaaet.settings import MODEL_VERSION
+from vaaet_persistence.connection import dispose_engine
 from vaaet_persistence.persistence import (
     PersistResult,
     ensure_persistence_tables,
@@ -54,7 +55,7 @@ def persist_raw_telemetry(
             application_version=__version__,
         )
     finally:
-        active_engine.dispose()
+        dispose_engine(active_engine)
 
 
 def persist_classified_telemetry(
@@ -92,7 +93,7 @@ def persist_classified_telemetry(
             application_version=__version__,
         )
     finally:
-        active_engine.dispose()
+        dispose_engine(active_engine)
 
 
 __all__ = [

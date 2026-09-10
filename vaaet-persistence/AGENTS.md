@@ -15,6 +15,10 @@ DVC, Google Drive, Colab ni la futura aplicación.
 - Respetá la propiedad del engine: una operación no dispone un engine recibido.
 - Usá nombres SQL completamente cualificados y transacciones para escrituras
   relacionadas.
+- Conservá valores continuos como `DOUBLE PRECISION`, conteos como enteros y la
+  procedencia `numeric_representation`; no reconstruyas precisión histórica.
+- Resolvé feedback por la única cadena terminal válida y aislá conflictos
+  históricos del ground truth.
 - Alembic es la única autoridad DDL. No ejecutes migraciones desde notebooks.
 - No modifiques revisiones publicadas; agregá una nueva revisión cuando cambie
   el schema.

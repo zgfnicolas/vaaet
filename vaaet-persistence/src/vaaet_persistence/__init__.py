@@ -6,12 +6,24 @@ from vaaet_persistence.connection import (
     DatabaseHealth,
     create_admin_engine,
     database_engine,
+    dispose_engine,
     get_engine,
     inspect_database,
+    require_database_revision,
     test_connection,
 )
-from vaaet_persistence.constants import DATABASE_SCHEMA_VERSION, DATABASE_SCHEMAS
-from vaaet_persistence.exceptions import DatabaseNotConfiguredError, DatabaseOperationError
+from vaaet_persistence.constants import (
+    DATABASE_SCHEMA_VERSION,
+    DATABASE_SCHEMAS,
+    REQUIRED_DATABASE_REVISION,
+)
+from vaaet_persistence.exceptions import (
+    DatabaseNotConfiguredError,
+    DatabaseOperationError,
+    DatabaseSchemaVersionError,
+    PersistenceConflictError,
+    PersistenceValidationError,
+)
 from vaaet_persistence.persistence import (
     PersistResult,
     persist_classified_telemetry,
@@ -32,7 +44,12 @@ from vaaet_persistence.queries import (
     load_telemetry_window,
 )
 from vaaet_persistence.review_domain import HumanValidation, InferenceReviewSession
-from vaaet_persistence.review_persistence import load_review_queue, persist_human_validation
+from vaaet_persistence.review_persistence import (
+    PersistedHumanValidation,
+    load_review_queue,
+    persist_human_validation,
+    persist_human_validation_record,
+)
 from vaaet_persistence.settings import (
     DatabaseAdminSettings,
     DatabaseEndpointSettings,
@@ -46,11 +63,12 @@ from vaaet_persistence.settings import (
     load_reviewer_id,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "DATABASE_SCHEMAS",
     "DATABASE_SCHEMA_VERSION",
+    "REQUIRED_DATABASE_REVISION",
     "DatabaseAdminSettings",
     "DatabaseEndpointSettings",
     "DatabaseHealth",
@@ -59,19 +77,25 @@ __all__ = [
     "DatabasePoolSettings",
     "DatabaseProfile",
     "DatabaseRetrySettings",
+    "DatabaseSchemaVersionError",
     "DatabaseSettings",
     "HumanValidation",
     "InferenceReviewSession",
     "PersistResult",
+    "PersistedHumanValidation",
+    "PersistenceConflictError",
+    "PersistenceValidationError",
     "PipelineRunHandle",
     "PipelineRunMetadata",
     "PipelineWorkflow",
     "create_admin_engine",
     "database_engine",
+    "dispose_engine",
     "finish_pipeline_run",
     "get_engine",
     "get_optional_database_settings",
     "inspect_database",
+    "require_database_revision",
     "load_database_admin_settings",
     "load_database_settings",
     "load_human_feedback_components",
@@ -82,6 +106,7 @@ __all__ = [
     "load_telemetry_window",
     "persist_classified_telemetry",
     "persist_human_validation",
+    "persist_human_validation_record",
     "persist_raw_telemetry",
     "pipeline_run",
     "start_pipeline_run",

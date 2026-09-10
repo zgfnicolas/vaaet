@@ -36,7 +36,10 @@ _ADMIN_URL_OPTIONS = {"application_name", "connect_timeout", "sslmode", "sslroot
 
 
 def _environment_value(name: str) -> str | None:
-    return (os.environ.get(name) or "").strip() or None
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return None
+    return value if name.endswith("_PASSWORD") else value.strip() or None
 
 
 def _colab_secret(name: str) -> str | None:
@@ -50,7 +53,10 @@ def _colab_secret(name: str) -> str | None:
         value = userdata.get(name)
     except Exception:  # pragma: no cover - frontera externa no determinista
         return None
-    return str(value).strip() if value else None
+    if value is None or value == "":
+        return None
+    rendered = str(value)
+    return rendered if name.endswith("_PASSWORD") else rendered.strip() or None
 
 
 def _notebook_value(name: str) -> str | None:

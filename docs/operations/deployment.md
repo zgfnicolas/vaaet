@@ -8,7 +8,7 @@ Complementa USER_GUIDE.md y SAD.md. -->
 | Campo | Detalles |
 |---|---|
 | **Nombre del Proyecto** | VAAET — Video Advanced Analysis of Traffic |
-| **Versión** | 4.7.0 |
+| **Versión** | 4.8.0 |
 | **Estado** | Aprobado |
 | **Responsable Técnico** | Facundo Nicolás González |
 | **Última Revisión** | 2026-08-27 |

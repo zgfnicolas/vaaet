@@ -125,6 +125,8 @@ antes de deserializar un bundle.
   [ADR-0024](docs/architecture/decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
 - La extracción compartida y la frontera con el futuro backend están gobernadas
   por [ADR-0028](docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
+- La fidelidad `float64`, el linaje idempotente y las cadenas HITL efectivas
+  están gobernados por [ADR-0029](docs/architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

@@ -25,6 +25,14 @@ PACKAGE_FILES: dict[str, str] = {
     "predictions": "traffic-predictions.csv",
     "validations": "human-validations.csv",
 }
+_BOOLEAN_COLUMNS = {
+    "is_human_validated",
+    "incident_context_reviewed",
+    "decision_abstained",
+    "measurement_reliable",
+    "accident_rule_triggered",
+    "accident_alert_started",
+}
 
 
 def _sha256(path: Path) -> str:
@@ -180,7 +188,21 @@ def _load_dataset_component(
         raise DatasetArtifactValidationError("La cantidad de filas del paquete no coincide.")
     if list(frame.columns) != metadata.get("columns"):
         raise DatasetArtifactValidationError("Las columnas del paquete no coinciden.")
+    for column in _BOOLEAN_COLUMNS.intersection(frame.columns):
+        frame[column] = frame[column].map(_decode_csv_boolean)
     frame.attrs["vaaet_package_provenance"] = manifest.get("provenance", {})
     frame.attrs["vaaet_package_metadata"] = manifest.get("package_metadata", {})
     frame.attrs["vaaet_package_contract"] = manifest["contract_version"]
     return frame
+
+
+def _decode_csv_boolean(value: object) -> bool:
+    """Decodifica únicamente el vocabulario booleano del transporte CSV."""
+
+    if type(value) is bool or type(value).__name__ == "bool_":
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    raise DatasetArtifactValidationError(
+        "Una columna booleana del paquete contiene un valor no contractual."
+    )

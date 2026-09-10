@@ -634,6 +634,19 @@ def test_notebooks_use_profile_specific_database_api() -> None:
         assert "getpass(" not in code
 
 
+def test_inference_secrets_never_enable_review_persistence_implicitly() -> None:
+    inference = _code(NOTEBOOKS["inference"])
+
+    assert "if _review_enabled and WORKFLOW_CONFIG.persist_to_database:" in inference
+    assert "settings=review_settings" in inference
+    assert (
+        "settings=get_optional_database_settings(DatabaseProfile.REVIEW) "
+        "if _review_enabled else None"
+    ) not in inference
+    assert "falta el perfil review" in inference
+    assert "La persistencia PostgreSQL solicitada no puede comenzar" in inference
+
+
 def test_all_workflows_record_redacted_pipeline_runs() -> None:
     for workflow, path in NOTEBOOKS.items():
         code = _code(path)

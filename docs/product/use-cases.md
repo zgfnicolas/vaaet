@@ -9,7 +9,7 @@ implementado; su frontera está definida por ADR-0021.
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.7.0 |
+| Versión del laboratorio | 4.8.0 |
 | Última revisión | 2026-08-27 |
 
 ## CU-001 — Procesar video

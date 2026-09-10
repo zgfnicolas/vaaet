@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
 from vaaet_ml.data.hitl_catalog import (
     HitlCatalogSource,
@@ -42,6 +43,8 @@ def _classified_frame(*, clip_id: str = "clip-a") -> pd.DataFrame:
                 "confidence": 0.9,
                 "model_version": "mlp-v3.0",
                 "model_revision": "a" * 64,
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                "numeric_representation": "float64",
                 **_feature_values(10.0 + index),
             }
             for index, state in enumerate((0, 1))
@@ -57,7 +60,7 @@ def test_review_finalization_is_idempotent_and_cataloged(tmp_path: Path) -> None
         "classified": classified,
         "validations": [decision],
         "pipeline_run_id": run_id,
-        "model_version": "mlp-v2.1",
+        "model_version": "mlp-v3.0",
         "git_commit": "abc",
         "vaaet_version": "4.5.0",
         "local_root": tmp_path / "local",
@@ -84,7 +87,7 @@ def test_hitl_package_preserves_high_precision_features(tmp_path: Path) -> None:
         classified=classified,
         validations=[HumanValidation(prediction_id=1, validated_state=0, reviewer_id="facundo")],
         pipeline_run_id=str(uuid.uuid4()),
-        model_version="mlp-v2.1",
+        model_version="mlp-v3.0",
         git_commit="abc",
         vaaet_version="4.5.1",
         local_root=tmp_path / "local",
@@ -160,7 +163,7 @@ def test_review_finalization_without_canonical_store_remains_pending(tmp_path: P
         classified=_classified_frame(),
         validations=[],
         pipeline_run_id=str(uuid.uuid4()),
-        model_version="mlp-v2.1",
+        model_version="mlp-v3.0",
         git_commit="abc",
         vaaet_version="4.5.0",
         local_root=tmp_path / "local",
@@ -179,7 +182,7 @@ def test_review_finalization_preserves_pending_package_when_sync_fails(tmp_path:
         classified=_classified_frame(),
         validations=[],
         pipeline_run_id=str(uuid.uuid4()),
-        model_version="mlp-v2.1",
+        model_version="mlp-v3.0",
         git_commit="abc",
         vaaet_version="4.5.0",
         local_root=tmp_path / "local",

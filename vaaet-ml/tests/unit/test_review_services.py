@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import sys
+import uuid
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -42,11 +44,12 @@ def test_portable_review_service_accumulates_decisions_without_widgets() -> None
         mode="priority",
     )
 
-    prepared.submit(HumanValidation(1, 1, "reviewer"))
+    decision = HumanValidation(1, 1, "reviewer")
+    prepared.submit(decision)
 
     assert prepared.session.export_frame is not None
     assert prepared.queue["prediction_id"].tolist() == [1]
-    assert prepared.session.validations == [HumanValidation(1, 1, "reviewer")]
+    assert prepared.session.validations == [decision]
     assert "ipywidgets" not in sys.modules
 
 
@@ -101,13 +104,17 @@ def test_database_review_service_links_predictions_and_persists_decisions(
         ]
     )
     persisted: list[HumanValidation] = []
+    review_run_id = uuid.uuid4()
     monkeypatch.setattr(
         "vaaet_ml.data.review_orchestration.load_review_queue",
         lambda **_kwargs: queue,
     )
     monkeypatch.setattr(
-        "vaaet_ml.data.review_orchestration.persist_human_validation",
-        lambda decision, **_kwargs: persisted.append(decision),
+        "vaaet_ml.data.review_orchestration.persist_human_validation_record",
+        lambda decision, **_kwargs: (
+            persisted.append(decision)
+            or SimpleNamespace(decision=decision, pipeline_run_id=review_run_id)
+        ),
     )
 
     prepared = prepare_review_session(
@@ -118,11 +125,14 @@ def test_database_review_service_links_predictions_and_persists_decisions(
         settings={"host": "unused"},
         mode="priority",
     )
-    prepared.submit(HumanValidation(9, 1, "reviewer"))
+    decision = HumanValidation(9, 1, "reviewer")
+    prepared.submit(decision)
 
     assert prepared.session.export_frame is not None
     assert prepared.session.export_frame["prediction_id"].tolist() == [9]
-    assert persisted == [HumanValidation(9, 1, "reviewer")]
+    assert persisted == [decision]
+    assert prepared.session.validations[0]["validation_id"] == decision.validation_id
+    assert prepared.session.validations[0]["pipeline_run_id"] == str(review_run_id)
 
 
 def test_database_review_requires_classified_rows() -> None:

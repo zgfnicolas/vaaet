@@ -5,14 +5,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import pandas as pd
 from vaaet.logging import get_logger
 
 from vaaet_ml.data.database import DatabaseSettings
 from vaaet_ml.data.review_domain import HumanValidation, InferenceReviewSession, select_review_queue
-from vaaet_ml.data.review_persistence import load_review_queue, persist_human_validation
+from vaaet_ml.data.review_persistence import (
+    load_review_queue,
+    persist_human_validation_record,
+)
 
 # Conserva el canal 4.x para no romper filtros de logs configurados en notebooks.
 logger = get_logger("vaaet_ml.data.review")
@@ -85,8 +88,13 @@ def _prepare_database_review(
         raise RuntimeError("La cola de revisión PostgreSQL no cubre todas las filas inferidas.")
 
     def persist_and_accumulate(decision: HumanValidation) -> None:
-        persist_human_validation(decision, settings=settings)
-        session.validations.append(decision)
+        persisted = persist_human_validation_record(decision, settings=settings)
+        session.validations.append(
+            {
+                **asdict(persisted.decision),
+                "pipeline_run_id": str(persisted.pipeline_run_id),
+            }
+        )
 
     logger.info(
         "PostgreSQL review queue prepared: selected_rows=%s total_rows=%s mode=%s",

@@ -21,28 +21,52 @@ from vaaet_persistence.settings import (
 
 
 def _rows(connection: Connection, statement: str) -> list[dict[str, Any]]:
-    return [dict(row) for row in connection.execute(text(statement)).mappings()]
+    try:
+        with connection.begin_nested():
+            return [dict(row) for row in connection.execute(text(statement)).mappings()]
+    except Exception as exc:  # El informe aísla permisos y objetos opcionales por sección.
+        return [{"audit_error": type(exc).__name__}]
+
+
+def _mapping(connection: Connection, statement: str) -> dict[str, Any]:
+    try:
+        with connection.begin_nested():
+            return dict(connection.execute(text(statement)).mappings().one())
+    except Exception as exc:
+        return {"audit_error": type(exc).__name__}
+
+
+def _scalar(connection: Connection, statement: str) -> object:
+    try:
+        with connection.begin_nested():
+            return connection.execute(text(statement)).scalar_one()
+    except Exception as exc:
+        return {"audit_error": type(exc).__name__}
 
 
 def audit_database(connection: Connection) -> dict[str, Any]:
     """Recolecta evidencia de catálogo, integridad, tamaño y planes sin mutar datos."""
     revision = None
     try:
-        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        with connection.begin_nested():
+            present = connection.execute(
+                text("SELECT to_regclass('public.alembic_version')")
+            ).scalar()
+            if present is not None:
+                revision = connection.execute(
+                    text("SELECT version_num FROM public.alembic_version")
+                ).scalar()
     except Exception:  # El auditor informa permisos o instalaciones legadas; no los elude.
         revision = "unavailable"
 
     return {
         "alembic_revision": revision,
-        "server": dict(
-            connection.execute(
-                text(
-                    "SELECT current_setting('server_version') AS version, "
-                    "current_user AS role, "
-                    "COALESCE((SELECT ssl FROM pg_stat_ssl "
-                    "WHERE pid = pg_backend_pid()), FALSE) AS tls"
-                )
-            ).mappings().one()
+        "server": _mapping(
+            connection,
+            "SELECT current_setting('server_version') AS version, "
+            "current_user AS role, "
+            "COALESCE((SELECT ssl FROM pg_stat_ssl "
+            "WHERE pid = pg_backend_pid()), FALSE) AS tls",
         ),
         "schemas": _rows(
             connection,
@@ -93,51 +117,85 @@ def audit_database(connection: Connection) -> dict[str, Any]:
             "FROM pg_indexes WHERE schemaname LIKE 'vaaet_%' "
             "ORDER BY schemaname, tablename, indexname",
         ),
-        "integrity": dict(
-            connection.execute(
-                text(
-                    "SELECT "
-                    "(SELECT count(*) FROM vaaet_raw.traffic_data "
-                    " WHERE total_vehicles <> count_car + count_truck + count_bus + "
-                    " count_motorcycle + count_bicycle) AS invalid_raw_totals, "
-                    "(SELECT count(*) FROM vaaet_ml.traffic_predictions "
-                    " WHERE state_label <> CASE traffic_state WHEN 0 THEN 'Normal' "
-                    " WHEN 1 THEN 'Reduced' WHEN 2 THEN 'Congested' END) "
-                    "AS invalid_prediction_labels, "
-                    "(SELECT count(*) FROM vaaet_ml.traffic_predictions "
-                    " WHERE traffic_state = 3) AS automatic_accident_states, "
-                    "(SELECT count(*) FROM vaaet_raw.traffic_data "
-                    " WHERE btrim(continuity_id) = '') AS invalid_raw_continuity, "
-                    "(SELECT count(*) FROM vaaet_ml.telemetry_features "
-                    " WHERE btrim(continuity_id) = '') AS invalid_feature_continuity, "
-                    "(SELECT count(*) FROM vaaet_ml.traffic_predictions "
-                    " WHERE model_revision !~ '^[0-9a-f]{64}$') "
-                    "AS invalid_model_revisions"
-                )
-            ).mappings().one()
+        "grants": _rows(
+            connection,
+            "SELECT grantee, table_schema, table_name, privilege_type "
+            "FROM information_schema.role_table_grants "
+            "WHERE table_schema LIKE 'vaaet_%' ORDER BY grantee, table_schema, table_name",
+        ),
+        "default_privileges": _rows(
+            connection,
+            "SELECT pg_get_userbyid(d.defaclrole) AS owner, n.nspname AS schema_name, "
+            "d.defaclobjtype AS object_type, d.defaclacl::text AS privileges "
+            "FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace "
+            "WHERE n.nspname LIKE 'vaaet_%' ORDER BY owner, schema_name, object_type",
+        ),
+        "numeric_representations": _rows(
+            connection,
+            "SELECT 'vaaet_raw.traffic_data' AS relation_name, "
+            "numeric_representation, count(*) AS rows "
+            "FROM vaaet_raw.traffic_data GROUP BY numeric_representation UNION ALL "
+            "SELECT 'vaaet_ml.telemetry_features', numeric_representation, count(*) "
+            "FROM vaaet_ml.telemetry_features GROUP BY numeric_representation UNION ALL "
+            "SELECT 'vaaet_ml.traffic_predictions', numeric_representation, count(*) "
+            "FROM vaaet_ml.traffic_predictions GROUP BY numeric_representation "
+            "ORDER BY relation_name, numeric_representation",
+        ),
+        "incomplete_pipeline_runs": _rows(
+            connection,
+            "SELECT id, workflow, application_name, application_version, started_at "
+            "FROM vaaet_ops.pipeline_runs WHERE status = 'running' "
+            "ORDER BY started_at, id",
+        ),
+        "human_validation_conflicts": _rows(
+            connection,
+            "SELECT prediction_id, root_count, terminal_count, "
+            "cross_prediction_edges, branch_points, unreachable_nodes "
+            "FROM vaaet_feedback.human_validation_conflicts "
+            "ORDER BY prediction_id",
+        ),
+        "integrity": _mapping(
+            connection,
+            "SELECT "
+            "(SELECT count(*) FROM vaaet_raw.traffic_data "
+            " WHERE total_vehicles <> count_car + count_truck + count_bus + "
+            " count_motorcycle + count_bicycle) AS invalid_raw_totals, "
+            "(SELECT count(*) FROM vaaet_ml.traffic_predictions "
+            " WHERE state_label <> CASE traffic_state WHEN 0 THEN 'Normal' "
+            " WHEN 1 THEN 'Reduced' WHEN 2 THEN 'Congested' END) "
+            "AS invalid_prediction_labels, "
+            "(SELECT count(*) FROM vaaet_ml.traffic_predictions "
+            " WHERE traffic_state = 3) AS automatic_accident_states, "
+            "(SELECT count(*) FROM vaaet_raw.traffic_data "
+            " WHERE btrim(continuity_id) = '') AS invalid_raw_continuity, "
+            "(SELECT count(*) FROM vaaet_ml.telemetry_features "
+            " WHERE btrim(continuity_id) = '') AS invalid_feature_continuity, "
+            "(SELECT count(*) FROM vaaet_ml.traffic_predictions "
+            " WHERE model_revision !~ '^[0-9a-f]{64}$') "
+            "AS invalid_model_revisions, "
+            "(SELECT count(*) FROM vaaet_feedback.human_validation_conflicts) "
+            "AS conflicting_validation_chains",
         ),
         "query_plans": {
-            "raw_training_scan": connection.execute(
-                text(
-                    "EXPLAIN (FORMAT JSON) SELECT id, clip_id, record_time, avg_speed "
-                    "FROM vaaet_raw.traffic_data ORDER BY clip_id, record_time"
-                )
-            ).scalar_one(),
-            "review_queue_by_run": connection.execute(
-                text(
-                    "EXPLAIN (FORMAT JSON) SELECT prediction_id, record_time "
-                    "FROM vaaet_feedback.review_queue "
-                    "WHERE pipeline_run_id = CAST('00000000-0000-0000-0000-000000000000' AS UUID) "
-                    "ORDER BY record_time"
-                )
-            ).scalar_one(),
-            "prediction_by_exact_revision": connection.execute(
-                text(
-                    "EXPLAIN (FORMAT JSON) SELECT id, telemetry_feature_id, traffic_state "
-                    "FROM vaaet_ml.traffic_predictions "
-                    "WHERE model_revision = repeat('0', 64)"
-                )
-            ).scalar_one(),
+            "raw_training_scan": _scalar(
+                connection,
+                "EXPLAIN (FORMAT JSON) SELECT id, clip_id, record_time, avg_speed "
+                "FROM vaaet_raw.traffic_data ORDER BY clip_id, record_time",
+            ),
+            "review_queue_by_run": _scalar(
+                connection,
+                "EXPLAIN (FORMAT JSON) SELECT prediction_id, record_time "
+                "FROM vaaet_feedback.review_queue "
+                "WHERE pipeline_run_id = "
+                "CAST('00000000-0000-0000-0000-000000000000' AS UUID) "
+                "ORDER BY record_time",
+            ),
+            "prediction_by_exact_revision": _scalar(
+                connection,
+                "EXPLAIN (FORMAT JSON) SELECT id, telemetry_feature_id, traffic_state "
+                "FROM vaaet_ml.traffic_predictions "
+                "WHERE model_revision = repeat('0', 64)",
+            ),
         },
     }
 

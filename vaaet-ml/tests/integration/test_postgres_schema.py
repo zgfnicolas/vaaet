@@ -12,9 +12,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
-from vaaet.settings import FEATURE_COLS
+from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
-from vaaet_ml.data.database_connection import create_admin_engine
+from vaaet_ml.data.database_connection import create_admin_engine, dispose_engine
 from vaaet_ml.data.database_settings import (
     cleanup_temporary_root_certificate,
     load_database_admin_settings,
@@ -41,7 +41,7 @@ def engine():
     try:
         yield active
     finally:
-        active.dispose()
+        dispose_engine(active)
         cleanup_temporary_root_certificate(settings)
 
 
@@ -137,10 +137,10 @@ def test_automatic_accident_is_rejected_by_database(engine) -> None:
             text(
                 """
                 INSERT INTO vaaet_ops.pipeline_runs
-                  (id, workflow, status, completed_at, application_version)
+                  (id, workflow, status, completed_at, application_name, application_version)
                 VALUES
                   ('00000000-0000-0000-0000-000000000001', 'inference',
-                   'succeeded', CURRENT_TIMESTAMP, 'integration-test')
+                   'succeeded', CURRENT_TIMESTAMP, 'vaaet-integration', 'integration-test')
                 ON CONFLICT (id) DO NOTHING
                 """
             )
@@ -222,7 +222,7 @@ def test_group_roles_follow_least_privilege(engine) -> None:
                 ),
                 {"table": table},
             ).scalar()
-        assert not connection.execute(
+        assert connection.execute(
             text(
                 "SELECT has_table_privilege('vaaet_collection_role', "
                 "'vaaet_raw.traffic_data', 'SELECT')"
@@ -242,8 +242,15 @@ def test_group_roles_follow_least_privilege(engine) -> None:
         ):
             assert connection.execute(
                 text(
+                    "SELECT has_table_privilege(:role, "
+                    "'public.alembic_version', 'SELECT')"
+                ),
+                {"role": role},
+            ).scalar()
+            assert connection.execute(
+                text(
                     "SELECT has_function_privilege(:role, "
-                    "'vaaet_ops.start_pipeline_run(uuid,text,text,text,text,text,text,text,text,text,bigint)', "
+                    "'vaaet_ops.start_pipeline_run(uuid,text,text,text,text,text,text,text,text,text,text,bigint)', "
                     "'EXECUTE')"
                 ),
                 {"role": role},
@@ -266,7 +273,9 @@ def test_group_roles_follow_least_privilege(engine) -> None:
 
 def test_hardening_constraints_comments_and_indexes(engine) -> None:
     with engine.connect() as connection:
-        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        revision = connection.execute(
+            text("SELECT version_num FROM public.alembic_version")
+        ).scalar_one()
         undocumented = connection.execute(
             text(
                 """
@@ -293,7 +302,7 @@ def test_hardening_constraints_comments_and_indexes(engine) -> None:
                 "WHERE conname='ck_raw_total_matches_types'"
             )
         ).scalar_one()
-    assert revision == "20260905_0003"
+    assert revision == "20260909_0004"
     assert undocumented == 0
     assert "idx_raw_clip_time" not in indexes
     assert "idx_features_clip_time" not in indexes
@@ -308,8 +317,9 @@ def test_new_raw_rows_require_consistent_vehicle_total(engine) -> None:
         connection.execute(
             text(
                 "INSERT INTO vaaet_ops.pipeline_runs "
-                "(id, workflow, status, completed_at, application_version) "
-                "VALUES (:id, 'collection', 'succeeded', CURRENT_TIMESTAMP, 'test') "
+                "(id, workflow, status, completed_at, application_name, application_version) "
+                "VALUES (:id, 'collection', 'succeeded', CURRENT_TIMESTAMP, "
+                "'vaaet-integration', 'test') "
                 "ON CONFLICT (id) DO NOTHING"
             ),
             {"id": run_id},
@@ -340,6 +350,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
             "continuity_id": "reinference-test:continuity-0001",
             "record_time": "2026-08-04T13:00:00Z",
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
             "traffic_state": 2,
             "state_label": "Congested",
             "confidence": 0.81,
@@ -349,7 +360,12 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
     )
     frame = pd.DataFrame([base])
     persist_classified_telemetry(
-        frame, engine=engine, model_version="mlp-v3.0-test", model_revision="a" * 64
+        frame,
+        engine=engine,
+        model_version="mlp-v3.0-test",
+        model_revision="a" * 64,
+        application_name="vaaet-ml-integration",
+        application_version="4.8.0",
     )
     with engine.connect() as connection:
         prediction_id = connection.execute(
@@ -363,12 +379,20 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
             {"model_revision": "a" * 64},
         ).scalar_one()
     first_validation_id = persist_human_validation(
-        HumanValidation(prediction_id, 1, "integration-reviewer"), engine=engine
+        HumanValidation(prediction_id, 1, "integration-reviewer"),
+        engine=engine,
+        application_name="vaaet-ml-integration",
+        application_version="4.8.0",
     )
     frame.loc[0, "confidence"] = 0.92
     frame.loc[0, "model_revision"] = "b" * 64
     persist_classified_telemetry(
-        frame, engine=engine, model_version="mlp-v3.0-test", model_revision="b" * 64
+        frame,
+        engine=engine,
+        model_version="mlp-v3.0-test",
+        model_revision="b" * 64,
+        application_name="vaaet-ml-integration",
+        application_version="4.8.0",
     )
     with engine.connect() as connection:
         feature_count, prediction_count = connection.execute(
@@ -406,6 +430,8 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
             supersedes_validation_id=first_validation_id,
         ),
         engine=engine,
+        application_name="vaaet-ml-integration",
+        application_version="4.8.0",
     )
     with engine.connect() as connection:
         count, effective = connection.execute(

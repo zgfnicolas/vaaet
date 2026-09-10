@@ -30,6 +30,9 @@ def test_local_pipeline_run_records_success_without_arbitrary_metadata(tmp_path)
     )
 
     with pipeline_run(metadata, local_manifest_directory=tmp_path) as run:
+        running = json.loads((tmp_path / f"{run.id}.json").read_text(encoding="utf-8"))
+        assert running["status"] == "running"
+        assert running["completed_at"] is None
         run.set_output_rows(12)
 
     payload = json.loads((tmp_path / f"{run.id}.json").read_text(encoding="utf-8"))
@@ -108,6 +111,15 @@ def test_pipeline_metadata_rejects_connection_material(field, value) -> None:
     }
     with pytest.raises(ValueError, match="credentials|filesystem path"):
         PipelineRunMetadata(**arguments)
+
+
+def test_pipeline_metadata_rejects_unsafe_application_identity() -> None:
+    with pytest.raises(ValueError, match="safe application_name"):
+        PipelineRunMetadata(
+            PipelineWorkflow.INFERENCE,
+            "postgresql://private",
+            "1.0.0",
+        )
 
 
 def test_local_fallback_requires_explicit_destination() -> None:

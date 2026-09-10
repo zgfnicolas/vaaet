@@ -124,7 +124,7 @@ jobs:
       - name: Verificar independencia, tipado y pruebas
         run: |
           python -m pip check
-          python -c "import vaaet, vaaet_persistence; assert vaaet_persistence.__version__ == '0.1.0'"
+          python -c "import vaaet, vaaet_persistence; assert vaaet_persistence.__version__ == '0.2.0'"
           ruff check src tests
           pyright src
           python -m compileall -q src tests
@@ -214,7 +214,7 @@ jobs:
       - name: Verificar contratos de importación y DVC de raíz
         run: |
           python -m pip check
-          python -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.1.0'; assert vaaet_ml.__version__ == '4.7.0'"
+          python -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.2.0'; assert vaaet_ml.__version__ == '4.8.0'"
           test -d .dvc
           test -d vaaet-ml/artifacts/traffic-state
 
@@ -238,7 +238,7 @@ jobs:
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip install ./vaaet-core
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip install ./vaaet-persistence
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip check
-          "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -c "import vaaet_persistence; assert vaaet_persistence.__version__ == '0.1.0'"
+          "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -c "import vaaet_persistence; assert vaaet_persistence.__version__ == '0.2.0'"
 
           python -m venv "$RUNNER_TEMP/vaaet-workspace-base"
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install --upgrade pip
@@ -246,7 +246,7 @@ jobs:
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install ./vaaet-persistence
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install ./vaaet-ml
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip check
-          "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.1.0'; assert vaaet_ml.__version__ == '4.7.0'"
+          "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.2.0'; assert vaaet_ml.__version__ == '4.8.0'"
 
   typing:
     runs-on: ubuntu-latest
@@ -322,10 +322,14 @@ jobs:
       VAAET_DB_SSLMODE: disable
       VAAET_ADMIN_DB_USER: postgres
       VAAET_ADMIN_DB_PASSWORD: postgres
-      VAAET_COLLECTION_DB_USER: postgres
-      VAAET_COLLECTION_DB_PASSWORD: postgres
-      VAAET_TRAINING_DB_USER: postgres
-      VAAET_TRAINING_DB_PASSWORD: postgres
+      VAAET_COLLECTION_DB_USER: vaaet_collection_test
+      VAAET_COLLECTION_DB_PASSWORD: collection-test-password
+      VAAET_INFERENCE_DB_USER: vaaet_inference_test
+      VAAET_INFERENCE_DB_PASSWORD: inference-test-password
+      VAAET_TRAINING_DB_USER: vaaet_training_test
+      VAAET_TRAINING_DB_PASSWORD: training-test-password
+      VAAET_REVIEW_DB_USER: vaaet_review_test
+      VAAET_REVIEW_DB_PASSWORD: review-test-password
       VAAET_EXPECT_LEGACY_FIXTURE: "1"
       VAAET_LEGACY_BACKUP_PATH: /tmp/vaaet-legacy.backup
       VAAET_MODERN_BACKUP_PATH: /tmp/vaaet-modern.backup
@@ -365,9 +369,19 @@ jobs:
         run: |
           python -c "import pathlib, psycopg2; c=psycopg2.connect(); c.autocommit=True; c.cursor().execute(pathlib.Path('tests/fixtures/postgres-legacy.sql').read_text()); c.close()"
           /usr/lib/postgresql/17/bin/pg_dump --format=custom --data-only --table=public.traffic_data --file="$VAAET_LEGACY_BACKUP_PATH"
-          alembic -c ../vaaet-persistence/alembic.ini upgrade 20260806_0002
+          alembic -c ../vaaet-persistence/alembic.ini upgrade 20260905_0003
           alembic -c ../vaaet-persistence/alembic.ini upgrade head
           /usr/lib/postgresql/17/bin/psql -v ON_ERROR_STOP=1 -f ../vaaet-persistence/src/vaaet_persistence/migrations/provision-roles.sql
+          /usr/lib/postgresql/17/bin/psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE vaaet_collection_test LOGIN PASSWORD 'collection-test-password';
+          CREATE ROLE vaaet_inference_test LOGIN PASSWORD 'inference-test-password';
+          CREATE ROLE vaaet_training_test LOGIN PASSWORD 'training-test-password';
+          CREATE ROLE vaaet_review_test LOGIN PASSWORD 'review-test-password';
+          GRANT vaaet_collection_role TO vaaet_collection_test;
+          GRANT vaaet_inference_role TO vaaet_inference_test;
+          GRANT vaaet_training_role TO vaaet_training_test;
+          GRANT vaaet_reviewer_role TO vaaet_review_test;
+          SQL
           /usr/lib/postgresql/17/bin/pg_dump --format=custom --data-only --table=vaaet_raw.traffic_data --file="$VAAET_MODERN_BACKUP_PATH"
 
       - name: Probar schema, constraints y mínimo privilegio
@@ -376,7 +390,7 @@ jobs:
       - name: Auditar PostgreSQL sin mutaciones
         run: |
           vaaet-postgres-audit --output /tmp/postgres-audit.json
-          python -c "import json; r=json.load(open('/tmp/postgres-audit.json')); assert r['alembic_revision']=='20260905_0003'; assert r['integrity']['automatic_accident_states']==0"
+          python -c "import json; r=json.load(open('/tmp/postgres-audit.json')); assert r['alembic_revision']=='20260909_0004'; assert r['integrity']['automatic_accident_states']==0; assert r['integrity']['conflicting_validation_chains'] >= 0"
 
       - name: Probar migración desde base vacía
         run: |

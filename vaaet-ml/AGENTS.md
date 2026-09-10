@@ -5,7 +5,7 @@
 | Campo | Detalle |
 |---|---|
 | Proyecto | VAAET ML — Video Advanced Analysis of Traffic |
-| Versión | 4.7.0 |
+| Versión | 4.8.0 |
 | Runtime objetivo | Python 3.10–3.13; Google Colab |
 | Responsable | Facundo Nicolás González |
 | Última revisión | 2026-08-27 |
@@ -83,4 +83,4 @@ su estilo documental.
 
 GPU, Drive, PostgreSQL, descarga de YOLO y DVC remoto se validan manualmente en Colab.
 
-No agregar, quitar ni reordenar las 19 `FEATURE_COLS`; no cambiar los cuatro estados públicos ni el esquema PostgreSQL sin autorización y un ADR. ADR-0021 gobierna el core/laboratorio; ADR-0013 el workflow de adquisición, ADR-0014 la arquitectura jerárquica, ADR-0015 los namespaces/HITL, ADR-0016 el hardening y linaje operacional, ADR-0017 los modos semilla/HITL, ADR-0018 el benchmark humano versionado, ADR-0019 los datasets inmutables, ADR-0024 la configuración PostgreSQL portable y ADR-0028 la capa compartida.
+No agregar, quitar ni reordenar las 19 `FEATURE_COLS`; no cambiar los cuatro estados públicos ni el esquema PostgreSQL sin autorización y un ADR. ADR-0021 gobierna el core/laboratorio; ADR-0013 el workflow de adquisición, ADR-0014 la arquitectura jerárquica, ADR-0015 los namespaces/HITL, ADR-0016 el hardening y linaje operacional, ADR-0017 los modos semilla/HITL, ADR-0018 el benchmark humano versionado, ADR-0019 los datasets inmutables, ADR-0024 la configuración PostgreSQL portable, ADR-0028 la capa compartida y ADR-0029 la fidelidad numérica e integridad HITL.

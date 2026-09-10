@@ -5,14 +5,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import NoReturn
 
 import pandas as pd
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
-from vaaet_persistence.connection import get_engine
+from vaaet_persistence.connection import dispose_engine, get_engine
+from vaaet_persistence.exceptions import DatabaseOperationError
 from vaaet_persistence.settings import DatabaseSettings
 
 RAW_TABLE = "vaaet_raw.traffic_data"
@@ -24,7 +26,7 @@ SELECT id, pipeline_run_id, clip_id, continuity_id, record_time, avg_speed,
        total_vehicles, near_zero_motion_count, stationary_confirmed_count,
        rejected_speed_count, recovered_track_count, speed_sample_count,
        speed_measurement_quality, optical_flow_tracking_ratio,
-       telemetry_schema_version
+       telemetry_schema_version, numeric_representation
 FROM {RAW_TABLE}
 ORDER BY clip_id, record_time
 """
@@ -49,7 +51,8 @@ SELECT id, source_record_id, pipeline_run_id, clip_id, continuity_id, record_tim
        telemetry_schema_version, data_origin, synthetic_scenario,
        hour_of_day, weather_condition, created_at, prediction_id,
        model_version, model_revision, traffic_state, is_human_validated, reviewer_id,
-       reviewed_at, notes
+       reviewed_at, notes, feature_numeric_representation,
+       prediction_numeric_representation
 FROM {EFFECTIVE_LABELS_VIEW}
 WHERE (:feature_schema_version IS NULL OR feature_schema_version = :feature_schema_version)
 ORDER BY clip_id, record_time
@@ -67,24 +70,37 @@ SELECT f.id, f.source_record_id, f.pipeline_run_id, f.clip_id, f.continuity_id,
        f.stationary_confirmed_count, f.rejected_speed_count,
        f.recovered_track_count, f.speed_sample_count,
        f.telemetry_schema_version, f.data_origin, f.synthetic_scenario,
-       f.hour_of_day, f.weather_condition, f.created_at
+       f.hour_of_day, f.weather_condition, f.created_at,
+       f.numeric_representation
 FROM vaaet_ml.telemetry_features f
 WHERE (:feature_schema_version IS NULL OR f.feature_schema_version = :feature_schema_version)
+  AND EXISTS (
+    SELECT 1
+    FROM vaaet_ml.traffic_predictions linked_prediction
+    JOIN vaaet_feedback.human_validations linked_validation
+      ON linked_validation.prediction_id = linked_prediction.id
+    WHERE linked_prediction.telemetry_feature_id = f.id
+  )
 ORDER BY f.clip_id, f.record_time, f.id
 """
 
 HUMAN_PREDICTIONS_QUERY = """
-SELECT p.id, p.telemetry_feature_id, p.model_version, p.model_revision
+SELECT p.id, p.pipeline_run_id, p.telemetry_feature_id, p.model_version,
+       p.model_revision, p.numeric_representation
 FROM vaaet_ml.traffic_predictions p
 JOIN vaaet_ml.telemetry_features f ON f.id = p.telemetry_feature_id
 WHERE (:feature_schema_version IS NULL OR f.feature_schema_version = :feature_schema_version)
+  AND EXISTS (
+    SELECT 1 FROM vaaet_feedback.human_validations linked_validation
+    WHERE linked_validation.prediction_id = p.id
+  )
 ORDER BY p.id
 """
 
 HUMAN_VALIDATIONS_QUERY = """
-SELECT hv.id, hv.prediction_id, hv.validated_state, hv.is_human_validated,
+SELECT hv.id, hv.prediction_id, hv.validated_state, TRUE AS is_human_validated,
        hv.reviewer_id, hv.reviewed_at, hv.notes, hv.supersedes_validation_id,
-       hv.pipeline_run_id
+       hv.pipeline_run_id, hv.review_source, hv.incident_context_reviewed
 FROM vaaet_feedback.human_validations hv
 JOIN vaaet_ml.traffic_predictions p ON p.id = hv.prediction_id
 JOIN vaaet_ml.telemetry_features f ON f.id = p.telemetry_feature_id
@@ -103,6 +119,7 @@ _LEGACY_MISSING_COLUMNS = (
     "speed_measurement_quality",
     "optical_flow_tracking_ratio",
     "telemetry_schema_version",
+    "numeric_representation",
 )
 
 
@@ -129,16 +146,21 @@ def load_telemetry(
         try:
             return pd.read_sql(text(TELEMETRY_QUERY), active_engine)
         except ProgrammingError:
-            legacy = pd.read_sql(text(LEGACY_TELEMETRY_QUERY), active_engine)
+            try:
+                legacy = pd.read_sql(text(LEGACY_TELEMETRY_QUERY), active_engine)
+            except SQLAlchemyError as exc:
+                _raise_read_error(exc, operation="load-legacy-telemetry")
             for column in _LEGACY_MISSING_COLUMNS:
                 legacy[column] = pd.NA
             return legacy
+        except SQLAlchemyError as exc:
+            _raise_read_error(exc, operation="load-telemetry")
     finally:
         if owns_engine:
-            active_engine.dispose()
+            dispose_engine(active_engine)
 
 
-def load_telemetry_window(
+def load_telemetry_window(  # noqa: C901 - coordina una fotografía transaccional multitabla.
     *,
     start: pd.Timestamp,
     end: pd.Timestamp,
@@ -175,7 +197,7 @@ SELECT id, pipeline_run_id, clip_id, continuity_id, record_time, avg_speed,
        total_vehicles, near_zero_motion_count, stationary_confirmed_count,
        rejected_speed_count, recovered_track_count, speed_sample_count,
        speed_measurement_quality, optical_flow_tracking_ratio,
-       telemetry_schema_version
+       telemetry_schema_version, numeric_representation
 FROM {RAW_TABLE}
 WHERE {" AND ".join(clauses)}
 ORDER BY clip_id, record_time
@@ -188,10 +210,13 @@ ORDER BY clip_id, record_time
 
     active_engine, owns_engine = _active_engine(settings, engine)
     try:
-        return pd.read_sql(statement, active_engine, params=params)
+        try:
+            return pd.read_sql(statement, active_engine, params=params)
+        except SQLAlchemyError as exc:
+            _raise_read_error(exc, operation="load-telemetry-window")
     finally:
         if owns_engine:
-            active_engine.dispose()
+            dispose_engine(active_engine)
 
 
 def load_human_ground_truth(
@@ -204,14 +229,17 @@ def load_human_ground_truth(
 
     active_engine, owns_engine = _active_engine(settings, engine)
     try:
-        return pd.read_sql(
-            text(HUMAN_GROUND_TRUTH_QUERY),
-            active_engine,
-            params={"feature_schema_version": feature_schema_version},
-        )
+        try:
+            return pd.read_sql(
+                text(HUMAN_GROUND_TRUTH_QUERY),
+                active_engine,
+                params={"feature_schema_version": feature_schema_version},
+            )
+        except SQLAlchemyError as exc:
+            _raise_read_error(exc, operation="load-human-ground-truth")
     finally:
         if owns_engine:
-            active_engine.dispose()
+            dispose_engine(active_engine)
 
 
 def load_human_feedback_components(
@@ -225,14 +253,37 @@ def load_human_feedback_components(
     active_engine, owns_engine = _active_engine(settings, engine)
     params = {"feature_schema_version": feature_schema_version}
     try:
-        return {
-            "features": pd.read_sql(text(HUMAN_FEATURES_QUERY), active_engine, params=params),
-            "predictions": pd.read_sql(text(HUMAN_PREDICTIONS_QUERY), active_engine, params=params),
-            "validations": pd.read_sql(text(HUMAN_VALIDATIONS_QUERY), active_engine, params=params),
-        }
+        try:
+            with active_engine.connect().execution_options(
+                isolation_level="REPEATABLE READ"
+            ) as connection:
+                with connection.begin():
+                    connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                    return {
+                        "features": pd.read_sql(
+                            text(HUMAN_FEATURES_QUERY), connection, params=params
+                        ),
+                        "predictions": pd.read_sql(
+                            text(HUMAN_PREDICTIONS_QUERY), connection, params=params
+                        ),
+                        "validations": pd.read_sql(
+                            text(HUMAN_VALIDATIONS_QUERY), connection, params=params
+                        ),
+                    }
+        except SQLAlchemyError as exc:
+            _raise_read_error(exc, operation="load-human-feedback-components")
     finally:
         if owns_engine:
-            active_engine.dispose()
+            dispose_engine(active_engine)
+
+
+def _raise_read_error(exc: SQLAlchemyError, *, operation: str) -> NoReturn:
+    sqlstate = getattr(getattr(exc, "orig", None), "pgcode", None)
+    raise DatabaseOperationError(
+        "PostgreSQL read operation failed.",
+        operation=operation,
+        sqlstate=sqlstate,
+    ) from None
 
 
 __all__ = [

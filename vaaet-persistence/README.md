@@ -1,4 +1,4 @@
-# VAAET Persistence 0.1.0
+# VAAET Persistence 0.2.0
 
 `vaaet-persistence` es la única implementación compartida del acceso PostgreSQL
 de VAAET. Centraliza configuración segura, conexiones, consultas operacionales,

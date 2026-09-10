@@ -1,6 +1,6 @@
 # Modelo PostgreSQL — `vaaet-db-v3`
 
-VAAET Persistence 0.1.0 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
+VAAET Persistence 0.2.0 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
 portabilidad por capacidades y la configuración administrativa se rigen por
 [ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
 Los notebooks nunca crean ni alteran tablas. La revisión vigente encadena la
@@ -8,7 +8,8 @@ Los notebooks nunca crean ni alteran tablas. La revisión vigente encadena la
 y el [hardening 4.2](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260806_0002_postgres_hardening_pipeline_runs.py),
 seguido por la [continuidad e identidad v3](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260905_0003_temporal_continuity_model_revision.py).
 La extracción está gobernada por [ADR-0028](decisions/0028-shared-postgresql-persistence-layer.md)
-y no introduce una revisión `0004`.
+y la [revisión `0004`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260909_0004_numeric_fidelity_hitl_integrity.py)
+implementa [ADR-0029](decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
 
 ## Relaciones
 
@@ -29,6 +30,7 @@ erDiagram
       timestamptz started_at
       timestamptz completed_at
       text database_user
+      text application_name
       text model_revision
     }
 
@@ -39,6 +41,7 @@ erDiagram
       text continuity_id
       timestamptz record_time
       text telemetry_schema_version
+      text numeric_representation
     }
     TELEMETRY_FEATURES {
       bigint id PK
@@ -49,6 +52,7 @@ erDiagram
       text continuity_id
       timestamptz record_time
       string feature_cols_19
+      text numeric_representation
     }
     TRAFFIC_PREDICTIONS {
       bigint id PK
@@ -57,6 +61,7 @@ erDiagram
       text model_version
       text model_revision
       boolean accident_rule_triggered
+      text numeric_representation
     }
     HUMAN_VALIDATIONS {
       uuid id PK
@@ -78,7 +83,11 @@ erDiagram
 | `vaaet_feedback.human_validations` | Revisión humana append-only | UUID; sustitución explícita por FK |
 | `vaaet_ops.pipeline_runs` | Ciclo redactado y auditable de cada workflow | UUID |
 
-Todas las fechas son `TIMESTAMPTZ` UTC. `continuity_id` cambia por vista o por
+Todas las fechas son `TIMESTAMPTZ` UTC. Las medidas continuas, features y
+probabilidades usan `DOUBLE PRECISION`, en paridad con `float64`; los conteos
+continúan siendo enteros. `numeric_representation` distingue escrituras nuevas
+`float64` de históricos `legacy-rounded` sin inventar precisión perdida.
+`continuity_id` cambia por vista o por
 huecos superiores a 90 segundos. `model_revision` es el SHA-256 del bundle
 exacto y no reemplaza a la etiqueta semántica `model_version`. Los ratios están
 restringidos a `[0,1]`,
@@ -88,9 +97,11 @@ revisó el contexto temporal.
 
 ## Vistas
 
-- `vaaet_feedback.review_queue`: predicciones con su validación más reciente; el modo
+- `vaaet_feedback.review_queue`: predicciones con su nodo terminal válido; el modo
   `priority` excluye revisadas y `all` permite correcciones append-only.
-- `vaaet_feedback.effective_human_labels`: última validación por predicción.
+- `vaaet_feedback.effective_human_labels`: único nodo terminal de cada cadena válida.
+- `vaaet_feedback.human_validation_conflicts`: cadenas históricas ambiguas,
+  preservadas pero excluidas del uso supervisado.
 - `public.traffic_data`, `public.telemetry_raw` y
   `public.traffic_classifications`: compatibilidad read-only durante 4.x.
 

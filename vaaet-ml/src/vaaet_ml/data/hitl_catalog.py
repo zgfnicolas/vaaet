@@ -372,7 +372,12 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     required_prediction_columns = {"id", "telemetry_feature_id", "model_version", "model_revision"}
     if missing := sorted(required_prediction_columns - set(predictions.columns)):
         raise ValueError(f"Catalog predictions are missing fields: {missing}")
-    projection = predictions[["id", "telemetry_feature_id", "model_version", "model_revision"]]
+    projection_columns = ["id", "telemetry_feature_id", "model_version", "model_revision"]
+    if "numeric_representation" in predictions:
+        projection_columns.append("numeric_representation")
+    projection = predictions[projection_columns].rename(
+        columns={"numeric_representation": "prediction_numeric_representation"}
+    )
     feedback = features.merge(
         projection,
         left_on="id",
@@ -459,10 +464,8 @@ def _validate_validation_graph_columns(validations: pd.DataFrame) -> None:
 
 
 def _strict_boolean(value: object) -> bool:
-    if type(value) is bool:
-        return value
-    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
-        return value.strip().lower() == "true"
+    if type(value) is bool or type(value).__name__ == "bool_":
+        return bool(value)
     raise ValueError("Human validation flags must be contractual booleans.")
 
 

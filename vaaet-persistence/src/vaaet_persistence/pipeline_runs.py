@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,15 +17,20 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.logging import get_logger
 from vaaet.settings import MODEL_VERSION, TELEMETRY_SCHEMA_VERSION
 
+from vaaet_persistence.connection import require_database_revision
+from vaaet_persistence.exceptions import DatabaseOperationError, PersistenceConflictError
+
 logger = get_logger(__name__)
+_APPLICATION_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 _START_RUN_SQL = """
 SELECT vaaet_ops.start_pipeline_run(
-    CAST(:id AS UUID), :workflow, :application_version, :git_commit,
+    CAST(:id AS UUID), :workflow, :application_name, :application_version, :git_commit,
     :telemetry_schema_version, :feature_schema_version, :model_version,
     :model_revision, :source_kind, :clip_id, :input_rows
 )
@@ -63,8 +69,13 @@ class PipelineRunMetadata:
     model_revision: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.application_name.strip() or not self.application_version.strip():
-            raise ValueError("Pipeline runs require application_name and application_version.")
+        if (
+            _APPLICATION_COMPONENT.fullmatch(self.application_name) is None
+            or _APPLICATION_COMPONENT.fullmatch(self.application_version) is None
+        ):
+            raise ValueError(
+                "Pipeline runs require safe application_name and application_version identifiers."
+            )
         if self.input_rows is not None and self.input_rows < 0:
             raise ValueError("Pipeline input_rows cannot be negative.")
         if self.git_commit is not None and not re.fullmatch(
@@ -127,9 +138,10 @@ def _local_payload(
     metadata["model_revision"] = handle.model_revision
     return {
         "id": str(handle.id),
+        "scope": "workflow-processing",
         "status": status,
         "started_at": started_at,
-        "completed_at": _utc_now(),
+        "completed_at": _utc_now() if status != "running" else None,
         "output_rows": handle.output_rows,
         "error_category": error_category,
         **metadata,
@@ -139,10 +151,24 @@ def _local_payload(
 def _write_local_manifest(directory: Path, payload: dict[str, object]) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     destination = directory / f"{payload['id']}.json"
-    destination.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    if destination.exists():
+        existing = json.loads(destination.read_text(encoding="utf-8"))
+        if existing.get("status") in {"succeeded", "failed"}:
+            stable_existing = {key: value for key, value in existing.items() if key != "completed_at"}
+            stable_payload = {key: value for key, value in payload.items() if key != "completed_at"}
+            if stable_payload == stable_existing:
+                return destination
+            raise RuntimeError("A terminal local pipeline manifest cannot be overwritten.")
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        json.loads(temporary.read_text(encoding="utf-8"))
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
     return destination
 
 
@@ -165,6 +191,7 @@ def start_pipeline_run(
         payload = {
             "id": str(handle.id),
             "workflow": metadata.workflow.value,
+            "application_name": metadata.application_name,
             "application_version": metadata.application_version,
             "git_commit": metadata.git_commit,
             "telemetry_schema_version": metadata.telemetry_schema_version,
@@ -175,10 +202,24 @@ def start_pipeline_run(
             "clip_id": metadata.clip_id,
             "input_rows": metadata.input_rows,
         }
-        with engine.begin() as connection:
-            connection.execute(text(_START_RUN_SQL), payload).scalar_one()
+        try:
+            with engine.begin() as connection:
+                require_database_revision(connection)
+                connection.execute(text(_START_RUN_SQL), payload).scalar_one()
+        except SQLAlchemyError as exc:
+            _raise_pipeline_database_error(exc, operation="start-pipeline-run", run_id=handle.id)
     elif local_manifest_directory is None:
         raise ValueError("A local manifest directory is required when PostgreSQL is unavailable.")
+    else:
+        _write_local_manifest(
+            Path(local_manifest_directory),
+            _local_payload(
+                handle,
+                status="running",
+                started_at=started_at,
+                error_category=None,
+            ),
+        )
     return handle, started_at
 
 
@@ -197,17 +238,20 @@ def finish_pipeline_run(
     if status == "succeeded":
         error_category = None
     if engine is not None:
-        with engine.begin() as connection:
-            connection.execute(
-                text(_FINISH_RUN_SQL),
-                {
-                    "id": str(handle.id),
-                    "status": status,
-                    "output_rows": handle.output_rows,
-                    "error_category": error_category,
-                    "model_revision": handle.model_revision,
-                },
-            )
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(_FINISH_RUN_SQL),
+                    {
+                        "id": str(handle.id),
+                        "status": status,
+                        "output_rows": handle.output_rows,
+                        "error_category": error_category,
+                        "model_revision": handle.model_revision,
+                    },
+                )
+        except SQLAlchemyError as exc:
+            _raise_pipeline_database_error(exc, operation="finish-pipeline-run", run_id=handle.id)
         return None
     if local_manifest_directory is None:
         raise ValueError("A local manifest directory is required when PostgreSQL is unavailable.")
@@ -263,6 +307,23 @@ def pipeline_run(
             engine=engine,
             local_manifest_directory=local_manifest_directory,
         )
+
+
+def _raise_pipeline_database_error(
+    error: SQLAlchemyError,
+    *,
+    operation: str,
+    run_id: UUID,
+) -> None:
+    sqlstate = getattr(getattr(error, "orig", None), "pgcode", None)
+    if sqlstate == "23505":
+        raise PersistenceConflictError("Immutable pipeline run conflict.") from None
+    raise DatabaseOperationError(
+        "PostgreSQL pipeline lineage operation failed.",
+        operation=operation,
+        sqlstate=sqlstate,
+        run_id=str(run_id),
+    ) from None
 
 
 __all__ = [

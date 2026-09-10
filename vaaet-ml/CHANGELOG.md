@@ -15,6 +15,33 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.8.0] - 2026-09-09
+
+### Añadido
+
+- Alembic `0004`, ADR-0029 y diagnóstico de cadenas HITL históricas
+  conflictivas.
+- Procedencia `numeric_representation`, identidad `application_name` y UUID
+  portables derivados de claves operacionales verificadas.
+- Timeouts finitos, paginación estable de revisión y lecturas HITL
+  `REPEATABLE READ`.
+
+### Cambiado
+
+- VAAET Persistence 0.2.0 conserva cálculos continuos como `DOUBLE PRECISION`,
+  valida tipos antes de escribir y agrupa inserciones en lotes transaccionales.
+- Recolección e inferencia registran la corrida antes de insertar sus filas y
+  reutilizan el mismo identificador local/PostgreSQL.
+- La etiqueta humana efectiva es el nodo terminal de una única cadena válida;
+  conflictos históricos permanecen auditables y fuera del entrenamiento.
+
+### Corregido
+
+- La consulta autoritativa ya no solicita una columna humana inexistente ni
+  relaciona features y predicciones por posición.
+- Contraseñas y certificados conservan su contenido, los recursos tienen
+  ownership explícito y los errores externos se traducen sin filtrar secretos.
+
 ## [4.7.0] - 2026-09-08
 
 ### Añadido

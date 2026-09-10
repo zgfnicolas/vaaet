@@ -28,9 +28,10 @@ def normalize_review_frames(
     """Convierte clasificación y decisiones a tablas relacionales verificables."""
 
     run_id = _validated_run_id(pipeline_run_id)
-    features = _normalize_features(classified, run_id)
+    normalized = normalize_continuity_frame(classified).reset_index(drop=True)
+    features = _normalize_features(normalized, run_id)
     predictions, source_prediction_ids = _normalize_predictions(
-        classified, features, run_id, model_version
+        normalized, features, run_id, model_version
     )
     validation_frame = _normalize_validations(
         validations,
@@ -63,15 +64,42 @@ def _normalize_features(classified: pd.DataFrame, run_id: str) -> pd.DataFrame:
     required = {"clip_id", "record_time", *FEATURE_COLS}
     if missing := sorted(required - set(classified.columns)):
         raise ValueError(f"Classified review rows are missing fields: {missing}")
-    features = normalize_continuity_frame(classified).reset_index(drop=True)
+    features = classified.copy().reset_index(drop=True)
+    if "feature_schema_version" not in features:
+        raise ValueError("Classified review rows require feature_schema_version.")
+    schemas = set(features["feature_schema_version"].dropna().astype(str))
+    if schemas != {FEATURE_SCHEMA_VERSION} or features["feature_schema_version"].isna().any():
+        raise ValueError(
+            "Operational HITL export requires the current feature schema on every row."
+        )
+    if "pipeline_run_id" in features:
+        declared_runs = set(features["pipeline_run_id"].dropna().astype(str))
+        if declared_runs and declared_runs != {run_id}:
+            raise ValueError("Classified review rows contradict pipeline_run_id.")
+    features["pipeline_run_id"] = run_id
+    if "numeric_representation" in features:
+        representations = set(features["numeric_representation"].dropna().astype(str))
+        if representations and representations != {"float64"}:
+            raise ValueError("New HITL exports require float64 numeric representation.")
+    features["numeric_representation"] = "float64"
     existing_ids = features.get("id", pd.Series(pd.NA, index=features.index)).astype("string")
+    operational_ids = features.get(
+        "operational_feature_id", features.get("id", pd.Series(pd.NA, index=features.index))
+    )
     features["id"] = [
         str(value)
         if valid_uuid(value)
-        else stable_uuid("feature", run_id, row.clip_id, row.record_time)
+        else stable_uuid(
+            "feature",
+            run_id,
+            row.clip_id,
+            row.continuity_id,
+            row.record_time,
+            row.feature_schema_version,
+        )
         for value, row in zip(existing_ids, features.itertuples(), strict=False)
     ]
-    features["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+    features["operational_feature_id"] = operational_ids
     prediction_columns = {
         "prediction_id",
         "traffic_state",
@@ -104,9 +132,16 @@ def _normalize_predictions(
     if len(revisions) != 1 or not is_sha256(next(iter(revisions), "")):
         raise ValueError("Classified review rows require one exact SHA-256 model_revision.")
     model_revision = next(iter(revisions))
+    declared_versions = set(
+        classified.get("model_version", pd.Series(dtype=str)).dropna().astype(str)
+    )
+    if declared_versions and declared_versions != {model_version}:
+        raise ValueError("Classified review rows contradict model_version.")
     source_ids = classified.get(
         "prediction_id", pd.Series(range(1, len(classified) + 1), index=classified.index)
     )
+    if source_ids.isna().any():
+        raise ValueError("Classified review rows contain incomplete prediction identities.")
     prediction_ids = [
         value
         if valid_uuid(value)
@@ -136,6 +171,8 @@ def _normalize_predictions(
     predictions.insert(0, "telemetry_feature_id", features["id"].tolist())
     predictions.insert(0, "id", prediction_ids)
     predictions["pipeline_run_id"] = run_id
+    predictions["numeric_representation"] = "float64"
+    predictions["operational_prediction_id"] = source_ids.tolist()
     return predictions, source_ids
 
 
@@ -208,7 +245,15 @@ def _normalize_validations(
     frame["supersedes_validation_id"] = _supersedes_ids(frame)
     if "reviewed_at" not in frame:
         frame["reviewed_at"] = finalized_at.isoformat()
-    frame["pipeline_run_id"] = run_id
+    else:
+        reviewed_at = pd.to_datetime(frame["reviewed_at"], utc=True, errors="raise")
+        if reviewed_at.isna().any():
+            raise ValueError("Human validation reviewed_at is required on every row.")
+        frame["reviewed_at"] = reviewed_at
+    if "pipeline_run_id" not in frame:
+        frame["pipeline_run_id"] = run_id
+    else:
+        frame["pipeline_run_id"] = frame["pipeline_run_id"].fillna(run_id)
     return frame
 
 

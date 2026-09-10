@@ -27,6 +27,7 @@ from vaaet_ml.data.ingestion import (
     load_dataset_package,
     load_training_inputs,
 )
+from vaaet_ml.data.package_codec import _decode_csv_boolean
 from vaaet_ml.settings import FEATURE_COLS
 from vaaet_ml.training.lifecycle import TrainingMode
 
@@ -39,6 +40,7 @@ def _features(state: int = 1) -> pd.DataFrame:
         continuity_id="clip-a:continuity-0001",
         record_time="2026-08-04T12:00:00Z",
         feature_schema_version=FEATURE_SCHEMA_VERSION,
+        numeric_representation="float64",
         traffic_state=state,
         is_human_validated=True,
     )
@@ -54,6 +56,7 @@ def _package_tables(path: Path, state: int = 1) -> Path:
                 "telemetry_feature_id": "11111111-1111-4111-8111-111111111111",
                 "model_version": "mlp-v3.0",
                 "model_revision": "a" * 64,
+                "numeric_representation": "float64",
             }
         ]
     )
@@ -88,6 +91,68 @@ def test_feedback_requires_explicit_human_validation_evidence() -> None:
 
     with pytest.raises(ValueError, match="explicitly prove human validation"):
         _deduplicate_feedback([feedback])
+
+
+def test_package_boolean_transport_rejects_ambiguous_text() -> None:
+    assert _decode_csv_boolean("true") is True
+    assert _decode_csv_boolean("false") is False
+    with pytest.raises(ValueError, match="no contractual"):
+        _decode_csv_boolean("yes")
+
+
+def test_current_feedback_requires_numeric_lineage() -> None:
+    feedback = _features().drop(columns="numeric_representation")
+    feedback["model_revision"] = "a" * 64
+
+    with pytest.raises(ValueError, match="numeric_representation"):
+        _deduplicate_feedback([feedback])
+
+
+def test_processed_feedback_cannot_mix_feature_schemas() -> None:
+    current = _features().assign(model_revision="a" * 64)
+    legacy = _features().assign(feature_schema_version="traffic-features-v2")
+    legacy = legacy.drop(columns=["continuity_id", "numeric_representation"])
+
+    with pytest.raises(ValueError, match="cannot mix feature schema versions"):
+        _deduplicate_feedback([current, legacy])
+
+
+def test_equivalent_reinferences_are_deduplicated_with_complete_lineage() -> None:
+    first = _features().assign(
+        model_revision="a" * 64,
+        prediction_id="22222222-2222-4222-8222-222222222222",
+        validation_id="33333333-3333-4333-8333-333333333333",
+    )
+    second = _features().assign(
+        id="44444444-4444-4444-8444-444444444444",
+        model_revision="b" * 64,
+        prediction_id="55555555-5555-4555-8555-555555555555",
+        validation_id="66666666-6666-4666-8666-666666666666",
+    )
+
+    stable, incidents = _deduplicate_feedback([first, second])
+
+    assert incidents.empty
+    assert len(stable) == 1
+    assert set(stable.iloc[0]["source_prediction_ids"].split(",")) == {
+        first.iloc[0]["prediction_id"],
+        second.iloc[0]["prediction_id"],
+    }
+    assert set(stable.iloc[0]["source_validation_ids"].split(",")) == {
+        first.iloc[0]["validation_id"],
+        second.iloc[0]["validation_id"],
+    }
+
+
+def test_reinference_with_different_continuity_is_a_conflict() -> None:
+    first = _features().assign(model_revision="a" * 64)
+    second = _features().assign(
+        continuity_id="clip-a:continuity-0002",
+        model_revision="b" * 64,
+    )
+
+    with pytest.raises(ValueError, match="Conflicting human labels or features"):
+        _deduplicate_feedback([first, second])
 
 
 def test_hitl_mode_requires_validated_feedback_source(tmp_path: Path) -> None:
@@ -263,6 +328,7 @@ def test_feedback_rejects_reordered_feature_contract(tmp_path: Path) -> None:
                     "telemetry_feature_id": "11111111-1111-4111-8111-111111111111",
                     "model_version": "mlp-v3.0",
                     "model_revision": "a" * 64,
+                    "numeric_representation": "float64",
                 }
             ]
         ),

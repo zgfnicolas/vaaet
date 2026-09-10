@@ -414,15 +414,15 @@ def test_portable_agent_context_describes_the_active_monorepo() -> None:
     normalized_core_rules = " ".join(core_rules.split())
 
     assert "vaaet-core==0.2.1" in root_context
-    assert "vaaet-persistence==0.1.0" in root_context
-    assert "vaaet-ml==4.7.0" in root_context
+    assert "vaaet-persistence==0.2.0" in root_context
+    assert "vaaet-ml==4.8.0" in root_context
     assert "import `vaaet_ml`" in root_context
     assert "cuatro notebooks" in root_context
     assert "No puede importar `vaaet_ml`, PostgreSQL, DVC, Google Drive" in normalized_core_rules
     assert "Pipe-and-Filter síncrono" in core_rules
     assert "ADR-0025" in root_context
     assert "`vaaet_ml`" in ml_context
-    assert "`vaaet-persistence==0.1.0`" in ml_context
+    assert "`vaaet-persistence==0.2.0`" in ml_context
     assert "`src/vaaet_ml/`" in ml_context
     assert "Los cuatro notebooks" in ml_context
     assert "Tres workflows Colab" not in ml_context

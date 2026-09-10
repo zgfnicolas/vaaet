@@ -16,7 +16,7 @@ from alembic import context
 from sqlalchemy.engine import Connection
 
 from vaaet_persistence import __version__
-from vaaet_persistence.connection import create_admin_engine
+from vaaet_persistence.connection import create_admin_engine, dispose_engine
 from vaaet_persistence.settings import (
     DatabaseAdminSettings,
     cleanup_temporary_root_certificate,
@@ -75,7 +75,7 @@ def run_migrations_online() -> None:
         with engine.connect() as connection:
             _run_migrations_with_connection(connection)
     finally:
-        engine.dispose()
+        dispose_engine(engine)
         cleanup_temporary_root_certificate(settings)
 
 

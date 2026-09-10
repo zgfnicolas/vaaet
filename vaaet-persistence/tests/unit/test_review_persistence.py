@@ -19,9 +19,54 @@ from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 class _Connection:
     def __init__(self) -> None:
         self.payloads: list[dict[str, object]] = []
+        self.isolation_level: str | None = None
+        self.read_only = False
 
-    def execute(self, _statement: object, payload: dict[str, object]) -> None:
+    def execution_options(self, *, isolation_level: str):
+        self.isolation_level = isolation_level
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    @contextmanager
+    def begin(self):
+        yield self
+
+    def exec_driver_sql(self, statement: str) -> None:
+        self.read_only = statement == "SET TRANSACTION READ ONLY"
+
+    def execute(self, statement: object, payload: dict[str, object] | None = None):
+        if "alembic_version" in str(statement):
+            return _Result({"version_num": "20260909_0004"})
+        assert payload is not None
         self.payloads.append(payload)
+        return _Result(payload)
+
+
+class _Mappings:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def one_or_none(self) -> dict[str, object]:
+        return self.payload
+
+    def one(self) -> dict[str, object]:
+        return self.payload
+
+
+class _Result:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def mappings(self) -> _Mappings:
+        return _Mappings(self.payload)
+
+    def scalar_one_or_none(self) -> object:
+        return self.payload.get("version_num")
 
 
 class _Engine:
@@ -32,6 +77,9 @@ class _Engine:
     @contextmanager
     def begin(self):
         yield self.connection
+
+    def connect(self) -> _Connection:
+        return self.connection
 
     def dispose(self) -> None:
         self.disposed = True
@@ -57,9 +105,12 @@ def test_load_review_queue_is_read_only_and_filters_in_memory(monkeypatch) -> No
     )
     monkeypatch.setattr("vaaet_persistence.review_persistence.pd.read_sql", lambda *_args, **_kwargs: frame)
 
-    result = load_review_queue(engine=_Engine(), pipeline_run_id="run", mode="priority")
+    engine = _Engine()
+    result = load_review_queue(engine=engine, pipeline_run_id=uuid4(), mode="priority")
 
     assert result["prediction_id"].tolist() == [1]
+    assert engine.connection.isolation_level == "REPEATABLE READ"
+    assert engine.connection.read_only
 
 
 def test_persist_validation_uses_supplied_pipeline_run_and_disposes_owned_engine(monkeypatch) -> None:
@@ -67,12 +118,11 @@ def test_persist_validation_uses_supplied_pipeline_run_and_disposes_owned_engine
     monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", lambda _: engine)
     decision = HumanValidation(1, 1, "reviewer", validation_id=uuid4())
 
-    identifier = persist_human_validation(
-        decision, settings=_settings(), pipeline_run_id="run"
-    )
+    run_id = uuid4()
+    identifier = persist_human_validation(decision, settings=_settings(), pipeline_run_id=run_id)
 
     assert identifier == decision.validation_id
-    assert engine.connection.payloads[0]["pipeline_run_id"] == "run"
+    assert engine.connection.payloads[0]["pipeline_run_id"] == str(run_id)
     assert engine.disposed
 
 

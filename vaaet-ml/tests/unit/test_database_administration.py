@@ -41,7 +41,7 @@ def test_administrator_uses_shared_typed_endpoint_outside_colab(
     settings = load_database_admin_settings(allow_legacy=False)
 
     assert settings.host == "localhost"
-    assert settings.application == "vaaet-ml-migration/4.7.0"
+    assert settings.application == "vaaet-ml-migration/4.8.0"
     assert "not-a-real-secret" not in repr(settings)
 
 
@@ -62,19 +62,20 @@ def test_administrator_does_not_read_colab_when_environment_is_missing(
         load_database_admin_settings(allow_legacy=False)
 
 
-def test_administrator_releases_temporary_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_administrator_defers_temporary_certificate_until_engine_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_local_admin_environment(monkeypatch)
     monkeypatch.setenv("VAAET_DB_HOST", "db.example.test")
     monkeypatch.setenv("VAAET_DB_SSLMODE", "verify-full")
     monkeypatch.setenv("VAAET_DB_SSLROOTCERT_PEM", "-----BEGIN CERTIFICATE-----\\nvalue")
 
     settings = load_database_admin_settings(allow_legacy=False)
-    certificate = Path(settings.sslrootcert or "")
-    assert certificate.is_file()
+    assert settings.sslrootcert is None
+    assert settings.endpoint.sslrootcert_pem == r"-----BEGIN CERTIFICATE-----\nvalue"
 
     cleanup_temporary_root_certificate(settings)
-
-    assert not certificate.exists()
+    assert settings.endpoint.sslrootcert_pem == r"-----BEGIN CERTIFICATE-----\nvalue"
 
 
 def test_endpoint_rejects_missing_certificate_path(tmp_path: Path) -> None:
@@ -183,6 +184,7 @@ def test_admin_engine_uses_null_pool_and_common_tls_arguments(
         "connect_timeout": 10,
         "application_name": "vaaet-migration",
         "sslmode": "disable",
+        "options": "-c statement_timeout=120000 -c lock_timeout=5000",
     }
 
 
@@ -219,9 +221,17 @@ def test_role_provisioning_matches_v3_functions_and_immutable_inference() -> Non
 
     assert (
         "start_pipeline_run(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, "
-        "TEXT, BIGINT)" in source
+        "TEXT, TEXT, BIGINT)" in source
     )
     assert "finish_pipeline_run(UUID, TEXT, BIGINT, TEXT, TEXT)" in source
+    assert "GRANT SELECT ON public.alembic_version" in source
+    for role in (
+        "vaaet_collection_role",
+        "vaaet_inference_role",
+        "vaaet_training_role",
+        "vaaet_reviewer_role",
+    ):
+        assert role in source
     assert "REVOKE UPDATE, DELETE ON vaaet_ml.telemetry_features" in source
     assert "GRANT SELECT, INSERT ON vaaet_ml.telemetry_features" in source
     assert "GRANT SELECT, INSERT, UPDATE ON vaaet_ml.telemetry_features" not in source

@@ -14,7 +14,39 @@ class DatabaseNotConfiguredError(RuntimeError, PersistenceError):
 
 
 class DatabaseOperationError(RuntimeError, PersistenceError):
-    """Indica un fallo no recuperable de una operación PostgreSQL."""
+    """Indica un fallo PostgreSQL mediante contexto seguro y estructurado."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str | None = None,
+        sqlstate: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.operation = operation
+        self.sqlstate = sqlstate
+        self.run_id = run_id
 
 
-__all__ = ["DatabaseNotConfiguredError", "DatabaseOperationError", "PersistenceError"]
+class PersistenceConflictError(ValueError, PersistenceError):
+    """Indica una colisión idempotente cuyo contenido no coincide."""
+
+
+class PersistenceValidationError(ValueError, PersistenceError):
+    """Indica que una entrada externa incumple el contrato persistible."""
+
+
+class DatabaseSchemaVersionError(RuntimeError, PersistenceError):
+    """Indica que una escritura apunta a una revisión Alembic incompatible."""
+
+
+__all__ = [
+    "DatabaseNotConfiguredError",
+    "DatabaseOperationError",
+    "DatabaseSchemaVersionError",
+    "PersistenceConflictError",
+    "PersistenceError",
+    "PersistenceValidationError",
+]

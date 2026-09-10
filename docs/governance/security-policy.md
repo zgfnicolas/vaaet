@@ -1,4 +1,4 @@
-# Política de seguridad y privacidad — VAAET ML 4.7.0
+# Política de seguridad y privacidad — VAAET ML 4.8.0
 
 `vaaet-persistence` centraliza PostgreSQL para notebooks y futuros backends.
 Cada proceso usa una identidad separada, TLS `verify-full`, permisos

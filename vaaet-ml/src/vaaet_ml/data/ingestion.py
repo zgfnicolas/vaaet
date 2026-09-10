@@ -34,6 +34,7 @@ from vaaet_ml.data.hitl_catalog import (
     load_hitl_catalog_components,
     resolve_effective_human_feedback,
 )
+from vaaet_ml.data.operational_frames import portable_feedback_components
 from vaaet_ml.data.package_codec import (
     DATASET_PACKAGE_CONTRACT,
     SEED_DATASET_PACKAGE_CONTRACT,
@@ -41,6 +42,15 @@ from vaaet_ml.data.package_codec import (
     load_dataset_package,
 )
 from vaaet_ml.training.lifecycle import TrainingMode
+
+_BACKUP_BOOLEAN_COLUMNS = {
+    "is_human_validated",
+    "incident_context_reviewed",
+    "decision_abstained",
+    "measurement_reliable",
+    "accident_rule_triggered",
+    "accident_alert_started",
+}
 
 RAW_REQUIRED_COLUMNS = {
     "clip_id",
@@ -197,10 +207,10 @@ def _load_feedback_components(
 ) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
     if isinstance(source, PostgresSource):
         return (
-            load_human_feedback_components(
+            portable_feedback_components(load_human_feedback_components(
                 settings=source.settings,
                 feature_schema_version=source.feature_schema_version,
-            ),
+            )),
             {"source_kind": "postgres-history"},
         )
     if isinstance(source, DatasetPackageSource):
@@ -215,13 +225,13 @@ def _load_feedback_components(
             ),
             {},
         )
-        return frames, dict(details)
+        return portable_feedback_components(frames), dict(details)
     if isinstance(source, HitlCatalogSource):
         return load_hitl_catalog_components(source)
     raise ValueError(f"Source {type(source).__name__} cannot provide validated feedback.")
 
 
-def _frames_from_backup(
+def _frames_from_backup(  # noqa: C901 - valida variantes históricas en un único borde.
     source: PostgresBackupSource, *, components: set[str]
 ) -> dict[str, pd.DataFrame]:
     """Extrae tablas reconocidas sin ejecutar el SQL contenido en el backup."""
@@ -270,6 +280,9 @@ def _frames_from_backup(
                 }
                 result[key] = frame
                 break
+    for frame in result.values():
+        for column in _BACKUP_BOOLEAN_COLUMNS.intersection(frame.columns):
+            frame[column] = frame[column].map(_parse_backup_boolean)
     if "validations" not in result and "predictions" in result:
         legacy = result["predictions"]
         if "is_human_validated" in legacy:
@@ -359,6 +372,10 @@ def _deduplicate_feedback(
     if missing := required - set(combined.columns):
         raise ValueError(f"Validated feedback is missing fields: {sorted(missing)}")
     versions = set().union(*versions_by_source)
+    if len(versions) != 1:
+        raise ValueError(
+            f"Processed feedback cannot mix feature schema versions: {sorted(versions)}"
+        )
     combined["record_time"] = normalize_timestamp_series(combined["record_time"])
     combined.attrs["legacy_feature_schema"] = versions == {"traffic-features-v2"}
     states = pd.to_numeric(combined["traffic_state"], errors="raise")
@@ -368,10 +385,21 @@ def _deduplicate_feedback(
     ):
         raise ValueError("Feedback traffic_state values must be integers from 0 through 3.")
     combined["traffic_state"] = states.astype(int)
+    comparison = [*FEATURE_COLS, "traffic_state", "feature_schema_version"]
+    comparison.extend(
+        column
+        for column in (
+            CONTINUITY_COLUMN,
+            "numeric_representation",
+            "feature_numeric_representation",
+            "prediction_numeric_representation",
+        )
+        if column in combined
+    )
     for _, group in combined.groupby(["clip_id", "record_time"], dropna=False):
         if (
             group["traffic_state"].nunique() > 1
-            or len(group[[*FEATURE_COLS, "traffic_state"]].drop_duplicates()) > 1
+            or len(group[comparison].drop_duplicates()) > 1
         ):
             raise ValueError(
                 f"Conflicting human labels or features for clip={group.iloc[0]['clip_id']} "
@@ -424,6 +452,15 @@ def _validate_processed_frame_contract(  # noqa: C901 - valida un borde tabular 
         revisions = frame["model_revision"].astype("string")
         if revisions.isna().any() or not revisions.str.fullmatch(r"[0-9a-f]{64}").all():
             raise ValueError("Current processed feedback requires SHA-256 model_revision values.")
+        if "numeric_representation" not in frame:
+            raise ValueError(
+                "Current processed feedback requires numeric_representation lineage."
+            )
+        representations = frame["numeric_representation"].astype("string")
+        if representations.isna().any() or not representations.isin(
+            ("float64", "legacy-rounded")
+        ).all():
+            raise ValueError("Processed feedback has invalid numeric representation lineage.")
     numeric = frame.loc[:, FEATURE_COLS].apply(pd.to_numeric, errors="raise")
     if not numeric.map(math.isfinite).all().all():
         raise ValueError("Processed feedback contains non-finite feature values.")
@@ -432,11 +469,19 @@ def _validate_processed_frame_contract(  # noqa: C901 - valida un borde tabular 
 
 
 def _parse_contract_boolean(value: object) -> bool:
-    if type(value) is bool:
-        return value
-    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
-        return value.strip().lower() == "true"
+    if type(value) is bool or type(value).__name__ == "bool_":
+        return bool(value)
     raise ValueError("is_human_validated must contain contractual boolean values.")
+
+
+def _parse_backup_boolean(value: object) -> bool:
+    """Decodifica el vocabulario booleano emitido por COPY de PostgreSQL."""
+
+    if type(value) is bool or type(value).__name__ == "bool_":
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in {"t", "f", "true", "false"}:
+        return value.strip().lower() in {"t", "true"}
+    raise ValueError("PostgreSQL backup contains a non-contractual boolean value.")
 
 
 def _attach_lineage_sets(frame: pd.DataFrame) -> pd.DataFrame:

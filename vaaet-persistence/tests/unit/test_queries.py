@@ -27,6 +27,34 @@ class _DisposableEngine:
     def dispose(self) -> None:
         self.disposed = True
 
+    def connect(self):
+        return _FakeConnection()
+
+
+class _FakeTransaction:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+class _FakeConnection:
+    def execution_options(self, **_kwargs: object):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def begin(self) -> _FakeTransaction:
+        return _FakeTransaction()
+
+    def exec_driver_sql(self, _statement: str) -> None:
+        return None
+
 
 def _settings() -> DatabaseSettings:
     return DatabaseSettings(

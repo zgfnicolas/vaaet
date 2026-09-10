@@ -4,8 +4,13 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
+import numpy as np
 import pandas as pd
 import pytest
+from vaaet.artifacts import FEATURE_SCHEMA_VERSION
+from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
 from vaaet_persistence.persistence import (
     INSERT_FEATURE_SQL,
@@ -13,12 +18,37 @@ from vaaet_persistence.persistence import (
     INSERT_RAW_SQL,
     SELECT_RAW_SQL,
     _assert_idempotent,
+    _batch_count,
+    _database_values_equal,
     _feature_payload,
     _prediction_payload,
     _raw_payload,
+    _strict_boolean,
+    _strict_float,
+    _strict_integer,
+    _validated_pipeline_run_id,
+    persist_classified_telemetry,
     persist_raw_telemetry,
 )
 from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [(0, 0), (1, 1), (500, 1), (501, 2), (1_000, 2), (1_001, 3)],
+)
+def test_batch_count_has_stable_boundaries(rows: int, expected: int) -> None:
+    assert _batch_count(rows) == expected
+
+
+def test_batch_count_rejects_negative_rows() -> None:
+    with pytest.raises(ValueError, match="cannot be negative"):
+        _batch_count(-1)
+
+
+def test_pipeline_run_id_is_validated_before_database_access() -> None:
+    with pytest.raises(ValueError, match="must be a UUID"):
+        _validated_pipeline_run_id("not-a-uuid")
 
 
 def test_queries_use_versioned_schemas() -> None:
@@ -58,11 +88,14 @@ def test_feature_payload_uses_source_id_and_schema_version() -> None:
             "id": 7,
             "clip_id": "clip",
             "record_time": pd.Timestamp("2025-05-01 08:00:00", tz="UTC"),
+            "feature_schema_version": "traffic-features-v3",
+            "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
         }
     )
     payload = _feature_payload(row, "00000000-0000-0000-0000-000000000001")
     assert payload["source_record_id"] == 7
     assert payload["feature_schema_version"] == "traffic-features-v3"
+    assert payload["telemetry_schema_version"] == TELEMETRY_SCHEMA_VERSION
 
 
 def test_prediction_rejects_automatic_accident() -> None:
@@ -107,6 +140,25 @@ def test_prediction_preserves_incident_candidate_as_congested() -> None:
     assert payload["accident_rule_triggered"] is True
 
 
+def test_prediction_rejects_contradictory_model_version() -> None:
+    row = pd.Series(
+        {
+            "traffic_state": 0,
+            "state_label": "Normal",
+            "confidence": 0.91,
+            "model_version": "mlp-v2.1",
+        }
+    )
+    with pytest.raises(ValueError, match="contradicts"):
+        _prediction_payload(
+            row,
+            feature_id=10,
+            pipeline_run_id="00000000-0000-0000-0000-000000000001",
+            model_version="mlp-v3.0",
+            model_revision="a" * 64,
+        )
+
+
 def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:
     frame = pd.DataFrame(
         [
@@ -120,6 +172,7 @@ def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -
                 "count_motorcycle": 0,
                 "count_bicycle": 0,
                 "total_vehicles": 1,
+                "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
             }
         ]
     )
@@ -145,6 +198,22 @@ def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -
         persist_raw_telemetry(frame, settings=settings)
 
     assert not created
+
+
+def test_classified_persistence_requires_declared_telemetry_schema() -> None:
+    row = {column: 0.0 for column in FEATURE_COLS}
+    row.update(
+        {
+            "clip_id": "clip",
+            "continuity_id": "clip:continuity-0001",
+            "record_time": pd.Timestamp("2026-09-08T00:00:00Z"),
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "traffic_state": 0,
+        }
+    )
+
+    with pytest.raises(ValueError, match="telemetry_schema_version"):
+        persist_classified_telemetry(pd.DataFrame([row]))
 
 
 def test_raw_idempotency_ignores_lineage_but_rejects_changed_measurements() -> None:
@@ -176,3 +245,28 @@ def test_raw_idempotency_ignores_lineage_but_rejects_changed_measurements() -> N
             "raw telemetry",
             ignored_fields={"pipeline_run_id"},
         )
+
+
+@pytest.mark.parametrize("value", [True, "1", 1.5, np.float64(2.5)])
+def test_integer_contract_rejects_coerced_or_fractional_values(value: object) -> None:
+    with pytest.raises(ValueError, match="integer"):
+        _strict_integer(value, label="count")
+
+
+@pytest.mark.parametrize("value", [True, "0.5", float("nan"), float("inf")])
+def test_float_contract_rejects_boolean_text_and_nonfinite_values(value: object) -> None:
+    with pytest.raises(ValueError, match="numeric|finite"):
+        _strict_float(value, label="confidence")
+
+
+@pytest.mark.parametrize("value", [1, 0, "true", "false"])
+def test_boolean_contract_accepts_only_real_booleans(value: object) -> None:
+    with pytest.raises(ValueError, match="boolean"):
+        _strict_boolean(value, label="confirmed")
+
+
+def test_decimal_and_float_are_compared_as_the_persisted_float64_value() -> None:
+    value = 0.12345678901234566
+
+    assert _database_values_equal(Decimal.from_float(value), np.float64(value))
+    assert not _database_values_equal(Decimal("0.1234567890123457"), value)

@@ -1,9 +1,9 @@
-# VAAET ML 4.7.0 — contexto de laboratorio
+# VAAET ML 4.8.0 — contexto de laboratorio
 
 Leé primero `../AGENTS.md`, `../llms.txt`, `AGENTS.md`, ADR-0021 y los ADRs de
-datos/HITL aplicables. Este componente es `vaaet-ml==4.7.0`, con import
+datos/HITL aplicables. Este componente es `vaaet-ml==4.8.0`, con import
 `vaaet_ml`; depende de `vaaet-core==0.2.1` y
-`vaaet-persistence==0.1.0`. No existe un paquete instalable en la raíz.
+`vaaet-persistence==0.2.0`. No existe un paquete instalable en la raíz.
 
 `src/vaaet_ml/` contiene rutas, adaptadores Colab, datasets, entrenamiento y
 evaluación. `../vaaet-persistence/src/vaaet_persistence/` contiene la única

@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 import pandas as pd
 from sqlalchemy.engine import Engine
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
+from vaaet_persistence.connection import dispose_engine
 from vaaet_persistence.queries import (
     EFFECTIVE_LABELS_VIEW,
     HUMAN_FEATURES_QUERY,
@@ -45,7 +46,7 @@ def load_telemetry(
         return _load_telemetry(engine=active)
     finally:
         if owns:
-            active.dispose()
+            dispose_engine(active)
 
 
 def load_telemetry_window(
@@ -76,7 +77,7 @@ def load_telemetry_window(
         )
     finally:
         if owns:
-            active.dispose()
+            dispose_engine(active)
 
 
 def load_human_ground_truth(
@@ -92,7 +93,7 @@ def load_human_ground_truth(
         )
     finally:
         if owns:
-            active.dispose()
+            dispose_engine(active)
 
 
 def load_human_feedback_components(
@@ -108,7 +109,7 @@ def load_human_feedback_components(
         )
     finally:
         if owns:
-            active.dispose()
+            dispose_engine(active)
 
 
 __all__ = [

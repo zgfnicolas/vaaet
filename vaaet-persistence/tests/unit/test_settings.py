@@ -8,6 +8,7 @@ import pytest
 
 from vaaet_persistence.exceptions import DatabaseNotConfiguredError
 from vaaet_persistence.settings import (
+    DatabaseEndpointSettings,
     DatabaseProfile,
     get_optional_database_settings,
     load_database_settings,
@@ -65,6 +66,17 @@ def test_loader_rejects_missing_consumer_identity() -> None:
         )
 
 
+@pytest.mark.parametrize("value", ["postgresql://private", "password=private", "line\nbreak"])
+def test_loader_rejects_unsafe_application_identity(value: str) -> None:
+    with pytest.raises(ValueError, match="application identifier"):
+        load_database_settings(
+            DatabaseProfile.INFERENCE,
+            application_name=value,
+            application_version="0.1.0",
+            value_provider=_values,
+        )
+
+
 def test_optional_profile_distinguishes_absent_from_partial_configuration() -> None:
     assert (
         get_optional_database_settings(
@@ -84,3 +96,38 @@ def test_optional_profile_distinguishes_absent_from_partial_configuration() -> N
             application_version="1.0.0",
             value_provider=partial.get,
         )
+
+
+@pytest.mark.parametrize("sslmode", ["allow", "prefer"])
+def test_endpoint_rejects_ambiguous_tls_modes(sslmode: str) -> None:
+    with pytest.raises(ValueError, match="Unsupported"):
+        DatabaseEndpointSettings("localhost", 5432, "vaaet", sslmode=sslmode)
+
+
+def test_password_is_preserved_literally_and_timeouts_are_explicit() -> None:
+    secret = "  password-with-significant-spaces  "
+
+    def values(name: str) -> str | None:
+        return {
+            "VAAET_DB_HOST": " localhost ",
+            "VAAET_DB_NAME": " vaaet ",
+            "VAAET_DB_SSLMODE": "disable",
+            "VAAET_INFERENCE_DB_USER": " inference-user ",
+            "VAAET_INFERENCE_DB_PASSWORD": secret,
+        }.get(name)
+
+    settings = load_database_settings(
+        DatabaseProfile.INFERENCE,
+        application_name="vaaet-api-worker",
+        application_version="0.2.0",
+        value_provider=lambda name: (
+            values(name)
+            if name.endswith("_PASSWORD")
+            else (values(name).strip() if values(name) is not None else None)
+        ),
+    )
+
+    assert settings.password == secret
+    assert settings.statement_timeout_seconds == 120
+    assert settings.lock_timeout_seconds == 5
+    assert settings.pool.timeout_seconds == 30

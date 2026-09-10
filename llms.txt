@@ -5,8 +5,8 @@ el cambio afecta serving con YOLO, ADR-0022. Los ADRs, contratos y reglas de
 seguridad prevalecen sobre este resumen.
 
 Monorepo único: `vaaet-core/` (distribución `vaaet-core==0.2.1`, import
-`vaaet`), `vaaet-persistence/` (distribución `vaaet-persistence==0.1.0`, import
-`vaaet_persistence`), `vaaet-ml/` (distribución `vaaet-ml==4.7.0`,
+`vaaet`), `vaaet-persistence/` (distribución `vaaet-persistence==0.2.0`, import
+`vaaet_persistence`), `vaaet-ml/` (distribución `vaaet-ml==4.8.0`,
 import `vaaet_ml`), `vaaet-app/` (reservado), `docs/`, `.dvc/` y `.github/`. No existe paquete
 instalable en la raíz. Instalar core, persistencia y luego ML; DVC permanece en la raíz y
 versiona `vaaet-ml/artifacts/traffic-state/`. El remoto lógico único es
@@ -44,7 +44,8 @@ PostgreSQL pertenece a `vaaet-persistence`: es portable por capacidades PostgreS
 Los workflows usan `VAAET_DB_*` y una credencial por perfil; Alembic usa
 `VAAET_ADMIN_DB_USER/PASSWORD` fuera de Colab. ADR-0024 mantiene Alembic como
 única autoridad DDL y no adopta ORM declarativo ni `create_all`. ADR-0028
-gobierna el consumo compartido por notebooks y el futuro backend.
+gobierna el consumo compartido por notebooks y el futuro backend; ADR-0029
+define fidelidad `float64`, linaje idempotente y resolución HITL terminal.
 
 Invariantes: las 19 `FEATURE_COLS` contractuales mantienen orden exacto; el MLP aprende
 `Normal`, `Reduced` y `Congested`; `Accident` sólo se publica tras validación

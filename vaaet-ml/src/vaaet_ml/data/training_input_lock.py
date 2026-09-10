@@ -52,6 +52,7 @@ def create_training_input_lock(
     human_holdout: Mapping[str, object] | None,
     result_rows: Mapping[str, int],
     resolution: Mapping[str, int],
+    numeric_representations: Mapping[str, int] | None = None,
 ) -> TrainingInputLock:
     """Persiste los inputs exactos de un entrenamiento sin aceptar sobrescrituras."""
 
@@ -65,6 +66,10 @@ def create_training_input_lock(
             "human_holdout": dict(human_holdout) if human_holdout is not None else None,
             "result_rows": {key: int(value) for key, value in sorted(result_rows.items())},
             "resolution": {key: int(value) for key, value in sorted(resolution.items())},
+            "numeric_representations": {
+                key: int(value)
+                for key, value in sorted((numeric_representations or {}).items())
+            },
         }
     )
     if not isinstance(fingerprint_payload, dict):  # Protege la forma estable de este contrato.

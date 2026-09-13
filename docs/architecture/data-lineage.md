@@ -1,4 +1,4 @@
-# Linaje de datos — VAAET ML 4.8.0
+# Linaje de datos — VAAET ML 4.8.1
 
 ## Flujo operacional
 
@@ -104,6 +104,9 @@ PostgreSQL, catálogos ni decisiones humanas de promoción.
 La semilla procesada vive bajo `data/seed-bootstrap/snapshots/` en Drive y
 `current.json` apunta a una generación inmutable. Las sesiones HITL viven bajo
 `data/hitl-reviews/YYYY/MM/DD/` y `catalog.json` selecciona paquetes `active`.
+Los paquetes nuevos declaran `sha256-contractual-frames-v2` y sellan también la
+fecha humana `reviewed_at`; el lector conserva el algoritmo histórico sólo para
+verificar paquetes anteriores sin reescribirlos.
 Antes de exportar el bundle, entrenamiento escribe `vaaet-training-input-lock-v1`
 con el snapshot semilla, revisión exacta del catálogo, fingerprints de cada ZIP y
 holdout utilizado. El lock aporta linaje reproducible; no contiene pesos ni

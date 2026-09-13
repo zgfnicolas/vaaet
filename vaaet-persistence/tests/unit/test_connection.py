@@ -169,7 +169,7 @@ def test_connection_returns_false_only_for_expected_database_failures(
 
 @pytest.mark.parametrize(
     ("revision", "accepted"),
-    [("20260909_0004", True), ("20260905_0003", False), (None, False)],
+    [("20260911_0005", True), ("20260909_0004", False), (None, False)],
 )
 def test_database_revision_guard_requires_exact_head(revision: object, accepted: bool) -> None:
     class RevisionConnection:

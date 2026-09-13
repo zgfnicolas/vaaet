@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
+from vaaet.features.engineering import engineer_features
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
 from vaaet_persistence.persistence import (
@@ -19,13 +20,18 @@ from vaaet_persistence.persistence import (
     SELECT_RAW_SQL,
     _assert_idempotent,
     _batch_count,
+    _batches,
     _database_values_equal,
     _feature_payload,
+    _multi_values_parameters,
+    _multi_values_statement,
     _prediction_payload,
     _raw_payload,
+    _rows_by_key,
     _strict_boolean,
     _strict_float,
     _strict_integer,
+    _validate_classified_row,
     _validated_pipeline_run_id,
     persist_classified_telemetry,
     persist_raw_telemetry,
@@ -46,9 +52,56 @@ def test_batch_count_rejects_negative_rows() -> None:
         _batch_count(-1)
 
 
+@pytest.mark.parametrize(("rows", "batches"), [(1, 1), (500, 1), (501, 2), (1_200, 3)])
+def test_multi_values_batches_are_bounded(rows: int, batches: int) -> None:
+    payloads = [
+        {
+            "pipeline_run_id": "00000000-0000-0000-0000-000000000001",
+            "clip_id": f"clip-{index}",
+            "continuity_id": f"clip-{index}:continuity-0001",
+            "record_time": pd.Timestamp("2026-09-08T00:00:00Z") + pd.Timedelta(minutes=index),
+            "avg_speed": 10.0,
+            "count_car": 1,
+            "count_truck": 0,
+            "count_bus": 0,
+            "count_motorcycle": 0,
+            "count_bicycle": 0,
+            "total_vehicles": 1,
+            "near_zero_motion_count": None,
+            "stationary_confirmed_count": None,
+            "rejected_speed_count": None,
+            "recovered_track_count": None,
+            "speed_sample_count": None,
+            "speed_measurement_quality": None,
+            "optical_flow_tracking_ratio": None,
+            "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            "numeric_representation": "float64",
+        }
+        for index in range(rows)
+    ]
+
+    chunks = _batches(payloads)
+    assert len(chunks) == batches
+    assert max(map(len, chunks)) <= 500
+    statement = _multi_values_statement(INSERT_RAW_SQL, chunks[0])
+    parameters = _multi_values_parameters(chunks[0])
+    assert statement.count("ON CONFLICT") == 1
+    assert ":clip_id_0" in statement
+    assert parameters["clip_id_0"] == "clip-0"
+
+
 def test_pipeline_run_id_is_validated_before_database_access() -> None:
     with pytest.raises(ValueError, match="must be a UUID"):
         _validated_pipeline_run_id("not-a-uuid")
+
+
+def test_batch_indexes_preserve_large_integer_identity() -> None:
+    first = 2**53
+    second = first + 1
+
+    indexed = _rows_by_key([{"id": first}, {"id": second}], ("id",))
+
+    assert len(indexed) == 2
 
 
 def test_queries_use_versioned_schemas() -> None:
@@ -214,6 +267,39 @@ def test_classified_persistence_requires_declared_telemetry_schema() -> None:
 
     with pytest.raises(ValueError, match="telemetry_schema_version"):
         persist_classified_telemetry(pd.DataFrame([row]))
+
+
+def test_core_engineered_low_speed_persistence_is_accepted() -> None:
+    raw = pd.DataFrame(
+        [
+            {
+                "clip_id": "clip",
+                "record_time": pd.Timestamp("2026-09-08T00:00:00Z")
+                + pd.Timedelta(minutes=index),
+                "avg_speed": 1.0,
+                "count_car": 1,
+                "count_truck": 0,
+                "count_bus": 0,
+                "count_motorcycle": 0,
+                "count_bicycle": 0,
+                "total_vehicles": 1,
+                "speed_sample_count": 1,
+                "rejected_speed_count": 0,
+                "near_zero_motion_count": 1,
+                "stationary_confirmed_count": 1,
+                "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            }
+            for index in range(3)
+        ]
+    )
+    engineered = engineer_features(raw)
+    assert engineered["low_speed_persistence"].max() == 2
+    row = engineered.iloc[-1].copy()
+    row["traffic_state"] = 2
+    row["state_label"] = "Congested"
+    row["confidence"] = 0.9
+
+    _validate_classified_row(row, model_revision="a" * 64)
 
 
 def test_raw_idempotency_ignores_lineage_but_rejects_changed_measurements() -> None:

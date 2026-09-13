@@ -76,8 +76,12 @@ class PipelineRunMetadata:
             raise ValueError(
                 "Pipeline runs require safe application_name and application_version identifiers."
             )
-        if self.input_rows is not None and self.input_rows < 0:
-            raise ValueError("Pipeline input_rows cannot be negative.")
+        if self.input_rows is not None and (
+            isinstance(self.input_rows, bool)
+            or not isinstance(self.input_rows, int)
+            or self.input_rows < 0
+        ):
+            raise ValueError("Pipeline input_rows must be a non-negative integer.")
         if self.git_commit is not None and not re.fullmatch(
             r"[0-9a-fA-F]{7,40}", self.git_commit
         ):
@@ -110,8 +114,8 @@ class PipelineRunHandle:
     model_revision: str | None = None
 
     def set_output_rows(self, rows: int) -> None:
-        if rows < 0:
-            raise ValueError("Pipeline output_rows cannot be negative.")
+        if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
+            raise ValueError("Pipeline output_rows must be a non-negative integer.")
         self.output_rows = rows
 
     def set_model_revision(self, revision: str) -> None:

@@ -14,10 +14,11 @@ Antes de cambiar comportamiento, leé `AGENTS.md`, `llms.txt`, `docs/quality/tes
 | Límite | Qué se prueba | Qué no debe cruzar |
 | --- | --- | --- |
 | `vaaet-core/` | Visión, telemetría, 19 features, estados, bundle v3 e inferencia portable | `vaaet_ml`, PostgreSQL, DVC, Drive y notebooks |
-| `vaaet-ml/` | Datasets, entrenamiento, evaluación, notebooks, DVC y persistencia de laboratorio | Contratos públicos ni lógica portable duplicada |
+| `vaaet-persistence/` | PostgreSQL, transacciones, roles, auditoría y Alembic | ML, Colab, DVC, Drive o aplicación |
+| `vaaet-ml/` | Datasets, entrenamiento, evaluación, notebooks y DVC | Contratos públicos, SQL o lógica portable duplicada |
 | `vaaet-app/` futuro | Contrato HTTP, validación de requests y adaptadores de serving | Acceso web directo al core, DVC, Drive, PostgreSQL o bundles |
 
-No pruebes una frontera mediante dependencias que la rompan. La Web App futura sólo consume una API HTTP versionada; sus workers usarán `vaaet-core`, nunca `vaaet-ml`, y validarán el manifiesto v2 antes de deserializar un bundle.
+No pruebes una frontera mediante dependencias que la rompan. La Web App futura sólo consume una API HTTP versionada; sus workers usarán `vaaet-core` y `vaaet-persistence`, nunca `vaaet-ml`, y validarán el manifiesto v3 antes de deserializar un bundle.
 
 ## Priorizá señal útil sobre cantidad de pruebas
 

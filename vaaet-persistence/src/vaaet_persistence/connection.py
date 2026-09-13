@@ -119,7 +119,10 @@ def _create_managed_engine(
         return engine
     except Exception:
         if temporary_certificate:
-            Path(temporary_certificate).unlink(missing_ok=True)
+            try:
+                Path(temporary_certificate).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Temporary PostgreSQL CA cleanup failed after engine creation")
         raise
 
 
@@ -129,12 +132,13 @@ def dispose_engine(engine: Engine) -> None:
     temporary_certificate = _MANAGED_CERTIFICATES.pop(id(engine), None)
     try:
         engine.dispose()
-    finally:
-        if temporary_certificate:
-            try:
-                Path(str(temporary_certificate)).unlink(missing_ok=True)
-            except OSError:
-                logger.warning("Temporary PostgreSQL CA cleanup failed: OSError")
+    except Exception:
+        logger.warning("PostgreSQL engine cleanup failed: %s", "external-error")
+    if temporary_certificate:
+        try:
+            Path(str(temporary_certificate)).unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Temporary PostgreSQL CA cleanup failed: OSError")
 
 
 def get_engine(settings: DatabaseSettings) -> Engine:

@@ -69,6 +69,10 @@ FROM vaaet_feedback.human_validations
 WHERE id = CAST(:id AS UUID)
 """
 
+LOCK_VALIDATION_ID_QUERY = """
+SELECT pg_advisory_xact_lock(hashtextextended(CAST(:id AS TEXT), 0))
+"""
+
 
 @dataclass(frozen=True)
 class PersistedHumanValidation:
@@ -192,6 +196,12 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
         raise ValueError(
             "Automatic pipeline lineage requires application_name and application_version."
         )
+    run_uuid: UUID | None = None
+    if pipeline_run_id is not None:
+        try:
+            run_uuid = UUID(str(pipeline_run_id))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("pipeline_run_id must be a UUID.") from None
     owns_engine = engine is None
     if engine is not None:
         active_engine = engine
@@ -201,6 +211,17 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
         raise ValueError("PostgreSQL writes require explicit settings or an engine.")
     if pipeline_run_id is None:
         try:
+            existing = _load_existing_validation(active_engine, decision.validation_id)
+            if existing is not None:
+                original_run = UUID(str(existing["pipeline_run_id"]))
+                _assert_same_validation(
+                    existing,
+                    _validation_payload(decision, original_run),
+                )
+                return PersistedHumanValidation(
+                    decision=_stored_decision(existing),
+                    pipeline_run_id=original_run,
+                )
             metadata = PipelineRunMetadata(
                 workflow=PipelineWorkflow.REVIEW,
                 application_name=application_name,
@@ -211,7 +232,13 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
                 feature_schema_version=None,
                 model_version=None,
             )
-            with pipeline_run(metadata, engine=active_engine) as run:
+            # Una decisión posee una corrida determinista: el mismo reintento no
+            # fabrica otra identidad operacional ni altera su lineage.
+            with pipeline_run(
+                metadata,
+                engine=active_engine,
+                run_id=decision.validation_id,
+            ) as run:
                 persisted = persist_human_validation_record(
                     decision,
                     engine=active_engine,
@@ -223,27 +250,16 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
             if owns_engine:
                 dispose_engine(active_engine)
 
-    try:
-        run_uuid = UUID(str(pipeline_run_id))
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise ValueError("pipeline_run_id must be a UUID.") from exc
-    payload = {
-        "id": str(decision.validation_id),
-        "prediction_id": decision.prediction_id,
-        "validated_state": decision.validated_state,
-        "reviewer_id": decision.reviewer_id,
-        "reviewed_at": decision.reviewed_at,
-        "notes": decision.notes,
-        "review_source": decision.review_source,
-        "incident_context_reviewed": decision.incident_context_reviewed,
-        "supersedes_validation_id": (
-            str(decision.supersedes_validation_id) if decision.supersedes_validation_id else None
-        ),
-        "pipeline_run_id": str(run_uuid),
-    }
+    assert run_uuid is not None
+    payload = _validation_payload(decision, run_uuid)
     try:
         with active_engine.begin() as connection:
             require_database_revision(connection)
+            # Serializa dos creaciones simultáneas del mismo UUID sin ampliar
+            # privilegios sobre la tabla append-only.
+            connection.execute(
+                text(LOCK_VALIDATION_ID_QUERY), {"id": str(decision.validation_id)}
+            )
             inserted = connection.execute(text(INSERT_VALIDATION_QUERY), payload).mappings().one_or_none()
             existing = inserted or connection.execute(
                 text(SELECT_VALIDATION_QUERY), {"id": str(decision.validation_id)}
@@ -266,7 +282,64 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
     finally:
         if owns_engine:
             dispose_engine(active_engine)
-    return PersistedHumanValidation(decision=decision, pipeline_run_id=run_uuid)
+    return PersistedHumanValidation(decision=_stored_decision(existing), pipeline_run_id=run_uuid)
+
+
+def _validation_payload(decision: HumanValidation, run_uuid: UUID) -> dict[str, object]:
+    return {
+        "id": str(decision.validation_id),
+        "prediction_id": decision.prediction_id,
+        "validated_state": decision.validated_state,
+        "reviewer_id": decision.reviewer_id,
+        "reviewed_at": decision.reviewed_at,
+        "notes": decision.notes,
+        "review_source": decision.review_source,
+        "incident_context_reviewed": decision.incident_context_reviewed,
+        "supersedes_validation_id": (
+            str(decision.supersedes_validation_id) if decision.supersedes_validation_id else None
+        ),
+        "pipeline_run_id": str(run_uuid),
+    }
+
+
+def _load_existing_validation(
+    engine: Engine,
+    validation_id: UUID,
+) -> Mapping[str, object] | None:
+    """Busca una decisión antes de fabricar una corrida operacional nueva."""
+
+    try:
+        with engine.begin() as connection:
+            require_database_revision(connection)
+            return connection.execute(
+                text(SELECT_VALIDATION_QUERY), {"id": str(validation_id)}
+            ).mappings().one_or_none()
+    except PersistenceError:
+        raise
+    except Exception as exc:
+        sqlstate = getattr(getattr(exc, "orig", None), "pgcode", None)
+        raise DatabaseOperationError(
+            "PostgreSQL human validation lookup failed.",
+            operation="load-human-validation",
+            sqlstate=sqlstate,
+        ) from None
+
+
+def _stored_decision(row: Mapping[str, object]) -> HumanValidation:
+    """Reconstruye la decisión autoritativa sin alterar identidad ni fecha."""
+
+    supersedes = row.get("supersedes_validation_id")
+    return HumanValidation(
+        prediction_id=int(row["prediction_id"]),
+        validated_state=int(row["validated_state"]),
+        reviewer_id=str(row["reviewer_id"]),
+        notes=cast(str | None, row.get("notes")),
+        incident_context_reviewed=bool(row["incident_context_reviewed"]),
+        supersedes_validation_id=UUID(str(supersedes)) if supersedes else None,
+        validation_id=UUID(str(row["id"])),
+        reviewed_at=pd.Timestamp(row["reviewed_at"]).to_pydatetime(),
+        review_source=str(row["review_source"]),
+    )
 
 
 def _assert_same_validation(existing: Mapping[str, object], payload: Mapping[str, object]) -> None:

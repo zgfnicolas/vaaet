@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from uuid import uuid4
+
 import pandas as pd
 import pytest
 from sqlalchemy import text
@@ -14,6 +17,8 @@ from vaaet_persistence.connection import database_engine, inspect_database
 from vaaet_persistence.persistence import persist_classified_telemetry, persist_raw_telemetry
 from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
 from vaaet_persistence.queries import load_telemetry_window
+from vaaet_persistence.review_domain import HumanValidation
+from vaaet_persistence.review_persistence import persist_human_validation_record
 from vaaet_persistence.settings import DatabaseProfile, load_database_settings
 
 pytestmark = pytest.mark.postgres
@@ -179,6 +184,10 @@ def test_independent_consumer_preserves_feature_and_probability_float64() -> Non
         application_name="independent-backend-consumer-test",
         application_version="0.1.0",
     )
+    assert result.telemetry_rows == 1
+    assert result.classification_rows == 1
+    assert result.inserted_telemetry_rows in {0, 1}
+    assert result.inserted_classification_rows in {0, 1}
 
     with database_engine(settings) as engine, engine.connect() as connection:
         stored = connection.execute(
@@ -197,3 +206,80 @@ def test_independent_consumer_preserves_feature_and_probability_float64() -> Non
     assert stored.confidence == high_precision_probability
     assert stored.probability_margin == row["probability_margin"]
     assert stored.numeric_representation == "float64"
+
+
+def test_reviewer_can_append_and_correct_without_update_privilege() -> None:
+    inference_settings = _settings(DatabaseProfile.INFERENCE)
+    review_settings = _settings(DatabaseProfile.REVIEW)
+    row = {column: 0.0 for column in FEATURE_COLS}
+    row.update(
+        {
+            "clip_id": "reviewer-least-privilege-contract",
+            "continuity_id": "reviewer-least-privilege-contract:continuity-0001",
+            "record_time": pd.Timestamp("2026-09-11T12:00:00Z"),
+            "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "traffic_state": 1,
+            "state_label": "Reduced",
+            "confidence": 0.8,
+            "model_confidence": 0.8,
+            "probability_margin": 0.4,
+            "measurement_reliable": True,
+        }
+    )
+    persisted = persist_classified_telemetry(
+        pd.DataFrame([row]),
+        settings=inference_settings,
+        model_version="mlp-v3.0-review-integration",
+        model_revision="e" * 64,
+        application_name="independent-backend-consumer-test",
+        application_version="0.1.0",
+    )
+    with database_engine(inference_settings) as engine, engine.connect() as connection:
+        prediction_id = connection.execute(
+            text(
+                "SELECT id FROM vaaet_ml.traffic_predictions "
+                "WHERE pipeline_run_id=CAST(:run_id AS UUID)"
+            ),
+            {"run_id": persisted.pipeline_run_id},
+        ).scalar_one()
+
+    root = HumanValidation(
+        prediction_id=prediction_id,
+        validated_state=1,
+        reviewer_id="integration-reviewer",
+        validation_id=uuid4(),
+        reviewed_at=datetime(2026, 9, 11, 12, 5, tzinfo=timezone.utc),
+        review_source="postgres-integration",
+    )
+    first = persist_human_validation_record(root, settings=review_settings)
+    correction = HumanValidation(
+        prediction_id=prediction_id,
+        validated_state=0,
+        reviewer_id="integration-reviewer",
+        validation_id=uuid4(),
+        supersedes_validation_id=first.validation_id,
+        reviewed_at=datetime(2026, 9, 11, 12, 6, tzinfo=timezone.utc),
+        review_source="postgres-integration",
+    )
+    corrected = persist_human_validation_record(correction, settings=review_settings)
+    repeated = persist_human_validation_record(correction, settings=review_settings)
+
+    assert repeated == corrected
+    assert corrected.pipeline_run_id == repeated.pipeline_run_id
+    with database_engine(review_settings) as engine, engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT count(*) FROM vaaet_feedback.human_validations "
+                "WHERE prediction_id=:prediction_id"
+            ),
+            {"prediction_id": prediction_id},
+        ).scalar_one() == 2
+        for privilege in ("UPDATE", "DELETE"):
+            assert not connection.execute(
+                text(
+                    "SELECT has_table_privilege(current_user, "
+                    "'vaaet_feedback.human_validations', :privilege)"
+                ),
+                {"privilege": privilege},
+            ).scalar_one()

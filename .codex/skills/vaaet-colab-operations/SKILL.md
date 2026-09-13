@@ -45,7 +45,11 @@ Use Drive only when governed persistence is needed:
 | Frozen holdouts | `/content/drive/MyDrive/vaaet-ml/data/holdouts` |
 | Training locks | `/content/drive/MyDrive/vaaet-ml/training-runs` |
 
-Do not provide an ephemeral fallback for immutable seed, HITL, or frozen-holdout data. Stop before training or updating a catalog if mounting Drive or checksum validation fails.
+Do not provide an ephemeral fallback for immutable seed or frozen-holdout data.
+For HITL finalization, seal and validate the immutable ZIP under `/content`
+first; if Drive is unavailable, keep those exact bytes as `pending-sync` and do
+not update the catalog. Stop before training or updating a catalog when its
+required Drive source or checksum validation fails.
 
 ### Data and resumability
 

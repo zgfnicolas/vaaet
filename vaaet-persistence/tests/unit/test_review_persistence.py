@@ -19,6 +19,7 @@ from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 class _Connection:
     def __init__(self) -> None:
         self.payloads: list[dict[str, object]] = []
+        self.validations: dict[str, dict[str, object]] = {}
         self.isolation_level: str | None = None
         self.read_only = False
 
@@ -41,17 +42,22 @@ class _Connection:
 
     def execute(self, statement: object, payload: dict[str, object] | None = None):
         if "alembic_version" in str(statement):
-            return _Result({"version_num": "20260909_0004"})
+            return _Result({"version_num": "20260911_0005"})
         assert payload is not None
+        if "SELECT id, prediction_id" in str(statement):
+            return _Result(self.validations.get(str(payload["id"])))
         self.payloads.append(payload)
+        if "INSERT INTO vaaet_feedback.human_validations" in str(statement):
+            self.validations.setdefault(str(payload["id"]), payload.copy())
+            return _Result(self.validations[str(payload["id"])])
         return _Result(payload)
 
 
 class _Mappings:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: dict[str, object] | None) -> None:
         self.payload = payload
 
-    def one_or_none(self) -> dict[str, object]:
+    def one_or_none(self) -> dict[str, object] | None:
         return self.payload
 
     def one(self) -> dict[str, object]:
@@ -59,14 +65,14 @@ class _Mappings:
 
 
 class _Result:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: dict[str, object] | None) -> None:
         self.payload = payload
 
     def mappings(self) -> _Mappings:
         return _Mappings(self.payload)
 
     def scalar_one_or_none(self) -> object:
-        return self.payload.get("version_num")
+        return self.payload.get("version_num") if self.payload else None
 
 
 class _Engine:
@@ -122,7 +128,7 @@ def test_persist_validation_uses_supplied_pipeline_run_and_disposes_owned_engine
     identifier = persist_human_validation(decision, settings=_settings(), pipeline_run_id=run_id)
 
     assert identifier == decision.validation_id
-    assert engine.connection.payloads[0]["pipeline_run_id"] == str(run_id)
+    assert engine.connection.payloads[-1]["pipeline_run_id"] == str(run_id)
     assert engine.disposed
 
 
@@ -147,6 +153,44 @@ def test_persist_validation_creates_review_lineage_when_run_is_missing(monkeypat
     assert identifier
     assert run.rows == 1
     assert engine.disposed
+
+
+def test_retry_without_run_returns_original_lineage_without_creating_another_run(
+    monkeypatch,
+) -> None:
+    engine = _Engine()
+    original_run = uuid4()
+    decision = HumanValidation(1, 1, "reviewer")
+    payload = {
+        "id": str(decision.validation_id),
+        "prediction_id": decision.prediction_id,
+        "validated_state": decision.validated_state,
+        "reviewer_id": decision.reviewer_id,
+        "reviewed_at": decision.reviewed_at,
+        "notes": decision.notes,
+        "review_source": decision.review_source,
+        "incident_context_reviewed": decision.incident_context_reviewed,
+        "supersedes_validation_id": None,
+        "pipeline_run_id": str(original_run),
+    }
+    engine.connection.validations[str(decision.validation_id)] = payload
+    monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", lambda _: engine)
+    monkeypatch.setattr(
+        "vaaet_persistence.review_persistence.pipeline_run",
+        lambda *_args, **_kwargs: pytest.fail("an existing decision must not create lineage"),
+    )
+
+    from vaaet_persistence.review_persistence import persist_human_validation_record
+
+    result = persist_human_validation_record(
+        decision,
+        settings=_settings(),
+        application_name="test-review",
+        application_version="1.0.0",
+    )
+
+    assert result.pipeline_run_id == original_run
+    assert result.reviewed_at == decision.reviewed_at
 
 
 def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:

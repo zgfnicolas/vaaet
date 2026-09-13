@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, is_dataclass
@@ -14,7 +15,14 @@ from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.continuity import normalize_continuity_frame
 from vaaet.settings import FEATURE_COLS
 
-from vaaet_ml.data.artifact_serialization import is_sha256, stable_uuid, valid_uuid
+from vaaet_ml.data.artifact_serialization import (
+    canonical_timestamp_identity,
+    is_sha256,
+    stable_uuid,
+    valid_uuid,
+)
+
+_REVIEW_SOURCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 def normalize_review_frames(
@@ -82,22 +90,19 @@ def _normalize_features(classified: pd.DataFrame, run_id: str) -> pd.DataFrame:
         if representations and representations != {"float64"}:
             raise ValueError("New HITL exports require float64 numeric representation.")
     features["numeric_representation"] = "float64"
-    existing_ids = features.get("id", pd.Series(pd.NA, index=features.index)).astype("string")
     operational_ids = features.get(
         "operational_feature_id", features.get("id", pd.Series(pd.NA, index=features.index))
     )
     features["id"] = [
-        str(value)
-        if valid_uuid(value)
-        else stable_uuid(
+        stable_uuid(
             "feature",
             run_id,
             row.clip_id,
             row.continuity_id,
-            row.record_time,
+            canonical_timestamp_identity(row.record_time),
             row.feature_schema_version,
         )
-        for value, row in zip(existing_ids, features.itertuples(), strict=False)
+        for row in features.itertuples()
     ]
     features["operational_feature_id"] = operational_ids
     prediction_columns = {
@@ -143,10 +148,8 @@ def _normalize_predictions(
     if source_ids.isna().any():
         raise ValueError("Classified review rows contain incomplete prediction identities.")
     prediction_ids = [
-        value
-        if valid_uuid(value)
-        else stable_uuid("prediction", run_id, feature_id, model_revision)
-        for value, feature_id in zip(source_ids.astype(str), features["id"], strict=False)
+        stable_uuid("prediction", run_id, feature_id, model_revision)
+        for feature_id in features["id"]
     ]
     prediction_columns = [
         column
@@ -176,7 +179,7 @@ def _normalize_predictions(
     return predictions, source_ids
 
 
-def _normalize_validations(
+def _normalize_validations(  # noqa: C901 - normaliza el contrato externo completo.
     validations: pd.DataFrame | Sequence[object],
     *,
     source_prediction_ids: pd.Series,
@@ -205,8 +208,16 @@ def _normalize_validations(
         )
     if "validation_id" in frame and "id" not in frame:
         frame = frame.rename(columns={"validation_id": "id"})
-    if "prediction_id" not in frame or "validated_state" not in frame:
-        raise ValueError("Review validations require prediction_id and validated_state.")
+    required = {
+        "prediction_id",
+        "validated_state",
+        "reviewer_id",
+        "reviewed_at",
+        "review_source",
+        "incident_context_reviewed",
+    }
+    if missing := sorted(required - set(frame.columns)):
+        raise ValueError(f"Review validations are missing fields: {missing}")
     id_map = {
         str(source_id): prediction_id
         for source_id, prediction_id in zip(source_prediction_ids, prediction_ids, strict=False)
@@ -219,6 +230,10 @@ def _normalize_validations(
         raise ValueError(
             f"Validations reference predictions outside the session: {sorted(unknown)}"
         )
+    if frame["validated_state"].map(
+        lambda value: type(value) is bool or type(value).__name__ == "bool_"
+    ).any():
+        raise ValueError("Human validations must use integer states, not booleans.")
     states = pd.to_numeric(frame["validated_state"], errors="raise")
     if (
         not states.map(lambda value: float(value).is_integer()).all()
@@ -226,34 +241,48 @@ def _normalize_validations(
     ):
         raise ValueError("Human validations must use public states 0 through 3.")
     frame["validated_state"] = states.astype(int)
+    if "is_human_validated" in frame and not frame["is_human_validated"].map(
+        lambda value: (type(value) is bool or type(value).__name__ == "bool_")
+        and bool(value)
+    ).all():
+        raise ValueError("Review exports accept only explicitly human-validated decisions.")
     frame["is_human_validated"] = True
-    supplied_ids = frame.get("id", pd.Series(pd.NA, index=frame.index))
-    frame["id"] = [
-        str(value)
-        if pd.notna(value) and valid_uuid(value)
-        else stable_uuid(
-            "validation",
-            prediction_id,
-            state,
-            frame.iloc[index].get("reviewer_id", "unknown"),
-            frame.iloc[index].get("notes", ""),
-        )
-        for index, (value, prediction_id, state) in enumerate(
-            zip(supplied_ids, frame["prediction_id"], frame["validated_state"], strict=False)
-        )
-    ]
+    if "id" not in frame or not frame["id"].map(valid_uuid).all():
+        raise ValueError("Human validations require an explicit UUID identity.")
+    frame["id"] = frame["id"].astype(str)
     frame["supersedes_validation_id"] = _supersedes_ids(frame)
-    if "reviewed_at" not in frame:
-        frame["reviewed_at"] = finalized_at.isoformat()
-    else:
-        reviewed_at = pd.to_datetime(frame["reviewed_at"], utc=True, errors="raise")
-        if reviewed_at.isna().any():
-            raise ValueError("Human validation reviewed_at is required on every row.")
-        frame["reviewed_at"] = reviewed_at
+    declared_parents = frame["supersedes_validation_id"].dropna()
+    if not declared_parents.map(valid_uuid).all():
+        raise ValueError("supersedes_validation_id must contain UUID values when declared.")
+    reviewed_at = pd.to_datetime(frame["reviewed_at"], utc=True, errors="raise")
+    if reviewed_at.isna().any():
+        raise ValueError("Human validation reviewed_at is required on every row.")
+    frame["reviewed_at"] = reviewed_at
+    if frame["reviewer_id"].isna().any() or frame["reviewer_id"].astype(str).str.strip().eq("").any():
+        raise ValueError("Human validation reviewer_id is required on every row.")
+    if frame["review_source"].isna().any() or frame["review_source"].astype(str).map(
+        lambda value: _REVIEW_SOURCE.fullmatch(value) is not None
+    ).eq(False).any():
+        raise ValueError("Human validation review_source must be a safe identifier.")
+    if not frame["incident_context_reviewed"].map(
+        lambda value: type(value) is bool or type(value).__name__ == "bool_"
+    ).all():
+        raise ValueError("incident_context_reviewed must contain contractual booleans.")
+    accidents = frame["validated_state"].eq(3)
+    notes = frame.get("notes", pd.Series(pd.NA, index=frame.index))
+    if accidents.any() and (
+        not frame.loc[accidents, "incident_context_reviewed"].all()
+        or notes.loc[accidents].isna().any()
+        or notes.loc[accidents].astype(str).str.strip().eq("").any()
+    ):
+        raise ValueError("Accident requires confirmed temporal context and a non-empty note.")
     if "pipeline_run_id" not in frame:
         frame["pipeline_run_id"] = run_id
     else:
-        frame["pipeline_run_id"] = frame["pipeline_run_id"].fillna(run_id)
+        if frame["pipeline_run_id"].isna().any():
+            raise ValueError("Human validation pipeline_run_id cannot be missing when declared.")
+        if not frame["pipeline_run_id"].astype(str).map(valid_uuid).all():
+            raise ValueError("Human validation pipeline_run_id must be a UUID.")
     return frame
 
 

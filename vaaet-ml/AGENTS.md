@@ -5,7 +5,7 @@
 | Campo | Detalle |
 |---|---|
 | Proyecto | VAAET ML — Video Advanced Analysis of Traffic |
-| Versión | 4.8.0 |
+| Versión | 4.8.1 |
 | Runtime objetivo | Python 3.10–3.13; Google Colab |
 | Responsable | Facundo Nicolás González |
 | Última revisión | 2026-08-27 |
@@ -34,7 +34,8 @@ PostgreSQL en `../vaaet-persistence/src/vaaet_persistence/`; este componente
 consume ambas bibliotecas. La Web App futura sólo consumirá una API cuyo backend
 usará core/persistencia y validará el bundle v3. El MLP aprende tres estados estables;
 Accident es un estado público exclusivamente humano conforme a ADR-0014.
-ADR-0021 gobierna esta frontera junto con los ADRs de datos, HITL y holdouts.
+ADR-0021 gobierna esta frontera junto con los ADRs de datos, HITL y holdouts;
+ADR-0030 completa la idempotencia operacional y la recuperación portable.
 
 ## Gobernanza
 

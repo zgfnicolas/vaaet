@@ -144,8 +144,8 @@ def load_dataset_package(
                 _safe_extract(archive, root)
             manifest = _read_dataset_manifest(root, accepted_contracts)
             return _load_dataset_components(root, manifest)
-    except (zipfile.BadZipFile, UnicodeError, json.JSONDecodeError) as error:
-        raise DatasetArtifactValidationError("El paquete de datos no puede leerse.") from error
+    except (zipfile.BadZipFile, UnicodeError, json.JSONDecodeError):
+        raise DatasetArtifactValidationError("El paquete de datos no puede leerse.") from None
 
 
 def _read_dataset_manifest(root: Path, accepted_contracts: tuple[str, ...]) -> dict[str, object]:

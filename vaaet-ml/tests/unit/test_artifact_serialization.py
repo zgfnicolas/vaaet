@@ -20,6 +20,7 @@ from vaaet_ml.data.artifact_serialization import (
     frames_fingerprint,
     is_sha256,
     json_safe,
+    legacy_frames_fingerprint,
     read_package_manifest,
     safe_relative_path,
     sha256_bytes,
@@ -101,7 +102,7 @@ def test_safe_relative_path_accepts_portable_member_name() -> None:
     assert safe_relative_path("snapshots/demo.zip").as_posix() == "snapshots/demo.zip"
 
 
-def test_canonical_frames_and_fingerprints_ignore_review_timestamp() -> None:
+def test_canonical_frames_and_fingerprints_seal_review_timestamp() -> None:
     frame = pd.DataFrame(
         {
             "clip_id": ["b", "a"],
@@ -117,7 +118,10 @@ def test_canonical_frames_and_fingerprints_ignore_review_timestamp() -> None:
 
     assert canonical["clip_id"].tolist() == ["a", "b"]
     assert frame_bytes(frame) == frame_bytes(canonical)
-    assert frames_fingerprint({"validations": frame}) == frames_fingerprint(
+    assert frames_fingerprint({"validations": frame}) != frames_fingerprint(
+        {"validations": altered}
+    )
+    assert legacy_frames_fingerprint({"validations": frame}) == legacy_frames_fingerprint(
         {"validations": altered}
     )
 

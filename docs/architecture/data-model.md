@@ -1,6 +1,6 @@
 # Modelo PostgreSQL — `vaaet-db-v3`
 
-VAAET Persistence 0.2.0 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
+VAAET Persistence 0.2.1 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
 portabilidad por capacidades y la configuración administrativa se rigen por
 [ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
 Los notebooks nunca crean ni alteran tablas. La revisión vigente encadena la
@@ -10,6 +10,9 @@ seguido por la [continuidad e identidad v3](../../vaaet-persistence/src/vaaet_pe
 La extracción está gobernada por [ADR-0028](decisions/0028-shared-postgresql-persistence-layer.md)
 y la [revisión `0004`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260909_0004_numeric_fidelity_hitl_integrity.py)
 implementa [ADR-0029](decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
+La [revisión `0005`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260911_0005_review_least_privilege.py)
+aplica [ADR-0030](decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
+sin cambiar la familia contractual `vaaet-db-v3`.
 
 ## Relaciones
 

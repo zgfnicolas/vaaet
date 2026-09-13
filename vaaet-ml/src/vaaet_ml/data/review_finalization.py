@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import uuid
@@ -19,6 +18,8 @@ from vaaet.settings import MODEL_STATE_LABELS
 
 from vaaet_ml.data.artifact_serialization import (
     frames_fingerprint,
+    is_sha256,
+    legacy_frames_fingerprint,
     read_package_manifest,
     sha256_file,
     stable_uuid,
@@ -31,6 +32,9 @@ from vaaet_ml.data.hitl_catalog import (
 )
 from vaaet_ml.data.package_codec import create_dataset_package, load_dataset_package
 from vaaet_ml.data.review_frames import normalize_review_frames
+
+HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v2"
+LEGACY_HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v1"
 
 
 @dataclass(frozen=True)
@@ -70,7 +74,7 @@ def finalize_review_session(
         model_version=model_version,
         finalized_at=finalized_at,
     )
-    fingerprint = frames_fingerprint(frames)
+    fingerprint = _review_fingerprint(frames, HITL_FINGERPRINT_ALGORITHM)
     package_id = stable_uuid("hitl-package", pipeline_run_id, fingerprint)
     metadata = _session_metadata(
         frames,
@@ -118,6 +122,53 @@ def finalize_review_session(
     )
 
 
+def sync_finalized_review_session(
+    local_path: str | Path,
+    *,
+    canonical_root: str | Path,
+) -> FinalizedReviewSession:
+    """Sincroniza un ZIP local ya sellado sin reconstruir identidad ni fechas."""
+
+    package = Path(local_path)
+    frames = load_dataset_package(package)
+    metadata = read_package_manifest(package).get("package_metadata", {})
+    required = {
+        "package_id",
+        "pipeline_run_id",
+        "fingerprint",
+        "vaaet_version",
+        "reviewed_rows",
+        "pending_rows",
+        "human_support",
+        "model_revision",
+        "finalized_at",
+    }
+    if not isinstance(metadata, Mapping):
+        raise ValueError("Pending HITL package metadata must be an object.")
+    missing = sorted(required - metadata.keys())
+    if missing:
+        raise ValueError(f"Pending HITL package metadata is incomplete: {missing}")
+    fingerprint_algorithm = str(
+        metadata.get("fingerprint_algorithm", LEGACY_HITL_FINGERPRINT_ALGORITHM)
+    )
+    fingerprint = _review_fingerprint(frames, fingerprint_algorithm)
+    if fingerprint != metadata["fingerprint"]:
+        raise ValueError("Pending HITL package content contradicts its fingerprint.")
+    return _sync_to_catalog(
+        frames,
+        metadata=metadata,
+        package_id=str(metadata["package_id"]),
+        fingerprint=fingerprint,
+        package_sha256=sha256_file(package),
+        local_path=package,
+        canonical_root=Path(canonical_root),
+        pipeline_run_id=str(metadata["pipeline_run_id"]),
+        vaaet_version=str(metadata["vaaet_version"]),
+        reviewed_rows=int(metadata["reviewed_rows"]),
+        pending_rows=int(metadata["pending_rows"]),
+    )
+
+
 def import_legacy_hitl_package(
     package_path: str | Path,
     *,
@@ -135,11 +186,17 @@ def import_legacy_hitl_package(
     validations = frames.get("validations", pd.DataFrame())
     if features.empty or predictions.empty:
         raise ValueError("Legacy HITL import requires feature and prediction tables.")
-    required_predictions = {"id", "telemetry_feature_id", "model_version"}
+    required_predictions = {"id", "telemetry_feature_id", "model_version", "model_revision"}
     if missing := sorted(required_predictions - set(predictions.columns)):
         raise ValueError(f"Legacy HITL predictions are missing fields: {missing}")
-    projection = predictions[["id", "telemetry_feature_id", "model_version"]].rename(
-        columns={"id": "prediction_id", "model_version": "imported_model_version"}
+    projection = predictions[
+        ["id", "telemetry_feature_id", "model_version", "model_revision"]
+    ].rename(
+        columns={
+            "id": "prediction_id",
+            "model_version": "imported_model_version",
+            "model_revision": "imported_model_revision",
+        }
     )
     classified = features.merge(
         projection,
@@ -155,9 +212,16 @@ def import_legacy_hitl_package(
         raise ValueError("Legacy HITL package must contain exactly one model version.")
     model_version = next(iter(model_versions))
     classified["model_version"] = model_version
-    legacy_revision = hashlib.sha256(f"legacy:{model_version}".encode()).hexdigest()
-    classified["model_revision"] = legacy_revision
-    classified = classified.drop(columns=["telemetry_feature_id", "imported_model_version"])
+    revisions = set(classified["imported_model_revision"].dropna().astype(str))
+    if len(revisions) != 1 or not all(is_sha256(value) for value in revisions):
+        raise ValueError(
+            "Legacy HITL import requires a verifiable exact model_revision; "
+            "incomplete packages are inspection-only."
+        )
+    classified["model_revision"] = next(iter(revisions))
+    classified = classified.drop(
+        columns=["telemetry_feature_id", "imported_model_version", "imported_model_revision"]
+    )
     return finalize_review_session(
         classified=classified,
         validations=validations,
@@ -188,6 +252,7 @@ def _session_metadata(
         "pipeline_run_id": str(uuid.UUID(str(pipeline_run_id))),
         "finalized_at": finalized_at.isoformat(),
         "fingerprint": fingerprint,
+        "fingerprint_algorithm": HITL_FINGERPRINT_ALGORITHM,
         "model_version": model_version,
         "model_revision": str(predictions["model_revision"].iloc[0]),
         "git_commit": git_commit,
@@ -293,7 +358,7 @@ def _sync_to_catalog(
             "pending-sync",
             reviewed_rows,
             pending_rows,
-            sync_error=f"{type(exc).__name__}: {exc}",
+            sync_error=f"Drive synchronization failed ({type(exc).__name__}).",
         )
     return FinalizedReviewSession(
         package_id,
@@ -332,6 +397,12 @@ def _publish_to_catalog(
     )
     canonical_path = catalog.root.joinpath(*relative_path.parts)
     _copy_immutable(local_path, canonical_path, package_sha256)
+    remote_frames = load_dataset_package(canonical_path)
+    fingerprint_algorithm = str(
+        metadata.get("fingerprint_algorithm", LEGACY_HITL_FINGERPRINT_ALGORITHM)
+    )
+    if _review_fingerprint(remote_frames, fingerprint_algorithm) != fingerprint:
+        raise ValueError("The synchronized HITL package failed remote content validation.")
     entry = {
         "package_id": package_id,
         "path": relative_path.as_posix(),
@@ -339,6 +410,7 @@ def _publish_to_catalog(
         "pipeline_run_id": str(uuid.UUID(str(pipeline_run_id))),
         "sha256": package_sha256,
         "fingerprint": fingerprint,
+        "fingerprint_algorithm": fingerprint_algorithm,
         "clips": int(frames["features"]["clip_id"].nunique()),
         "rows": {
             "features": int(len(frames["features"])),
@@ -381,8 +453,21 @@ def _human_support(validations: pd.DataFrame) -> dict[str, int]:
     }
 
 
+def _review_fingerprint(
+    frames: Mapping[str, pd.DataFrame], algorithm: str
+) -> str:
+    if algorithm == HITL_FINGERPRINT_ALGORITHM:
+        return frames_fingerprint(frames)
+    if algorithm == LEGACY_HITL_FINGERPRINT_ALGORITHM:
+        return legacy_frames_fingerprint(frames)
+    raise ValueError(f"Unsupported HITL fingerprint algorithm: {algorithm}")
+
+
 __all__ = [
     "FinalizedReviewSession",
+    "HITL_FINGERPRINT_ALGORITHM",
+    "LEGACY_HITL_FINGERPRINT_ALGORITHM",
     "finalize_review_session",
     "import_legacy_hitl_package",
+    "sync_finalized_review_session",
 ]

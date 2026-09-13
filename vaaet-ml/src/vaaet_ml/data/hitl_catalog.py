@@ -9,7 +9,9 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
+from numbers import Integral, Real
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
@@ -20,10 +22,12 @@ from vaaet.timestamps import normalize_timestamp_series
 
 from vaaet_ml.data.artifact_serialization import (
     atomic_json_write,
+    canonical_timestamp_identity,
     is_sha256,
     read_package_manifest,
     safe_relative_path,
     sha256_file,
+    stable_uuid,
     utc_now,
     valid_uuid,
 )
@@ -32,6 +36,10 @@ from vaaet_ml.data.package_codec import load_dataset_package
 HITL_CATALOG_CONTRACT = "vaaet-dataset-catalog-v1"
 HITL_CATALOG_FILE = "catalog.json"
 HITL_PACKAGE_FILE = "vaaet-training-dataset-v1.zip"
+_HITL_FINGERPRINT_ALGORITHMS = {
+    "sha256-contractual-frames-v1",
+    "sha256-contractual-frames-v2",
+}
 
 
 class CatalogSelection(str, Enum):
@@ -71,8 +79,8 @@ class HitlReviewCatalog:
             }
         try:
             document = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Invalid HITL catalog: {exc}") from exc
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            raise ValueError("Invalid HITL catalog.") from None
         self._validate(document)
         return document
 
@@ -231,6 +239,9 @@ def _validate_catalog_entry_integrity(entry: Mapping[str, object]) -> None:
         raise ValueError("HITL catalog checksums must be SHA-256.")
     if not is_sha256(entry["model_revision"]):
         raise ValueError("HITL catalog model_revision must be SHA-256.")
+    algorithm = entry.get("fingerprint_algorithm", "sha256-contractual-frames-v1")
+    if algorithm not in _HITL_FINGERPRINT_ALGORITHMS:
+        raise ValueError("HITL catalog fingerprint algorithm is unsupported.")
 
 
 def _validate_catalog_entry_lifecycle(entry: Mapping[str, object]) -> None:
@@ -317,6 +328,10 @@ def load_hitl_catalog_components(
         "catalog_sha256": sha256_file(source.catalog_path),
         "package_ids": [entry["package_id"] for entry in entries],
         "package_fingerprints": [entry["fingerprint"] for entry in entries],
+        "package_fingerprint_algorithms": [
+            entry.get("fingerprint_algorithm", "sha256-contractual-frames-v1")
+            for entry in entries
+        ],
         "package_sha256": [entry["sha256"] for entry in entries],
     }
 
@@ -354,9 +369,13 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
         raise ValueError("Active HITL packages contain no compatible features and predictions.")
     if validations.empty:
         return pd.DataFrame()
+    features, predictions, validations = _canonicalize_feedback_identities(
+        features, predictions, validations
+    )
     features = _deduplicate_uuid_rows(features, name="features")
     predictions = _deduplicate_uuid_rows(predictions, name="predictions")
     validations = _deduplicate_uuid_rows(validations, name="validations")
+    validations = _deduplicate_equivalent_validations(validations)
     if not set(predictions["telemetry_feature_id"].astype(str)).issubset(
         set(features["id"].astype(str))
     ):
@@ -375,6 +394,8 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     projection_columns = ["id", "telemetry_feature_id", "model_version", "model_revision"]
     if "numeric_representation" in predictions:
         projection_columns.append("numeric_representation")
+    if "_source_prediction_ids" in predictions:
+        projection_columns.append("_source_prediction_ids")
     projection = predictions[projection_columns].rename(
         columns={"numeric_representation": "prediction_numeric_representation"}
     )
@@ -399,33 +420,208 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     for _, group in feedback.groupby(["clip_id", "record_time"], dropna=False):
         if len(group[comparison].drop_duplicates()) > 1:
             raise ValueError("Conflicting effective human feedback exists for the same minute.")
-    feedback["source_prediction_ids"] = feedback.groupby(["clip_id", "record_time"], dropna=False)[
-        "prediction_id"
-    ].transform(lambda values: ",".join(sorted({str(value) for value in values.dropna()})))
-    feedback["source_validation_ids"] = feedback.groupby(["clip_id", "record_time"], dropna=False)[
-        "validation_id"
-    ].transform(lambda values: ",".join(sorted({str(value) for value in values.dropna()})))
+    prediction_lineage = (
+        "_source_prediction_ids" if "_source_prediction_ids" in feedback else "prediction_id"
+    )
+    feedback["source_prediction_ids"] = feedback.groupby(
+        ["clip_id", "record_time"], dropna=False
+    )[prediction_lineage].transform(_join_lineage_values)
+    validation_lineage = (
+        "_source_validation_ids" if "_source_validation_ids" in feedback else "validation_id"
+    )
+    feedback["source_validation_ids"] = feedback.groupby(
+        ["clip_id", "record_time"], dropna=False
+    )[validation_lineage].transform(_join_lineage_values)
     feedback = feedback.drop_duplicates(["clip_id", "record_time"], keep="last")
     return normalize_continuity_frame(feedback)
 
 
-def _deduplicate_uuid_rows(frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
+def _deduplicate_uuid_rows(  # noqa: C901 - consolida contenido y procedencia por UUID.
+    frame: pd.DataFrame, *, name: str
+) -> pd.DataFrame:
     if frame.empty:
         return frame.copy()
     if "id" not in frame:
         raise ValueError(f"Catalog {name} rows require globally unique UUID id values.")
     if not frame["id"].map(valid_uuid).all():
         raise ValueError(f"Catalog {name} contains non-UUID identifiers.")
-    comparison = [column for column in frame.columns if not column.startswith("_catalog_")]
+    complementary_provenance = {
+        "features": {"created_at"},
+        "predictions": {"classified_at", "review_status"},
+        "validations": set(),
+    }.get(name, set())
+    comparison = [
+        column
+        for column in frame.columns
+        if not column.startswith(("_catalog_", "_source_"))
+        and not column.startswith("operational_")
+        and column not in complementary_provenance
+    ]
+    result_rows: list[pd.Series] = []
     for identifier, group in frame.groupby("id", dropna=False):
-        normalized = group[comparison].fillna("<NULL>").astype(str)
-        if len(normalized.drop_duplicates()) > 1:
-            if name == "validations":
-                raise ValueError(
-                    f"Conflicting human labels or validation payloads exist for UUID {identifier}."
-                )
-            raise ValueError(f"Conflicting catalog {name} rows for UUID {identifier}.")
-    return frame.drop_duplicates("id", keep="last").reset_index(drop=True)
+        merged = group.iloc[0].copy()
+        for column in comparison:
+            present = [value for value in group[column] if not _missing_value(value)]
+            canonical = {_canonical_comparison_value(column, value) for value in present}
+            if len(canonical) > 1:
+                if name == "validations":
+                    raise ValueError(
+                        f"Conflicting human labels or validation payloads exist for UUID {identifier}."
+                    )
+                raise ValueError(f"Conflicting catalog {name} rows for UUID {identifier}.")
+            if _missing_value(merged.get(column)) and present:
+                merged[column] = present[0]
+        for column in group.columns:
+            if column.startswith("_source_"):
+                merged[column] = _join_lineage_values(group[column])
+            elif _missing_value(merged.get(column)):
+                present = [value for value in group[column] if not _missing_value(value)]
+                if present:
+                    merged[column] = present[0]
+        result_rows.append(merged)
+    return pd.DataFrame(result_rows, columns=frame.columns).reset_index(drop=True)
+
+
+def _canonicalize_feedback_identities(
+    features: pd.DataFrame,
+    predictions: pd.DataFrame,
+    validations: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Reconcilia aliases históricos únicamente desde claves naturales completas."""
+
+    canonical_features = features.copy()
+    canonical_predictions = predictions.copy()
+    canonical_validations = validations.copy()
+    feature_aliases: dict[str, str] = {}
+    if "record_time" in canonical_features:
+        canonical_features["record_time"] = normalize_timestamp_series(
+            canonical_features["record_time"]
+        )
+    feature_ids: list[str] = []
+    feature_sources: list[str] = []
+    for row in canonical_features.itertuples(index=False):
+        source_id = str(row.id)
+        required = (
+            getattr(row, "pipeline_run_id", None),
+            getattr(row, "clip_id", None),
+            getattr(row, "continuity_id", None),
+            getattr(row, "record_time", None),
+            getattr(row, "feature_schema_version", None),
+        )
+        canonical_id = source_id
+        if all(not _missing_value(value) for value in required):
+            canonical_id = stable_uuid(
+                "feature",
+                required[0],
+                required[1],
+                required[2],
+                canonical_timestamp_identity(required[3]),
+                required[4],
+            )
+        feature_aliases[source_id] = canonical_id
+        feature_ids.append(canonical_id)
+        feature_sources.append(source_id)
+    canonical_features["id"] = feature_ids
+    canonical_features["_source_feature_ids"] = feature_sources
+
+    prediction_aliases: dict[str, str] = {}
+    prediction_ids: list[str] = []
+    prediction_sources: list[str] = []
+    feature_references: list[str] = []
+    for row in canonical_predictions.itertuples(index=False):
+        source_id = str(row.id)
+        source_feature = str(row.telemetry_feature_id)
+        feature_id = feature_aliases.get(source_feature, source_feature)
+        run_id = getattr(row, "pipeline_run_id", None)
+        revision = getattr(row, "model_revision", None)
+        canonical_id = source_id
+        if not _missing_value(run_id) and is_sha256(revision):
+            canonical_id = stable_uuid("prediction", run_id, feature_id, revision)
+        prediction_aliases[source_id] = canonical_id
+        prediction_ids.append(canonical_id)
+        prediction_sources.append(source_id)
+        feature_references.append(feature_id)
+    canonical_predictions["id"] = prediction_ids
+    canonical_predictions["telemetry_feature_id"] = feature_references
+    canonical_predictions["_source_prediction_ids"] = prediction_sources
+
+    if not canonical_validations.empty:
+        canonical_validations["prediction_id"] = canonical_validations["prediction_id"].map(
+            lambda value: prediction_aliases.get(str(value), str(value))
+        )
+    return canonical_features, canonical_predictions, canonical_validations
+
+
+def _deduplicate_equivalent_validations(validations: pd.DataFrame) -> pd.DataFrame:
+    """Consolida decisiones idénticas sin perder sus UUID originales."""
+
+    if validations.empty:
+        return validations
+    frame = validations.copy()
+    frame["_source_validation_ids"] = frame["id"].astype(str)
+    comparison = [
+        column
+        for column in frame.columns
+        if column not in {"id", "pipeline_run_id"}
+        and not column.startswith(("_catalog_", "_source_", "operational_"))
+    ]
+    aliases: dict[str, str] = {}
+    groups: dict[tuple[tuple[str, object], ...], list[int]] = {}
+    for index, row in frame.iterrows():
+        key = tuple(
+            _canonical_comparison_value(column, row[column])
+            if not _missing_value(row[column])
+            else ("missing", "")
+            for column in comparison
+        )
+        groups.setdefault(key, []).append(index)
+    rows: list[pd.Series] = []
+    for indexes in groups.values():
+        group = frame.loc[indexes]
+        canonical_id = sorted(group["id"].astype(str))[0]
+        merged = group.iloc[0].copy()
+        merged["id"] = canonical_id
+        merged["_source_validation_ids"] = _join_lineage_values(group["id"])
+        for source_id in group["id"].astype(str):
+            aliases[source_id] = canonical_id
+        rows.append(merged)
+    result = pd.DataFrame(rows, columns=frame.columns).reset_index(drop=True)
+    result["supersedes_validation_id"] = result["supersedes_validation_id"].map(
+        lambda value: aliases.get(str(value), value) if not _missing_value(value) else pd.NA
+    )
+    return result
+
+
+def _missing_value(value: object) -> bool:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _canonical_comparison_value(column: str, value: object) -> tuple[str, object]:
+    if column in {"record_time", "reviewed_at", "created_at", "classified_at"}:
+        return ("timestamp", canonical_timestamp_identity(value))
+    if type(value) is bool or type(value).__name__ == "bool_":
+        return ("boolean", bool(value))
+    if isinstance(value, Decimal):
+        return ("number", float(value))
+    if isinstance(value, Integral) and not isinstance(value, bool):
+        return ("number", int(value))
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return ("number", float(value))
+    if isinstance(value, str):
+        return ("text", value)
+    return (type(value).__name__, str(value))
+
+
+def _join_lineage_values(values: pd.Series) -> str:
+    identifiers: set[str] = set()
+    for value in values.dropna():
+        identifiers.update(item for item in str(value).split(",") if item)
+    return ",".join(sorted(identifiers))
 
 
 def _resolve_validation_graph(validations: pd.DataFrame) -> pd.DataFrame:
@@ -436,31 +632,92 @@ def _resolve_validation_graph(validations: pd.DataFrame) -> pd.DataFrame:
     _require_linear_validation_chains(children)
     roots_by_prediction = _validation_roots(parents, prediction_by_id)
     _require_unambiguous_roots(roots_by_prediction)
-    leaves = [
-        _validation_leaf(root[0], children, prediction)
-        for prediction, root in roots_by_prediction.items()
-    ]
+    leaves = []
+    visited: set[str] = set()
+    for prediction, root in roots_by_prediction.items():
+        leaf, chain = _validation_leaf_with_chain(root[0], children, prediction)
+        leaves.append(leaf)
+        visited.update(chain)
+    unreachable = sorted(set(prediction_by_id) - visited)
+    if unreachable:
+        raise ValueError(
+            f"Human validation graph contains unreachable nodes or a disconnected cycle: {unreachable}"
+        )
     return validations.loc[validations["id"].astype(str).isin(leaves)].copy()
 
 
-def _validate_validation_graph_columns(validations: pd.DataFrame) -> None:
+def _validate_validation_graph_columns(  # noqa: C901 - valida el dominio humano tabular.
+    validations: pd.DataFrame,
+) -> None:
     required = {
         "id",
         "prediction_id",
         "validated_state",
         "is_human_validated",
+        "reviewer_id",
+        "reviewed_at",
+        "review_source",
+        "incident_context_reviewed",
         "supersedes_validation_id",
     }
     if missing := sorted(required - set(validations.columns)):
         raise ValueError(f"Catalog validations are missing fields: {missing}")
     if not validations["prediction_id"].map(valid_uuid).all():
         raise ValueError("Catalog validation prediction_id values must be UUIDs.")
+    if validations["id"].map(valid_uuid).eq(False).any():
+        raise ValueError("Catalog validation id values must be UUIDs.")
+    if validations["validated_state"].map(
+        lambda value: type(value) is bool or type(value).__name__ == "bool_"
+    ).any():
+        raise ValueError("Human validations require integer states, not booleans.")
     states = pd.to_numeric(validations["validated_state"], errors="raise")
     if (
         not states.map(lambda value: float(value).is_integer()).all()
         or not states.isin((0, 1, 2, 3)).all()
     ):
         raise ValueError("Human validations require integer states from 0 through 3.")
+    if "pipeline_run_id" in validations:
+        declared_runs = validations["pipeline_run_id"].dropna()
+        if not declared_runs.map(valid_uuid).all():
+            raise ValueError("Catalog validation pipeline_run_id values must be UUIDs when declared.")
+    if validations["reviewer_id"].isna().any() or validations[
+        "reviewer_id"
+    ].astype(str).str.strip().eq("").any():
+        raise ValueError("Human validations require a stable reviewer_id.")
+    reviewed = pd.to_datetime(validations["reviewed_at"], utc=True, errors="coerce")
+    if reviewed.isna().any():
+        raise ValueError("Human validations require a valid reviewed_at timestamp.")
+    if validations["review_source"].isna().any() or validations[
+        "review_source"
+    ].astype(str).str.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}").eq(False).any():
+        raise ValueError("Human validations require a safe review_source identifier.")
+    if not validations["incident_context_reviewed"].map(
+        lambda value: type(value) is bool or type(value).__name__ == "bool_"
+    ).all():
+        raise ValueError("incident_context_reviewed must contain contractual booleans.")
+    accidents = states.eq(3)
+    notes = validations.get("notes", pd.Series(pd.NA, index=validations.index))
+    if accidents.any() and (
+        not validations.loc[accidents, "incident_context_reviewed"].all()
+        or notes.loc[accidents].isna().any()
+        or notes.loc[accidents].astype(str).str.strip().eq("").any()
+    ):
+        raise ValueError("Accident requires confirmed temporal context and a non-empty note.")
+
+
+def _validation_leaf_with_chain(
+    root: str, children: Mapping[str, list[str]], prediction: str
+) -> tuple[str, set[str]]:
+    visited: set[str] = set()
+    current = root
+    while True:
+        if current in visited:
+            raise ValueError(f"Human validation graph contains a cycle for {prediction}.")
+        visited.add(current)
+        successors = children[current]
+        if not successors:
+            return current, visited
+        current = successors[0]
 
 
 def _strict_boolean(value: object) -> bool:
@@ -526,18 +783,6 @@ def _require_unambiguous_roots(roots_by_prediction: Mapping[str, list[str]]) -> 
     }
     if ambiguous:
         raise ValueError(f"Human validation graph has conflicting roots: {ambiguous}")
-
-
-def _validation_leaf(root: str, children: Mapping[str, list[str]], prediction: str) -> str:
-    current = root
-    visited: set[str] = set()
-    while True:
-        if current in visited:
-            raise ValueError(f"Human validation graph contains a cycle for {prediction}.")
-        visited.add(current)
-        if not children[current]:
-            return current
-        current = children[current][0]
 
 
 __all__ = [

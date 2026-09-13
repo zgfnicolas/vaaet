@@ -19,6 +19,9 @@ DVC, Google Drive, Colab ni la futura aplicación.
   procedencia `numeric_representation`; no reconstruyas precisión histórica.
 - Resolvé feedback por la única cadena terminal válida y aislá conflictos
   históricos del ground truth.
+- Conservá la idempotencia de decisiones, los aliases portables verificables y
+  la recuperación local definida por
+  [`ADR-0030`](../docs/architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md).
 - Alembic es la única autoridad DDL. No ejecutes migraciones desde notebooks.
 - No modifiques revisiones publicadas; agregá una nueva revisión cuando cambie
   el schema.

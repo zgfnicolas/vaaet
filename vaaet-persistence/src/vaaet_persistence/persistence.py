@@ -8,6 +8,7 @@ import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from math import isfinite
 from numbers import Integral, Real
@@ -52,25 +53,35 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class PersistResult:
-    """Resume las filas persistidas y la corrida que conserva su lineage."""
+    """Distingue filas procesadas de inserciones nuevas y conserva su lineage."""
 
     telemetry_rows: int
     classification_rows: int
     pipeline_run_id: str
+    inserted_telemetry_rows: int = 0
+    inserted_classification_rows: int = 0
 
 
 def _log_write_metrics(
-    *, operation: str, rows: int, batches: int, queries: int, started_at: float
+    *,
+    operation: str,
+    rows: int,
+    inserted_rows: int,
+    batches: int,
+    queries: int,
+    started_at: float,
 ) -> None:
     """Registra capacidad observada sin incluir payloads ni prometer latencias."""
 
     duration = max(time.perf_counter() - started_at, 0.0)
     throughput = rows / duration if duration > 0 else 0.0
     logger.info(
-        "%s completed: rows=%s batches=%s data_queries=%s transaction_connections=1 "
+        "%s completed: rows=%s inserted_rows=%s batches=%s data_queries=%s "
+        "transaction_connections=1 "
         "duration_seconds=%.6f rows_per_second=%.3f",
         operation,
         rows,
+        inserted_rows,
         batches,
         queries,
         duration,
@@ -103,8 +114,8 @@ def _validated_pipeline_run_id(value: UUID | str | None) -> str:
 
     try:
         return str(UUID(str(value))) if value is not None else str(uuid4())
-    except (TypeError, ValueError, AttributeError) as exc:
-        raise ValueError("pipeline_run_id must be a UUID.") from exc
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError("pipeline_run_id must be a UUID.") from None
 
 
 def _utc_timestamp(value: object) -> object:
@@ -281,21 +292,22 @@ def _validate_classified_row(  # noqa: C901 - valida el contrato tabular externo
                 "avg_speed",
                 "heavy_vehicle_ratio",
                 "speed_variance",
-                "low_speed_persistence",
                 "speed_measurement_quality",
                 "near_zero_motion_ratio",
                 "stationary_confirmed_ratio",
             } else None
             maximum = 1 if column in {
                 "heavy_vehicle_ratio",
-                "low_speed_persistence",
                 "speed_measurement_quality",
                 "near_zero_motion_ratio",
                 "stationary_confirmed_ratio",
             } else None
-            _strict_float(
-                row[column], label=column, nullable=False, minimum=minimum, maximum=maximum
-            )
+            if column == "low_speed_persistence":
+                _strict_integer(row[column], label=column, minimum=0, maximum=2)
+            else:
+                _strict_float(
+                    row[column], label=column, nullable=False, minimum=minimum, maximum=maximum
+                )
     counts = [
         _strict_integer(row[column], label=column, minimum=0)
         for column in (
@@ -687,6 +699,9 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
             "Automatic pipeline lineage requires application_name and application_version."
         )
     run_id = _validated_pipeline_run_id(pipeline_run_id)
+    normalized = normalize_continuity_frame(df)
+    for _, row in normalized.iterrows():
+        _validate_raw_row(row)
     active_engine, owns_engine = _operation_engine(settings, engine)
     if pipeline_run_id is None:
         try:
@@ -697,30 +712,27 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
                 application_version=application_version,
                 source_kind="dataframe",
                 clip_id=str(clip_ids[0]) if len(clip_ids) == 1 else None,
-                input_rows=len(df),
+                input_rows=len(normalized),
                 model_version=None,
                 feature_schema_version=None,
             )
             with pipeline_run(metadata, engine=active_engine) as run:
                 inserted = persist_raw_telemetry(
-                    df,
+                    normalized,
                     engine=active_engine,
                     pipeline_run_id=run.id,
                 )
-                run.set_output_rows(inserted)
+                run.set_output_rows(len(normalized))
             return inserted
         except ProgrammingError as exc:
             raise _require_migrated_schema(exc) from None
         finally:
             if owns_engine:
                 dispose_engine(active_engine)
-    normalized = normalize_continuity_frame(df)
-    for _, row in normalized.iterrows():
-        _validate_raw_row(row)
     try:
         with active_engine.begin() as connection:
             require_database_revision(connection)
-            inserted = _persist_raw_rows(connection, normalized, run_id)
+            inserted, query_count = _persist_raw_rows(connection, normalized, run_id)
     except ProgrammingError as exc:
         raise _require_migrated_schema(exc) from None
     except SQLAlchemyError as exc:
@@ -737,8 +749,9 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
     _log_write_metrics(
         operation="persist-raw-telemetry",
         rows=len(normalized),
+        inserted_rows=inserted,
         batches=batch_count,
-        queries=1 + (3 * batch_count),
+        queries=1 + query_count,
         started_at=started_at,
     )
     return inserted
@@ -748,11 +761,12 @@ def _persist_raw_rows(
     connection: Connection,
     frame: pd.DataFrame,
     run_id: str,
-) -> int:
+) -> tuple[int, int]:
     """Inserta filas nuevas y comprueba el contenido de colisiones naturales."""
 
     payloads = [_raw_payload(row, run_id) for _, row in frame.iterrows()]
     inserted = 0
+    query_count = 0
     for batch in _batches(payloads):
         existing_before = _select_batch(
             connection,
@@ -760,20 +774,32 @@ def _persist_raw_rows(
             batch,
             key_fields=("clip_id", "record_time"),
         )
+        query_count += 1
         for payload in batch:
             matches = _matching_rows(existing_before, payload, ("clip_id", "record_time"))
             if matches:
                 _assert_idempotent(
                     matches[0], payload, "raw telemetry", ignored_fields={"pipeline_run_id"}
                 )
-        inserted += len(batch) - len(existing_before)
-        connection.execute(text(_without_returning(INSERT_RAW_SQL)), batch)
-        stored = _select_batch(connection, SELECT_RAW_SQL, batch, key_fields=("clip_id", "record_time"))
+        inserted_rows = list(
+            connection.execute(
+                text(_multi_values_statement(INSERT_RAW_SQL, batch)),
+                _multi_values_parameters(batch),
+            ).mappings().all()
+        )
+        query_count += 1
+        inserted += len(inserted_rows)
+        stored = _select_batch(
+            connection, SELECT_RAW_SQL, batch, key_fields=("clip_id", "record_time")
+        )
+        query_count += 1
         _assert_batch_idempotent(
             stored, batch, kind="raw telemetry", key_fields=("clip_id", "record_time"),
             ignored_fields={"pipeline_run_id"},
         )
-    return inserted
+        if len(inserted_rows) != len(batch) - len(existing_before):
+            logger.info("Concurrent raw idempotency resolution required a grouped re-read")
+    return inserted, query_count
 
 
 def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opcional en un borde público.
@@ -842,7 +868,7 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
                     model_revision=resolved_revision,
                     pipeline_run_id=run.id,
                 )
-                run.set_output_rows(persisted.classification_rows)
+                run.set_output_rows(len(normalized))
             return persisted
         except ProgrammingError as exc:
             raise _require_migrated_schema(exc) from None
@@ -852,7 +878,13 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
     try:
         with active_engine.begin() as connection:
             require_database_revision(connection)
-            telemetry_rows, prediction_rows = _persist_classified_rows(
+            (
+                telemetry_rows,
+                prediction_rows,
+                inserted_telemetry_rows,
+                inserted_prediction_rows,
+                query_count,
+            ) = _persist_classified_rows(
                 connection, normalized, run_id, model_version, resolved_revision
             )
     except ProgrammingError as exc:
@@ -871,11 +903,18 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
     _log_write_metrics(
         operation="persist-classified-telemetry",
         rows=len(normalized),
+        inserted_rows=inserted_telemetry_rows + inserted_prediction_rows,
         batches=batch_count,
-        queries=1 + (6 * batch_count),
+        queries=1 + query_count,
         started_at=started_at,
     )
-    return PersistResult(telemetry_rows, prediction_rows, run_id)
+    return PersistResult(
+        telemetry_rows,
+        prediction_rows,
+        run_id,
+        inserted_telemetry_rows,
+        inserted_prediction_rows,
+    )
 
 
 def _resolve_model_revision(frame: pd.DataFrame, requested: str | None) -> str:
@@ -899,8 +938,11 @@ def _persist_classified_rows(
     run_id: str,
     model_version: str,
     model_revision: str,
-) -> tuple[int, int]:
+) -> tuple[int, int, int, int, int]:
     rows = list(frame.iterrows())
+    query_count = 0
+    inserted_feature_count = 0
+    inserted_prediction_count = 0
     for batch_rows in _batches(rows):
         feature_payloads = [_feature_payload(row, run_id) for _, row in batch_rows]
         existing_features = _select_batch(
@@ -909,6 +951,7 @@ def _persist_classified_rows(
             feature_payloads,
             key_fields=("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
         )
+        query_count += 1
         if existing_features:
             _assert_batch_idempotent(
                 existing_features,
@@ -924,26 +967,37 @@ def _persist_classified_rows(
                 kind="feature",
                 key_fields=("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
             )
-        connection.execute(text(_without_returning(INSERT_FEATURE_SQL)), feature_payloads)
+        inserted_features = connection.execute(
+            text(_multi_values_statement(INSERT_FEATURE_SQL, feature_payloads)),
+            _multi_values_parameters(feature_payloads),
+        ).mappings().all()
+        inserted_feature_count += len(inserted_features)
+        query_count += 1
         stored_features = _select_batch(
             connection,
             SELECT_FEATURE_SQL,
             feature_payloads,
             key_fields=("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
         )
+        query_count += 1
         _assert_batch_idempotent(
             stored_features,
             feature_payloads,
             kind="feature",
             key_fields=("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
         )
+        stored_feature_index = _rows_by_key(
+            stored_features,
+            ("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
+        )
         prediction_payloads: list[dict[str, object]] = []
         for (_, row), feature_payload in zip(batch_rows, feature_payloads, strict=True):
-            feature = _find_by_key(
-                stored_features,
-                feature_payload,
-                ("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
-            )
+            feature = stored_feature_index[
+                _row_key(
+                    feature_payload,
+                    ("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
+                )
+            ]
             prediction_payloads.append(
                 _prediction_payload(
                     row,
@@ -959,6 +1013,7 @@ def _persist_classified_rows(
             prediction_payloads,
             key_fields=("telemetry_feature_id", "model_revision"),
         )
+        query_count += 1
         if existing_predictions:
             _assert_batch_idempotent(
                 existing_predictions,
@@ -974,20 +1029,32 @@ def _persist_classified_rows(
                 kind="prediction",
                 key_fields=("telemetry_feature_id", "model_revision"),
             )
-        connection.execute(text(_without_returning(INSERT_PREDICTION_SQL)), prediction_payloads)
+        inserted_predictions = connection.execute(
+            text(_multi_values_statement(INSERT_PREDICTION_SQL, prediction_payloads)),
+            _multi_values_parameters(prediction_payloads),
+        ).mappings().all()
+        inserted_prediction_count += len(inserted_predictions)
+        query_count += 1
         stored_predictions = _select_batch(
             connection,
             SELECT_PREDICTION_SQL,
             prediction_payloads,
             key_fields=("telemetry_feature_id", "model_revision"),
         )
+        query_count += 1
         _assert_batch_idempotent(
             stored_predictions,
             prediction_payloads,
             kind="prediction",
             key_fields=("telemetry_feature_id", "model_revision"),
         )
-    return len(frame), len(frame)
+    return (
+        len(frame),
+        len(frame),
+        inserted_feature_count,
+        inserted_prediction_count,
+        query_count,
+    )
 
 
 def _batches(items: list[T], size: int = DEFAULT_BATCH_SIZE) -> list[list[T]]:
@@ -1022,19 +1089,6 @@ def _select_batch(
     return list(connection.execute(statement, params).mappings().all())
 
 
-def _find_by_key(
-    rows: list[Mapping[str, object]],
-    payload: Mapping[str, object],
-    key_fields: tuple[str, ...],
-) -> Mapping[str, object]:
-    matches = _matching_rows(rows, payload, key_fields)
-    if len(matches) != 1:
-        raise PersistenceConflictError(
-            "PostgreSQL did not resolve exactly one row for an immutable natural key."
-        )
-    return matches[0]
-
-
 def _matching_rows(
     rows: list[Mapping[str, object]],
     payload: Mapping[str, object],
@@ -1047,8 +1101,68 @@ def _matching_rows(
     ]
 
 
-def _without_returning(statement: str) -> str:
-    return statement.rsplit("RETURNING", maxsplit=1)[0]
+def _key_value(value: object) -> object:
+    if isinstance(value, UUID):
+        return str(value)
+    if not _is_boolean(value) and isinstance(value, Integral):
+        return int(value)
+    if not _is_boolean(value) and isinstance(value, (Real, Decimal)):
+        return float(value)
+    if isinstance(value, (datetime, pd.Timestamp)):
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize("UTC")
+        else:
+            timestamp = timestamp.tz_convert("UTC")
+        return timestamp.isoformat()
+    return value
+
+
+def _row_key(row: Mapping[str, object], fields: tuple[str, ...]) -> tuple[object, ...]:
+    return tuple(_key_value(row.get(field)) for field in fields)
+
+
+def _rows_by_key(
+    rows: list[Mapping[str, object]], fields: tuple[str, ...]
+) -> dict[tuple[object, ...], Mapping[str, object]]:
+    """Indexa resultados contractuales por clave sin depender de su orden."""
+
+    result: dict[tuple[object, ...], Mapping[str, object]] = {}
+    for row in rows:
+        key = _row_key(row, fields)
+        if key in result:
+            raise PersistenceConflictError("Stored batch contains duplicate natural keys.")
+        result[key] = row
+    return result
+
+
+def _multi_values_parameters(payloads: list[dict[str, object]]) -> dict[str, object]:
+    """Aplana un lote validado para una única sentencia parametrizada."""
+
+    return {
+        f"{field}_{index}": value
+        for index, payload in enumerate(payloads)
+        for field, value in payload.items()
+    }
+
+
+def _multi_values_statement(statement: str, payloads: list[dict[str, object]]) -> str:
+    """Expande el VALUES contractual sin interpolar valores externos."""
+
+    if not payloads:
+        raise ValueError("A multi-values insert requires at least one payload.")
+    before_values, after_values = statement.split("VALUES", maxsplit=1)
+    template, suffix = after_values.split("ON CONFLICT", maxsplit=1)
+    template = template.strip()
+    if not (template.startswith("(") and template.endswith(")")):
+        raise RuntimeError("The contractual INSERT values template is malformed.")
+    rows = []
+    for index in range(len(payloads)):
+        row = template
+        for field in payloads[index]:
+            row = re.sub(rf":{re.escape(field)}\b", f":{field}_{index}", row)
+        rows.append(row)
+    return before_values + "VALUES\n" + ",\n".join(rows) + "\nON CONFLICT" + suffix
 
 
 def _assert_batch_idempotent(
@@ -1059,8 +1173,13 @@ def _assert_batch_idempotent(
     key_fields: tuple[str, ...],
     ignored_fields: set[str] | None = None,
 ) -> None:
+    indexed = _rows_by_key(rows, key_fields)
     for payload in payloads:
-        existing = _find_by_key(rows, payload, key_fields)
+        existing = indexed.get(_row_key(payload, key_fields))
+        if existing is None:
+            raise PersistenceConflictError(
+                "PostgreSQL did not resolve exactly one row for an immutable natural key."
+            )
         _assert_idempotent(existing, payload, kind, ignored_fields=ignored_fields)
 
 
@@ -1096,6 +1215,8 @@ def _database_values_equal(left: object, right: object) -> bool:
         and isinstance(left, (Integral, Real, Decimal))
         and isinstance(right, (Integral, Real, Decimal))
     ):
+        if isinstance(left, Integral) and isinstance(right, Integral):
+            return int(left) == int(right)
         left_float = float(left)
         right_float = float(right)
         return isfinite(left_float) and isfinite(right_float) and left_float == right_float

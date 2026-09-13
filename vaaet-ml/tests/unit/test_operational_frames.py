@@ -98,3 +98,25 @@ def test_operational_adapter_rejects_invalid_revision_and_duplicate_ids() -> Non
     components["features"].loc[1, "id"] = components["features"].loc[0, "id"]
     with pytest.raises(ValueError, match="duplicate id"):
         portable_feedback_components(components)
+
+
+def test_portable_identity_uses_the_utc_instant_not_timestamp_format() -> None:
+    first = _components()
+    second = {name: frame.copy() for name, frame in first.items()}
+    first["features"] = first["features"].iloc[[0]].copy()
+    first["predictions"] = first["predictions"].iloc[[1]].copy()
+    first["validations"] = first["validations"].copy()
+    second["features"] = second["features"].iloc[[0]].copy()
+    second["predictions"] = second["predictions"].iloc[[1]].copy()
+    second["validations"] = second["validations"].copy()
+    first["features"].loc[:, "record_time"] = "2026-09-09T12:01:00Z"
+    second["features"].loc[:, "record_time"] = pd.Timestamp("2026-09-09T09:01:00-03:00")
+
+    portable_first = portable_feedback_components(first)
+    portable_second = portable_feedback_components(second)
+
+    assert portable_first["features"].iloc[0]["id"] == portable_second["features"].iloc[0]["id"]
+    assert (
+        portable_first["predictions"].iloc[0]["id"]
+        == portable_second["predictions"].iloc[0]["id"]
+    )

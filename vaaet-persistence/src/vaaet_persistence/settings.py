@@ -327,10 +327,10 @@ def _load_env_file(env_file: str | Path | None) -> None:
         return
     try:
         from dotenv import load_dotenv
-    except ImportError as exc:  # pragma: no cover - dependencia opcional
+    except ImportError:  # pragma: no cover - dependencia opcional
         raise DatabaseNotConfiguredError(
             "python-dotenv is required when env_file is supplied."
-        ) from exc
+        ) from None
     load_dotenv(dotenv_path=Path(env_file), override=False)
 
 
@@ -357,8 +357,8 @@ def _parse_int(value: str | None, *, default: int, name: str) -> int:
         return default
     try:
         return int(value)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be an integer.") from exc
+    except ValueError:
+        raise ValueError(f"{name} must be an integer.") from None
 
 
 def _parse_float(value: str | None, *, default: float, name: str) -> float:
@@ -368,8 +368,8 @@ def _parse_float(value: str | None, *, default: float, name: str) -> float:
         return default
     try:
         return float(value)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a number.") from exc
+    except ValueError:
+        raise ValueError(f"{name} must be a number.") from None
 
 
 def _build_endpoint(values: _EndpointValues) -> DatabaseEndpointSettings:

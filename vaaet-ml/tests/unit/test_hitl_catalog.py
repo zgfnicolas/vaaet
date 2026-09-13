@@ -25,6 +25,14 @@ from vaaet_ml.settings import FEATURE_COLS
 MODEL_REVISION = "a" * 64
 
 
+def _review_metadata() -> dict[str, object]:
+    return {
+        "reviewer_id": "reviewer",
+        "review_source": "test",
+        "incident_context_reviewed": False,
+    }
+
+
 def _feature_values(value: float = 1.0) -> dict[str, float]:
     return {column: value + index / 100 for index, column in enumerate(FEATURE_COLS)}
 
@@ -210,6 +218,7 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
                 "prediction_id": prediction_id,
                 "validated_state": 0,
                 "is_human_validated": True,
+                **_review_metadata(),
                 "reviewed_at": "2026-08-10T00:00:00Z",
                 "supersedes_validation_id": pd.NA,
             },
@@ -218,6 +227,7 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
                 "prediction_id": prediction_id,
                 "validated_state": 1,
                 "is_human_validated": True,
+                **_review_metadata(),
                 "reviewed_at": "2026-08-10T00:01:00Z",
                 "supersedes_validation_id": root_validation,
             },
@@ -226,6 +236,7 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
                 "prediction_id": prediction_id,
                 "validated_state": 2,
                 "is_human_validated": True,
+                **_review_metadata(),
                 "reviewed_at": "2026-08-10T00:02:00Z",
                 "supersedes_validation_id": root_validation,
             },
@@ -302,6 +313,7 @@ def test_catalog_resolves_valid_cross_package_correction_chain(tmp_path: Path) -
                     "prediction_id": prediction_id,
                     "validated_state": 0,
                     "is_human_validated": True,
+                    **_review_metadata(),
                     "reviewed_at": "2026-08-10T00:00:00Z",
                     "supersedes_validation_id": pd.NA,
                 }
@@ -314,6 +326,7 @@ def test_catalog_resolves_valid_cross_package_correction_chain(tmp_path: Path) -
                     "prediction_id": prediction_id,
                     "validated_state": 1,
                     "is_human_validated": True,
+                    **_review_metadata(),
                     "reviewed_at": "2026-08-11T00:00:00Z",
                     "supersedes_validation_id": first_validation_id,
                 }
@@ -390,6 +403,7 @@ def test_equivalent_reinferences_preserve_all_lineage_ids() -> None:
             "prediction_id": prediction_id,
             "validated_state": 1,
             "is_human_validated": True,
+            **_review_metadata(),
             "reviewed_at": "2026-08-10T01:00:00Z",
             "supersedes_validation_id": pd.NA,
         }
@@ -405,6 +419,62 @@ def test_equivalent_reinferences_preserve_all_lineage_ids() -> None:
     assert len(result) == 1
     assert set(result.iloc[0]["source_prediction_ids"].split(",")) == set(prediction_ids)
     assert set(result.iloc[0]["source_validation_ids"].split(",")) == set(validation_ids)
+
+
+def test_database_and_zip_identity_aliases_resolve_by_contract_content() -> None:
+    run_id = str(uuid.uuid4())
+    feature_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    prediction_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    validation_id = str(uuid.uuid4())
+    features = pd.DataFrame(
+        [
+            {
+                "id": feature_id,
+                "pipeline_run_id": run_id,
+                "clip_id": "clip",
+                "continuity_id": "clip:continuity-0001",
+                "record_time": timestamp,
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                **_feature_values(),
+            }
+            for feature_id, timestamp in zip(
+                feature_ids,
+                ("2026-08-10T00:00:00Z", pd.Timestamp("2026-08-09T21:00:00-03:00")),
+                strict=True,
+            )
+        ]
+    )
+    predictions = pd.DataFrame(
+        [
+            {
+                "id": prediction_id,
+                "pipeline_run_id": run_id,
+                "telemetry_feature_id": feature_id,
+                "model_version": "mlp-v3.0",
+                "model_revision": MODEL_REVISION,
+            }
+            for feature_id, prediction_id in zip(feature_ids, prediction_ids, strict=True)
+        ]
+    )
+    validations = pd.DataFrame(
+        [
+            {
+                "id": validation_id,
+                "prediction_id": prediction_id,
+                "validated_state": 1,
+                "is_human_validated": True,
+                **_review_metadata(),
+                "reviewed_at": "2026-08-10T01:00:00Z",
+                "supersedes_validation_id": pd.NA,
+            }
+            for prediction_id in prediction_ids
+        ]
+    )
+
+    feedback = resolve_effective_human_feedback(features, predictions, validations)
+
+    assert len(feedback) == 1
+    assert set(feedback.iloc[0]["source_prediction_ids"].split(",")) == set(prediction_ids)
 
 
 @pytest.mark.parametrize(
@@ -446,6 +516,7 @@ def test_human_history_rejects_ambiguous_types(flag: object, state: object, mess
                 "prediction_id": prediction_id,
                 "validated_state": state,
                 "is_human_validated": flag,
+                **_review_metadata(),
                 "reviewed_at": "2026-08-10T01:00:00Z",
                 "supersedes_validation_id": pd.NA,
             }
@@ -489,6 +560,8 @@ def test_human_history_rejects_cycle_without_a_root() -> None:
                 "prediction_id": prediction_id,
                 "validated_state": 0,
                 "is_human_validated": True,
+                **_review_metadata(),
+                "reviewed_at": "2026-08-10T01:00:00Z",
                 "supersedes_validation_id": second,
             },
             {
@@ -496,6 +569,8 @@ def test_human_history_rejects_cycle_without_a_root() -> None:
                 "prediction_id": prediction_id,
                 "validated_state": 1,
                 "is_human_validated": True,
+                **_review_metadata(),
+                "reviewed_at": "2026-08-10T01:01:00Z",
                 "supersedes_validation_id": first,
             },
         ]
@@ -503,3 +578,47 @@ def test_human_history_rejects_cycle_without_a_root() -> None:
 
     with pytest.raises(ValueError, match="cycle"):
         resolve_effective_human_feedback(features, predictions, validations)
+
+
+def test_human_history_rejects_accident_without_temporal_evidence() -> None:
+    feature_id = str(uuid.uuid4())
+    prediction_id = str(uuid.uuid4())
+    features = pd.DataFrame(
+        [
+            {
+                "id": feature_id,
+                "clip_id": "clip",
+                "continuity_id": "clip:continuity-0001",
+                "record_time": "2026-08-10T00:00:00Z",
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                **_feature_values(),
+            }
+        ]
+    )
+    predictions = pd.DataFrame(
+        [
+            {
+                "id": prediction_id,
+                "telemetry_feature_id": feature_id,
+                "model_version": "mlp-v3.0",
+                "model_revision": MODEL_REVISION,
+            }
+        ]
+    )
+    validation = pd.DataFrame(
+        [
+            {
+                "id": str(uuid.uuid4()),
+                "prediction_id": prediction_id,
+                "validated_state": 3,
+                "is_human_validated": True,
+                **_review_metadata(),
+                "reviewed_at": "2026-08-10T01:00:00Z",
+                "notes": "",
+                "supersedes_validation_id": pd.NA,
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="Accident"):
+        resolve_effective_human_feedback(features, predictions, validation)

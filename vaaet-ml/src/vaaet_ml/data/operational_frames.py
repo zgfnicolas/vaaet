@@ -6,7 +6,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from vaaet_ml.data.artifact_serialization import is_sha256, stable_uuid, valid_uuid
+from vaaet_ml.data.artifact_serialization import (
+    canonical_timestamp_identity,
+    is_sha256,
+    stable_uuid,
+    valid_uuid,
+)
 
 
 def portable_feedback_components(  # noqa: C901 - adapta tres relaciones contractuales.
@@ -51,17 +56,13 @@ def portable_feedback_components(  # noqa: C901 - adapta tres relaciones contrac
     portable_feature_ids: list[str] = []
     for row in features.itertuples(index=False):
         source_id = str(row.id)
-        portable_id = (
-            source_id
-            if valid_uuid(source_id)
-            else stable_uuid(
-                "feature",
-                row.pipeline_run_id,
-                row.clip_id,
-                row.continuity_id,
-                row.record_time,
-                row.feature_schema_version,
-            )
+        portable_id = stable_uuid(
+            "feature",
+            row.pipeline_run_id,
+            row.clip_id,
+            row.continuity_id,
+            canonical_timestamp_identity(row.record_time),
+            row.feature_schema_version,
         )
         feature_map[source_id] = portable_id
         portable_feature_ids.append(portable_id)
@@ -78,15 +79,11 @@ def portable_feedback_components(  # noqa: C901 - adapta tres relaciones contrac
             raise ValueError(
                 f"Operational prediction {source_id} references an unknown feature."
             )
-        portable_id = (
-            source_id
-            if valid_uuid(source_id)
-            else stable_uuid(
-                "prediction",
-                row.pipeline_run_id,
-                feature_id,
-                row.model_revision,
-            )
+        portable_id = stable_uuid(
+            "prediction",
+            row.pipeline_run_id,
+            feature_id,
+            row.model_revision,
         )
         prediction_map[source_id] = portable_id
         portable_prediction_ids.append(portable_id)

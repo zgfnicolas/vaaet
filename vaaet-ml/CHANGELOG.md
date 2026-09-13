@@ -15,6 +15,32 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.8.1] - 2026-09-11
+
+### Añadido
+
+- Alembic `0005`, ADR-0030 y manifiestos locales independientes para cada
+  intento de persistencia.
+- Sincronización reintentable de paquetes HITL locales `pending-sync` sin
+  reconstruir sus bytes, UUID, fechas o fingerprint.
+
+### Cambiado
+
+- Las identidades portables normalizan el instante UTC y reconcilian aliases
+  históricos únicamente cuando la equivalencia contractual es demostrable.
+- Los paquetes HITL nuevos sellan `reviewed_at` mediante el algoritmo de
+  fingerprint identificado; los históricos conservan su verificación legado.
+- Las escrituras utilizan `INSERT` multi-`VALUES`, contadores de sentencias
+  reales y resultados indexados por claves en lugar de orden de retorno.
+
+### Corregido
+
+- `low_speed_persistence=2` generado por el core se acepta como conteo temporal.
+- El reviewer serializa correcciones append-only sin requerir `UPDATE` ni
+  `FOR KEY SHARE`; los reintentos conservan corrida y fecha originales.
+- La clasificación no se publica antes de validar la paridad HUD/batch y un
+  fallo de Drive ya no impide crear el paquete HITL local.
+
 ## [4.8.0] - 2026-09-09
 
 ### Añadido

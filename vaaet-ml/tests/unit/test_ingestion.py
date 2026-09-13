@@ -67,7 +67,11 @@ def _package_tables(path: Path, state: int = 1) -> Path:
                 "prediction_id": "22222222-2222-4222-8222-222222222222",
                 "validated_state": state,
                 "is_human_validated": True,
+                "reviewer_id": "fixture-reviewer",
                 "reviewed_at": "2026-08-04T13:00:00Z",
+                "review_source": "unit-test",
+                "incident_context_reviewed": state == 3,
+                "notes": "Context reviewed" if state == 3 else None,
                 "supersedes_validation_id": pd.NA,
             }
         ]
@@ -80,6 +84,38 @@ def _package_tables(path: Path, state: int = 1) -> Path:
 def test_plan_requires_explicit_source() -> None:
     with pytest.raises(ValueError, match="explicit training source"):
         TrainingIngestionPlan(mode=TrainingMode.SEED_BOOTSTRAP)
+
+
+def test_legacy_backup_review_flags_are_not_invented_as_ground_truth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    features = _features().drop(columns=["traffic_state", "is_human_validated"])
+    predictions = pd.DataFrame(
+        [
+            {
+                "id": 20,
+                "telemetry_feature_id": features.iloc[0]["id"],
+                "is_human_validated": True,
+                "human_override_state": 1,
+                "model_version": "mlp-v2.1",
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        "vaaet_ml.data.ingestion._frames_from_backup",
+        lambda *_args, **_kwargs: {
+            "features": features,
+            "predictions": predictions,
+        },
+    )
+
+    with pytest.raises(ValueError, match="inspection-only"):
+        load_training_inputs(
+            TrainingIngestionPlan(
+                mode=TrainingMode.HITL_RETRAINING,
+                feedback_sources=(PostgresBackupSource(tmp_path / "legacy.backup"),),
+            )
+        )
 
 
 def test_only_validated_feedback_policy_exists() -> None:
@@ -339,7 +375,10 @@ def test_feedback_rejects_reordered_feature_contract(tmp_path: Path) -> None:
                     "prediction_id": "22222222-2222-4222-8222-222222222222",
                     "validated_state": 1,
                     "is_human_validated": True,
+                    "reviewer_id": "fixture-reviewer",
                     "reviewed_at": "2026-08-04T13:00:00Z",
+                    "review_source": "unit-test",
+                    "incident_context_reviewed": False,
                     "supersedes_validation_id": pd.NA,
                 }
             ]

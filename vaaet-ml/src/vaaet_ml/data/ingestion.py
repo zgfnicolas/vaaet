@@ -225,6 +225,11 @@ def _load_feedback_components(
             ),
             {},
         )
+        if frames.get("validations", pd.DataFrame()).empty:
+            raise ValueError(
+                "PostgreSQL backup has no traceable human_validations table; "
+                "legacy review flags are inspection-only and cannot become ground truth."
+            )
         return portable_feedback_components(frames), dict(details)
     if isinstance(source, HitlCatalogSource):
         return load_hitl_catalog_components(source)
@@ -283,20 +288,6 @@ def _frames_from_backup(  # noqa: C901 - valida variantes históricas en un úni
     for frame in result.values():
         for column in _BACKUP_BOOLEAN_COLUMNS.intersection(frame.columns):
             frame[column] = frame[column].map(_parse_backup_boolean)
-    if "validations" not in result and "predictions" in result:
-        legacy = result["predictions"]
-        if "is_human_validated" in legacy:
-            flags = legacy["is_human_validated"].map(_parse_contract_boolean)
-            validated = legacy.loc[flags].copy()
-            if not validated.empty:
-                validated["prediction_id"] = validated["id"]
-                validated["validated_state"] = validated["human_override_state"].fillna(
-                    validated["traffic_state"]
-                )
-                validated["reviewed_at"] = validated.get("validated_at", validated["classified_at"])
-                validated["reviewer_id"] = "legacy-import"
-                validated.attrs["vaaet_provenance"] = legacy.attrs.get("vaaet_provenance", {})
-                result["validations"] = validated
     return result
 
 

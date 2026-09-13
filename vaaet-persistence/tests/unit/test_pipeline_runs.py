@@ -60,6 +60,20 @@ def test_pipeline_run_preserves_a_preallocated_training_identifier(tmp_path) -> 
     assert (tmp_path / f"{run_id}.json").is_file()
 
 
+@pytest.mark.parametrize("rows", [True, 1.5, -1])
+def test_pipeline_run_rejects_non_integer_output_counts(tmp_path, rows: object) -> None:
+    with pytest.raises(ValueError, match="non-negative integer"):
+        with pipeline_run(
+            PipelineRunMetadata(
+                workflow=PipelineWorkflow.TRAINING,
+                application_name="test-consumer",
+                application_version="1.0.0",
+            ),
+            local_manifest_directory=tmp_path,
+        ) as run:
+            run.set_output_rows(rows)  # type: ignore[arg-type]
+
+
 def test_training_run_records_revision_resolved_after_bundle_validation(tmp_path) -> None:
     revision = "a" * 64
 
@@ -119,6 +133,17 @@ def test_pipeline_metadata_rejects_unsafe_application_identity() -> None:
             PipelineWorkflow.INFERENCE,
             "postgresql://private",
             "1.0.0",
+        )
+
+
+@pytest.mark.parametrize("rows", [True, 1.5, -1])
+def test_pipeline_metadata_rejects_non_integer_input_counts(rows: object) -> None:
+    with pytest.raises(ValueError, match="non-negative integer"):
+        PipelineRunMetadata(
+            workflow=PipelineWorkflow.TRAINING,
+            application_name="test-consumer",
+            application_version="1.0.0",
+            input_rows=rows,  # type: ignore[arg-type]
         )
 
 

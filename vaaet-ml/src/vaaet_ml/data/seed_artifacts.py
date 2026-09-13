@@ -101,8 +101,8 @@ class VersionedSeedStore:
             return None
         try:
             pointer = json.loads(self.pointer_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Invalid seed pointer: {exc}") from exc
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            raise ValueError("Invalid seed pointer.") from None
         if pointer.get("contract") != SEED_POINTER_CONTRACT:
             raise ValueError("Unsupported seed pointer contract.")
         if pointer.get("snapshot_contract") != SEED_ARTIFACT_CONTRACT:

@@ -9,7 +9,7 @@ from collections.abc import Mapping
 import pandas as pd
 
 from vaaet_ml.data.database import DatabaseSettings
-from vaaet_ml.data.dataset_artifacts import finalize_review_session
+from vaaet_ml.data.dataset_artifacts import finalize_review_session, sync_finalized_review_session
 from vaaet_ml.data.review_domain import HumanValidation, InferenceReviewSession, select_review_queue
 from vaaet_ml.data.review_export import export_offline_review_package
 from vaaet_ml.data.review_orchestration import prepare_review_session
@@ -51,4 +51,5 @@ __all__ = [
     "prepare_inference_review",
     "persist_human_validation",
     "select_review_queue",
+    "sync_finalized_review_session",
 ]

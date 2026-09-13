@@ -12,8 +12,10 @@ package, runtime, and governance contracts.
 
 - Keep notebooks as user-facing orchestration and visualization entrypoints.
 - Put portable vision, features, inference, and bundle behavior in
-  `vaaet-core/src/vaaet/` and laboratory data, training, evaluation, and persistence
-  behavior in `vaaet-ml/src/vaaet_ml/`; import them through `vaaet.*` and `vaaet_ml.*`.
+  `vaaet-core/src/vaaet/`; shared PostgreSQL behavior in
+  `vaaet-persistence/src/vaaet_persistence/`; and laboratory data, training and
+  evaluation in `vaaet-ml/src/vaaet_ml/`. Import them through `vaaet.*`,
+  `vaaet_persistence.*` and `vaaet_ml.*`.
 - Use `$vaaet-python-ml-engineering` when extracting or redesigning reusable Python.
 - Use `$vaaet-colab-operations` for runtime setup, GPU/RAM, Drive, Secrets, recovery,
   immutable artifacts, and Colab-specific operational behavior.
@@ -98,7 +100,8 @@ without separate authorization and tool adoption.
 - Make setup safe to rerun: clone or fast-forward, install once, clear stale imports, and validate
   the installed package origin.
 - Make downloads, persistence, review finalization, and artifact publication explicitly
-  idempotent through their existing VAAET APIs.
+  idempotent through their existing VAAET APIs. Seal a HITL ZIP locally before
+  attempting Drive; preserve the exact package as `pending-sync` on remote failure.
 - Fail fast with a clear recovery action when enabled behavior lacks inputs, credentials, schema,
   or compatible artifacts.
 - Keep useful progress and final summaries visible, but capture or suppress noisy package output.

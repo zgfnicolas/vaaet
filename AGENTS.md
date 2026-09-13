@@ -127,6 +127,9 @@ antes de deserializar un bundle.
   por [ADR-0028](docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
 - La fidelidad `float64`, el linaje idempotente y las cadenas HITL efectivas
   están gobernados por [ADR-0029](docs/architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
+- La idempotencia de decisiones, los aliases portables verificables y la
+  recuperación `pending-sync` están gobernados por
+  [ADR-0030](docs/architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

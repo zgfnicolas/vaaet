@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
-from vaaet.timestamps import normalize_timestamp_series
+from vaaet.timestamps import normalize_timestamp, normalize_timestamp_series
 
 _UUID_NAMESPACE = uuid.UUID("5ef88f18-4663-4c81-a6f9-5b40b256e083")
 
@@ -54,6 +54,12 @@ def stable_uuid(kind: str, *parts: object) -> str:
 
     material = "|".join([kind, *(str(part) for part in parts)])
     return str(uuid.uuid5(_UUID_NAMESPACE, material))
+
+
+def canonical_timestamp_identity(value: object) -> str:
+    """Representa un instante UTC de forma estable antes de derivar identidades."""
+
+    return normalize_timestamp(value).isoformat()
 
 
 def valid_uuid(value: object) -> bool:
@@ -151,11 +157,29 @@ def frame_bytes(frame: pd.DataFrame, *, ignore_columns: Sequence[str] = ()) -> b
 def frames_fingerprint(frames: Mapping[str, pd.DataFrame]) -> str:
     """Calcula un fingerprint sensible a nombres, filas y contratos de tablas."""
 
+    return _frames_fingerprint(frames, ignore_validation_reviewed_at=False)
+
+
+def legacy_frames_fingerprint(frames: Mapping[str, pd.DataFrame]) -> str:
+    """Reproduce el fingerprint histórico que omitía la fecha de revisión."""
+
+    return _frames_fingerprint(frames, ignore_validation_reviewed_at=True)
+
+
+def _frames_fingerprint(
+    frames: Mapping[str, pd.DataFrame], *, ignore_validation_reviewed_at: bool
+) -> str:
+    """Calcula la identidad con una política explícita para artefactos históricos."""
+
     digest = hashlib.sha256()
     for name in sorted(frames):
         digest.update(name.encode("utf-8"))
         digest.update(b"\0")
-        ignored_columns = ("reviewed_at",) if name == "validations" else ()
+        ignored_columns = (
+            ("reviewed_at",)
+            if ignore_validation_reviewed_at and name == "validations"
+            else ()
+        )
         digest.update(frame_bytes(frames[name], ignore_columns=ignored_columns))
         digest.update(b"\0")
     return digest.hexdigest()
@@ -175,8 +199,8 @@ def read_package_manifest(path: Path) -> dict[str, object]:
             ):
                 raise ValueError("Dataset package has an unsafe or incomplete member list.")
             document = json.loads(archive.read("dataset-manifest.json").decode("utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
-        raise ValueError(f"Invalid dataset package: {exc}") from exc
+    except (OSError, UnicodeError, json.JSONDecodeError, zipfile.BadZipFile):
+        raise ValueError("Invalid dataset package.") from None
     if not isinstance(document, dict):
         raise ValueError("Dataset package manifest must be a JSON object.")
     return document
@@ -184,9 +208,11 @@ def read_package_manifest(path: Path) -> dict[str, object]:
 
 __all__ = [
     "atomic_json_write",
+    "canonical_timestamp_identity",
     "canonical_frame",
     "frame_bytes",
     "frames_fingerprint",
+    "legacy_frames_fingerprint",
     "is_sha256",
     "json_safe",
     "read_package_manifest",

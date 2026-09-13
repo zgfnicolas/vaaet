@@ -16,9 +16,18 @@ from vaaet_ml.data.hitl_catalog import (
     HitlReviewCatalog,
     _deduplicate_uuid_rows,
     _resolve_validation_graph,
-    _validation_leaf,
+    _validation_leaf_with_chain,
     resolve_effective_human_feedback,
 )
+
+
+def _complete_validations(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    result["reviewer_id"] = "reviewer"
+    result["reviewed_at"] = "2026-08-29T01:00:00Z"
+    result["review_source"] = "test"
+    result["incident_context_reviewed"] = False
+    return result
 
 
 def _entry(**overrides: object) -> dict[str, object]:
@@ -60,6 +69,7 @@ def test_catalog_rejects_invalid_documents(document: object, message: str, tmp_p
         ({"package_id": "not-uuid"}, "UUIDs"),
         ({"path": "other.zip"}, "contractual HITL filename"),
         ({"sha256": "bad"}, "checksums"),
+        ({"fingerprint_algorithm": "unknown"}, "fingerprint algorithm"),
         ({"status": "deleted"}, "status"),
         ({"feature_schema_version": "unknown"}, "schema"),
         ({"created_at": "2026-08-29T12:00:00"}, "timezone"),
@@ -115,7 +125,7 @@ def test_feedback_and_validation_graph_reject_inconsistent_relations() -> None:
     predictions = pd.DataFrame(
         {"id": [prediction_id], "telemetry_feature_id": [str(uuid.uuid4())]}
     )
-    validations = pd.DataFrame(
+    validations = _complete_validations(pd.DataFrame(
         {
             "id": [str(uuid.uuid4())],
             "prediction_id": [prediction_id],
@@ -123,7 +133,7 @@ def test_feedback_and_validation_graph_reject_inconsistent_relations() -> None:
             "is_human_validated": [True],
             "supersedes_validation_id": [pd.NA],
         }
-    )
+    ))
     with pytest.raises(ValueError, match="missing feature UUIDs"):
         resolve_effective_human_feedback(features, predictions, validations)
 
@@ -138,7 +148,7 @@ def test_validation_graph_rejects_invalid_topology() -> None:
     first = str(uuid.uuid4())
     second = str(uuid.uuid4())
     prediction_id = str(uuid.uuid4())
-    unknown_parent = pd.DataFrame(
+    unknown_parent = _complete_validations(pd.DataFrame(
         {
             "id": [first],
             "prediction_id": [prediction_id],
@@ -146,11 +156,11 @@ def test_validation_graph_rejects_invalid_topology() -> None:
             "is_human_validated": [True],
             "supersedes_validation_id": [str(uuid.uuid4())],
         }
-    )
+    ))
     with pytest.raises(ValueError, match="unknown validation"):
         _resolve_validation_graph(unknown_parent)
 
-    roots = pd.DataFrame(
+    roots = _complete_validations(pd.DataFrame(
         {
             "id": [first, second],
             "prediction_id": [prediction_id, prediction_id],
@@ -158,8 +168,29 @@ def test_validation_graph_rejects_invalid_topology() -> None:
             "is_human_validated": [True, True],
             "supersedes_validation_id": [pd.NA, pd.NA],
         }
-    )
+    ))
     with pytest.raises(ValueError, match="conflicting roots"):
         _resolve_validation_graph(roots)
     with pytest.raises(ValueError, match="cycle"):
-        _validation_leaf(first, {first: [second], second: [first]}, prediction_id)
+        _validation_leaf_with_chain(
+            first, {first: [second], second: [first]}, prediction_id
+        )
+
+
+def test_validation_graph_rejects_disconnected_cycle_beside_valid_root() -> None:
+    prediction_id = str(uuid.uuid4())
+    root, first, second = (str(uuid.uuid4()) for _ in range(3))
+    graph = _complete_validations(
+        pd.DataFrame(
+            {
+                "id": [root, first, second],
+                "prediction_id": [prediction_id] * 3,
+                "validated_state": [0, 1, 2],
+                "is_human_validated": [True] * 3,
+                "supersedes_validation_id": [pd.NA, second, first],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="unreachable|disconnected"):
+        _resolve_validation_graph(graph)

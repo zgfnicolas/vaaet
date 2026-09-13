@@ -42,7 +42,7 @@ Use the concrete `vaaet_persistence` persistence and pipeline-run APIs. The `vaa
 
 Write related telemetry, features, and predictions in bounded batches and transactional units. Use the existing natural keys and upsert contracts; do not commit per frame, silently overwrite append-only feedback, or make persistence an implicit side effect of offline analysis.
 
-Treat database constraints, foreign keys, explicit views, state/label checks, and append-only validation chains as the integrity boundary. Catch expected SQLAlchemy exceptions only to provide safe context, preserve the original exception chain, roll back the transaction, and propagate a domain-meaningful failure. Never log a DSN, certificate, password, private path, or raw database exception in pipeline metadata.
+Treat database constraints, foreign keys, explicit views, state/label checks, and append-only validation chains as the integrity boundary. Catch expected SQLAlchemy exceptions only to provide safe context, roll back the transaction, and raise a domain failure with a safe SQLSTATE and operation. Suppress external exception chains at public boundaries because drivers may include SQL parameters or credentials. Never log a DSN, certificate, password, private path, or raw database exception in pipeline metadata.
 
 Automatic predictions are never human labels. Accident remains outside the MLP target and can be public only after a valid human confirmation.
 

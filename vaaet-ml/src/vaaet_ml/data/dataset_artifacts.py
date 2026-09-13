@@ -17,6 +17,7 @@ from vaaet_ml.data.review_finalization import (
     FinalizedReviewSession,
     finalize_review_session,
     import_legacy_hitl_package,
+    sync_finalized_review_session,
 )
 from vaaet_ml.data.seed_artifacts import (
     SEED_ARTIFACT_CONTRACT,
@@ -52,6 +53,7 @@ __all__ = [
     "create_training_input_lock",
     "finalize_review_session",
     "import_legacy_hitl_package",
+    "sync_finalized_review_session",
     "load_hitl_catalog_feedback",
     "load_hitl_catalog_components",
     "resolve_effective_human_feedback",

@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.2.0
+# Operación PostgreSQL compartida — VAAET Persistence 0.2.1
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -11,6 +11,8 @@ La frontera compartida está gobernada por
 [ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md)
 y su integridad numérica/HITL por
 [ADR-0029](../architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
+La idempotencia operacional y la coherencia con paquetes portables se precisan
+en [ADR-0030](../architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md).
 
 ## Configuración
 
@@ -58,8 +60,8 @@ from vaaet_persistence import (
 
 settings = load_database_settings(
     DatabaseProfile.TRAINING,
-    application_name="vaaet-api",
-    application_version="0.2.0",
+    application_name="vaaet-batch-consumer",
+    application_version="1.0.0",
 )
 with database_engine(settings) as engine:
     # Operación concreta, read-only para este perfil.
@@ -86,7 +88,8 @@ Las revisiones `0001`, `0002` y `0003` se conservan byte a byte. La revisión
 `0004` migra medidas continuas a `DOUBLE PRECISION`, registra su procedencia,
 añade identidad de aplicación y fortalece cadenas HITL. Una base en `0003`
 requiere ensayo sobre una restauración y una ventana administrativa para subir
-a `0004`; `public.alembic_version` conserva la revisión exacta.
+a `0005`; `public.alembic_version` conserva la revisión exacta. `0005` corrige
+la serialización append-only del reviewer sin exigir privilegio `UPDATE`.
 La configuración histórica de ML delega temporalmente con advertencia.
 Los cuatro roles de workflow reciben sólo `SELECT` sobre esa tabla de control:
 es el permiso mínimo necesario para bloquear escrituras cuando la revisión no
@@ -151,6 +154,12 @@ No uses la identidad administrativa en notebooks o servicios.
 Medí latencia, throughput, planes, bloqueos y conexiones antes de aumentar el
 pool o agregar índices. El particionamiento se evalúa al superar 10 millones de
 filas o cuando tamaño y planes demuestren degradación.
+
+Las escrituras agrupan hasta 500 filas por sentencia parametrizada y conservan
+una sola transacción por operación pública. La observabilidad informa
+sentencias realmente ejecutadas, lotes, filas procesadas y duración; una
+repetición idempotente puede insertar cero filas nuevas sin convertir una
+corrida de entrada válida en una corrida de cero filas procesadas.
 
 ## Backup y recuperación
 

@@ -129,8 +129,8 @@ def load_database_settings(
 def _legacy_admin_settings(raw_url: str) -> DatabaseAdminSettings:
     try:
         url = make_url(raw_url)
-    except Exception as exc:
-        raise DatabaseNotConfiguredError("VAAET_DATABASE_ADMIN_URL is invalid.") from exc
+    except Exception:
+        raise DatabaseNotConfiguredError("VAAET_DATABASE_ADMIN_URL is invalid.") from None
     if not url.drivername.startswith("postgresql"):
         raise DatabaseNotConfiguredError("VAAET_DATABASE_ADMIN_URL must target PostgreSQL.")
     if not url.host or not url.database or not url.username or url.password is None:

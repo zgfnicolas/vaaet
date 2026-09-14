@@ -30,7 +30,7 @@ Keep synthetic data in training only. Preserve its provenance, effective weight 
 
 ## Protect data and evaluation integrity
 
-Use immutable seed snapshots, finalized HITL session packages, the active catalog, frozen human holdouts, and the training input lock as auditable sources. Never overwrite a generation or compare candidates automatically across different holdout fingerprints.
+Use immutable seed snapshots, finalized HITL session packages, the active catalog, frozen human holdouts, and the training input lock as auditable sources. Finalize packages locally, keep remote failures as exact `pending-sync` bytes, and mutate the catalog only through its designated active publisher. Never overwrite a generation or compare candidates automatically across different holdout fingerprints.
 
 Split complete clips before fitting scalers, balancing, or selecting thresholds. Keep synthetic records out of validation/test and require the existing partition validation to reject leakage. Select the decision policy on validation cost; leave test frozen for final evidence.
 

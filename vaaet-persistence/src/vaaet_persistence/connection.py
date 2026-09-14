@@ -21,7 +21,11 @@ from vaaet_persistence.constants import (
     DEFAULT_DB_PORT,
     REQUIRED_DATABASE_REVISION,
 )
-from vaaet_persistence.exceptions import DatabaseOperationError, DatabaseSchemaVersionError
+from vaaet_persistence.exceptions import (
+    DatabaseOperationError,
+    DatabaseSchemaVersionError,
+    safe_sqlstate,
+)
 from vaaet_persistence.settings import (
     DatabaseAdminSettings,
     DatabaseProfile,
@@ -117,12 +121,19 @@ def _create_managed_engine(
         if temporary_certificate:
             _MANAGED_CERTIFICATES[id(engine)] = temporary_certificate
         return engine
-    except Exception:
+    except Exception as error:
         if temporary_certificate:
             try:
                 Path(temporary_certificate).unlink(missing_ok=True)
             except OSError:
                 logger.warning("Temporary PostgreSQL CA cleanup failed after engine creation")
+        if isinstance(error, (OSError, SQLAlchemyError)):
+            raise DatabaseOperationError(
+                "PostgreSQL engine creation failed.",
+                category="configuration",
+                operation="create-engine",
+                sqlstate=safe_sqlstate(error),
+            ) from None
         raise
 
 
@@ -177,18 +188,27 @@ def _probe_connection(engine: Engine) -> None:
 def inspect_database(engine: Engine, profile: DatabaseProfile | str) -> DatabaseHealth:
     """Consulta información operativa sin leer tablas ni mostrar credenciales."""
 
-    with engine.connect() as connection:
-        row = connection.execute(
-            text(
-                "SELECT current_setting('server_version'), current_user, "
-                "COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), FALSE)"
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT current_setting('server_version'), current_user, "
+                    "COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), FALSE)"
+                )
+            ).one()
+            available = tuple(
+                schema
+                for schema in DATABASE_SCHEMAS
+                if connection.execute(
+                    text("SELECT to_regnamespace(:schema)"), {"schema": schema}
+                ).scalar()
             )
-        ).one()
-        available = tuple(
-            schema
-            for schema in DATABASE_SCHEMAS
-            if connection.execute(text("SELECT to_regnamespace(:schema)"), {"schema": schema}).scalar()
-        )
+    except SQLAlchemyError as error:
+        raise DatabaseOperationError(
+            "PostgreSQL health inspection failed.",
+            operation="inspect-database",
+            sqlstate=safe_sqlstate(error),
+        ) from None
     url = engine.url
     return DatabaseHealth(
         profile=DatabaseProfile(profile).value,
@@ -208,11 +228,12 @@ def test_connection(engine: Engine) -> bool:
     try:
         execute_with_retry(lambda: _probe_connection(engine))
         return True
-    except OperationalError:  # pragma: no cover - servicio externo
-        logger.warning("PostgreSQL connection test failed: OperationalError")
-        return False
-    except DatabaseOperationError:  # pragma: no cover - servicio externo
-        logger.warning("PostgreSQL connection test failed after bounded retries")
+    except DatabaseOperationError as error:  # pragma: no cover - servicio externo
+        logger.warning(
+            "PostgreSQL connection test failed: category=%s operation=%s",
+            error.category,
+            error.operation,
+        )
         return False
 
 
@@ -227,7 +248,7 @@ def require_database_revision(connection: Connection) -> None:
         raise DatabaseOperationError(
             "PostgreSQL schema revision could not be verified.",
             operation="verify-schema-revision",
-            sqlstate=getattr(getattr(exc, "orig", None), "pgcode", None),
+            sqlstate=safe_sqlstate(exc),
         ) from None
     if revision != REQUIRED_DATABASE_REVISION:
         raise DatabaseSchemaVersionError(
@@ -250,9 +271,10 @@ def execute_with_retry(
     for attempt in range(1, attempts + 1):
         try:
             return operation()
-        except OperationalError as exc:
-            sqlstate = getattr(getattr(exc, "orig", None), "pgcode", None)
-            if not _is_transient_connectivity(sqlstate) or attempt == attempts:
+        except SQLAlchemyError as exc:
+            sqlstate = safe_sqlstate(exc)
+            retryable = isinstance(exc, OperationalError) and _is_transient_connectivity(sqlstate)
+            if not retryable or attempt == attempts:
                 raise DatabaseOperationError(
                     "PostgreSQL operation failed after bounded retries.",
                     operation="health-check",
@@ -265,7 +287,7 @@ def execute_with_retry(
 def _is_transient_connectivity(sqlstate: object) -> bool:
     """Limita reintentos a fallos de conexión, nunca autenticación o contrato."""
 
-    return sqlstate is None or str(sqlstate).startswith("08")
+    return isinstance(sqlstate, str) and sqlstate.startswith("08")
 
 
 __all__ = [

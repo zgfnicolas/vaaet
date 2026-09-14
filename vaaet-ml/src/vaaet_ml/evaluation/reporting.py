@@ -12,6 +12,7 @@ from vaaet_ml.evaluation.reporting_metrics import (
 )
 from vaaet_ml.evaluation.reporting_summaries import (
     build_class_support_notes,
+    format_inference_result_summary,
     summarize_data_origin,
     summarize_resampled_balance,
     summarize_state_balance,
@@ -29,6 +30,7 @@ __all__ = [
     "expected_calibration_error",
     "expected_confusion_cost",
     "false_alert_rate_upper_bound",
+    "format_inference_result_summary",
     "grouped_classification_intervals",
     "plot_training_evaluation",
     "plot_training_history",

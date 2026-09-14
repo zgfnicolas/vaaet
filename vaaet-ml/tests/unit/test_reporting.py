@@ -14,6 +14,7 @@ from vaaet_ml.evaluation.reporting import (
     expected_calibration_error,
     expected_confusion_cost,
     false_alert_rate_upper_bound,
+    format_inference_result_summary,
     grouped_classification_intervals,
     select_validation_decision_policy,
     summarize_data_origin,
@@ -170,3 +171,24 @@ class TestBuildClassSupportNotes:
         notes = build_class_support_notes(df)
         assert len(notes) == 1
         assert "real support" in notes[0]
+
+
+def test_inference_result_summary_reports_states_and_incident_candidates() -> None:
+    frame = pd.DataFrame(
+        {
+            "traffic_state": [0, 2, 2],
+            "accident_alert_started": [False, True, False],
+        }
+    )
+
+    summary = format_inference_result_summary(frame)
+
+    assert "Normal: 1 minutos" in summary
+    assert "Congested: 2 minutos" in summary
+    assert "Accident automáticos: 0" in summary
+    assert "Posibles incidentes: 1" in summary
+
+
+def test_inference_result_summary_rejects_empty_results() -> None:
+    with pytest.raises(ValueError, match="at least one classified minute"):
+        format_inference_result_summary(pd.DataFrame(columns=["traffic_state"]))

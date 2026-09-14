@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.2.1
+# Operación PostgreSQL compartida — VAAET Persistence 0.2.2
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -13,6 +13,9 @@ y su integridad numérica/HITL por
 [ADR-0029](../architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
 La idempotencia operacional y la coherencia con paquetes portables se precisan
 en [ADR-0030](../architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md).
+La asociación estricta del feedback y la redacción uniforme de errores públicos
+se definen en
+[ADR-0031](../architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
 
 ## Configuración
 
@@ -36,6 +39,10 @@ terminar y no dispone un engine recibido del consumidor.
 
 El health check admite reintentos transitorios acotados. Una escritura no se
 repite automáticamente porque no puede suponerse que sea seguro hacerlo.
+`inspect_database()` devuelve un diagnóstico tipado o una excepción de dominio;
+`test_connection()` devuelve `False` ante indisponibilidad o agotamiento del
+pool. Ninguno expone el mensaje o los parámetros del driver. Sólo un SQLSTATE de
+cinco caracteres validado puede incorporarse al error público.
 
 Usá `verify-full` y una CA verificable en endpoints remotos. `require` cifra
 sin verificar identidad y sólo se admite como excepción documentada. `disable`

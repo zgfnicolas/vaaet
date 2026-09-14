@@ -141,11 +141,16 @@ el estado dentro del video y comprobar transiciones, persistencia e histéresis.
 La revisión HITL es una celda explícita posterior al clip, no un pop-up durante
 inferencia. `priority` muestra incidentes candidatos, baja confianza, abstenciones
 y transiciones; `all` permite revisar cada minuto. Al ejecutar
-`finalize_current_review()` se genera siempre un paquete inmutable de la sesión,
-se sincroniza bajo `MyDrive/vaaet-ml/data/hitl-reviews/YYYY/MM/DD/` y se registra
-en `catalog.json`, exista o no PostgreSQL. Si Drive falla, el ZIP queda como
-`pending-sync` local y no se incorpora al catálogo. Sólo validaciones humanas
-ingresan como etiquetas; Accident se reserva para evaluar el detector.
+`finalize_current_review()` se sella siempre un paquete inmutable local de la
+sesión con estado `pending-sync`; no se monta Drive ni se cambia el catálogo.
+Sólo el runtime designado como publicador ejecuta después
+`publish_pending_review(ruta_del_zip)`, sincroniza bajo
+`MyDrive/vaaet-ml/data/hitl-reviews/YYYY/MM/DD/` y registra en `catalog.json`.
+Si Drive falla, se conservan exactamente los mismos bytes locales y se puede
+reintentar sin reconstruir la sesión. El bloqueo del publicador coordina procesos
+del mismo host, no runtimes Colab independientes: debe existir un solo publicador
+operacional. Sólo validaciones humanas ingresan como etiquetas; Accident se
+reserva para evaluar el detector.
 
 En entrenamiento, seleccioná explícitamente `TrainingMode.SEED_BOOTSTRAP` o
 `TrainingMode.HITL_RETRAINING`. El primer modo declara `RAW_SOURCES`, calcula las

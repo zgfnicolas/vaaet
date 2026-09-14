@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -17,6 +19,7 @@ from pathlib import Path, PurePosixPath
 import pandas as pd
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.continuity import normalize_continuity_frame
+from vaaet.logging import get_logger
 from vaaet.settings import FEATURE_COLS
 from vaaet.timestamps import normalize_timestamp_series
 
@@ -40,6 +43,23 @@ _HITL_FINGERPRINT_ALGORITHMS = {
     "sha256-contractual-frames-v1",
     "sha256-contractual-frames-v2",
 }
+logger = get_logger(__name__)
+
+
+class HitlCatalogError(RuntimeError):
+    """Indica un fallo seguro al operar el catálogo HITL."""
+
+
+class HitlCatalogUnavailableError(HitlCatalogError):
+    """Indica que el almacenamiento del catálogo no está disponible."""
+
+
+class HitlCatalogIntegrityError(ValueError, HitlCatalogError):
+    """Indica que el catálogo o un paquete contradice su contrato."""
+
+
+class HitlCatalogPublicationError(HitlCatalogError):
+    """Indica que la autoridad local de publicación no está disponible."""
 
 
 class CatalogSelection(str, Enum):
@@ -70,18 +90,27 @@ class HitlReviewCatalog:
     def load(self) -> dict[str, object]:
         """Carga y valida el catálogo, o devuelve un documento vacío válido."""
 
-        if not self.path.is_file():
+        try:
+            self.path.stat()
+        except FileNotFoundError:
             return {
                 "contract": HITL_CATALOG_CONTRACT,
                 "revision": 0,
                 "updated_at": None,
                 "entries": [],
             }
+        except OSError:
+            raise HitlCatalogUnavailableError("HITL catalog storage is unavailable.") from None
         try:
             document = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            raise ValueError("Invalid HITL catalog.") from None
-        self._validate(document)
+        except OSError:
+            raise HitlCatalogUnavailableError("HITL catalog storage is unavailable.") from None
+        except (UnicodeError, json.JSONDecodeError):
+            raise HitlCatalogIntegrityError("Invalid HITL catalog.") from None
+        try:
+            self._validate(document)
+        except ValueError as exc:
+            raise HitlCatalogIntegrityError(str(exc)) from None
         return document
 
     def find(self, *, pipeline_run_id: str, fingerprint: str) -> dict[str, object] | None:
@@ -97,9 +126,15 @@ class HitlReviewCatalog:
             None,
         )
 
-    def register(self, entry: Mapping[str, object]) -> dict[str, object]:
+    def register(
+        self,
+        entry: Mapping[str, object],
+        *,
+        publisher: HitlCatalogPublisher | None = None,
+    ) -> dict[str, object]:
         """Registra una entrada nueva sin reemplazar paquetes ya publicados."""
 
+        _require_catalog_publisher(self, publisher)
         document = self.load()
         entries = document["entries"]
         existing = next(
@@ -125,7 +160,15 @@ class HitlReviewCatalog:
             "entries": [*entries, dict(entry)],
         }
         self._validate(updated)
-        atomic_json_write(self.path, updated)
+        try:
+            atomic_json_write(self.path, updated)
+        except OSError:
+            raise HitlCatalogUnavailableError(
+                "HITL catalog storage became unavailable during publication."
+            ) from None
+        reloaded = self.load()
+        if reloaded != updated:
+            raise HitlCatalogIntegrityError("Published HITL catalog failed verification.")
         return updated
 
     def selected_entries(
@@ -140,9 +183,16 @@ class HitlReviewCatalog:
         entries.sort(key=lambda entry: (entry["created_at"], entry["package_id"]))
         return document, entries
 
-    def set_status(self, package_id: str, status: str) -> dict[str, object]:
+    def set_status(
+        self,
+        package_id: str,
+        status: str,
+        *,
+        publisher: HitlCatalogPublisher | None = None,
+    ) -> dict[str, object]:
         """Activa o pone en cuarentena una entrada sin borrarla del historial."""
 
+        _require_catalog_publisher(self, publisher)
         if status not in {"active", "quarantined"}:
             raise ValueError("Catalog status must be active or quarantined.")
         normalized_id = str(uuid.UUID(str(package_id)))
@@ -162,7 +212,15 @@ class HitlReviewCatalog:
             ],
         }
         self._validate(updated)
-        atomic_json_write(self.path, updated)
+        try:
+            atomic_json_write(self.path, updated)
+        except OSError:
+            raise HitlCatalogUnavailableError(
+                "HITL catalog storage became unavailable during publication."
+            ) from None
+        reloaded = self.load()
+        if reloaded != updated:
+            raise HitlCatalogIntegrityError("Published HITL catalog failed verification.")
         return updated
 
     def package_path(self, entry: Mapping[str, object]) -> Path:
@@ -199,6 +257,75 @@ class HitlReviewCatalog:
         _validate_catalog_entry_version(entry)
         package_ids.add(str(entry["package_id"]))
         paths.add(relative)
+
+
+class HitlCatalogPublisher:
+    """Autoriza un único escritor local para un catálogo HITL declarado."""
+
+    def __init__(
+        self,
+        catalog: HitlReviewCatalog,
+        *,
+        lock_directory: str | Path,
+    ) -> None:
+        self.catalog = catalog
+        digest = hashlib.sha256(str(catalog.path.resolve()).encode("utf-8")).hexdigest()
+        self.lock_path = Path(lock_directory) / f"hitl-catalog-{digest}.lock"
+        self._descriptor: int | None = None
+
+    @property
+    def active(self) -> bool:
+        return self._descriptor is not None
+
+    def __enter__(self) -> HitlCatalogPublisher:
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._descriptor = os.open(
+                self.lock_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            )
+        except FileExistsError:
+            raise HitlCatalogPublicationError(
+                "Another local HITL catalog publisher is already active."
+            ) from None
+        except OSError:
+            raise HitlCatalogUnavailableError(
+                "The local HITL publisher lock could not be created."
+            ) from None
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        descriptor, self._descriptor = self._descriptor, None
+        if descriptor is None:
+            return
+        try:
+            os.close(descriptor)
+        except OSError:
+            logger.warning("Local HITL publisher descriptor cleanup failed: OSError")
+        try:
+            self.lock_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Local HITL publisher lock cleanup failed: OSError")
+
+    def register(self, entry: Mapping[str, object]) -> dict[str, object]:
+        return self.catalog.register(entry, publisher=self)
+
+    def set_status(self, package_id: str, status: str) -> dict[str, object]:
+        return self.catalog.set_status(package_id, status, publisher=self)
+
+
+def _require_catalog_publisher(
+    catalog: HitlReviewCatalog,
+    publisher: HitlCatalogPublisher | None,
+) -> None:
+    if (
+        publisher is None
+        or not publisher.active
+        or publisher.catalog.path.resolve() != catalog.path.resolve()
+    ):
+        raise HitlCatalogPublicationError(
+            "HITL catalog mutation requires its active local publisher."
+        )
 
 
 def _validate_catalog_entry_identity(
@@ -329,8 +456,7 @@ def load_hitl_catalog_components(
         "package_ids": [entry["package_id"] for entry in entries],
         "package_fingerprints": [entry["fingerprint"] for entry in entries],
         "package_fingerprint_algorithms": [
-            entry.get("fingerprint_algorithm", "sha256-contractual-frames-v1")
-            for entry in entries
+            entry.get("fingerprint_algorithm", "sha256-contractual-frames-v1") for entry in entries
         ],
         "package_sha256": [entry["sha256"] for entry in entries],
     }
@@ -369,6 +495,11 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
         raise ValueError("Active HITL packages contain no compatible features and predictions.")
     if validations.empty:
         return pd.DataFrame()
+    # Primero protege las identidades recibidas. Canonicalizar antes de esta
+    # comprobación permitiría reasociar silenciosamente referencias repetidas.
+    features = _deduplicate_uuid_rows(features, name="features")
+    predictions = _deduplicate_uuid_rows(predictions, name="predictions")
+    validations = _deduplicate_uuid_rows(validations, name="validations")
     features, predictions, validations = _canonicalize_feedback_identities(
         features, predictions, validations
     )
@@ -423,15 +554,15 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     prediction_lineage = (
         "_source_prediction_ids" if "_source_prediction_ids" in feedback else "prediction_id"
     )
-    feedback["source_prediction_ids"] = feedback.groupby(
-        ["clip_id", "record_time"], dropna=False
-    )[prediction_lineage].transform(_join_lineage_values)
+    feedback["source_prediction_ids"] = feedback.groupby(["clip_id", "record_time"], dropna=False)[
+        prediction_lineage
+    ].transform(_join_lineage_values)
     validation_lineage = (
         "_source_validation_ids" if "_source_validation_ids" in feedback else "validation_id"
     )
-    feedback["source_validation_ids"] = feedback.groupby(
-        ["clip_id", "record_time"], dropna=False
-    )[validation_lineage].transform(_join_lineage_values)
+    feedback["source_validation_ids"] = feedback.groupby(["clip_id", "record_time"], dropna=False)[
+        validation_lineage
+    ].transform(_join_lineage_values)
     feedback = feedback.drop_duplicates(["clip_id", "record_time"], keep="last")
     return normalize_continuity_frame(feedback)
 
@@ -518,7 +649,7 @@ def _canonicalize_feedback_identities(
                 canonical_timestamp_identity(required[3]),
                 required[4],
             )
-        feature_aliases[source_id] = canonical_id
+        _bind_identity_alias(feature_aliases, source_id, canonical_id, kind="feature")
         feature_ids.append(canonical_id)
         feature_sources.append(source_id)
     canonical_features["id"] = feature_ids
@@ -537,7 +668,7 @@ def _canonicalize_feedback_identities(
         canonical_id = source_id
         if not _missing_value(run_id) and is_sha256(revision):
             canonical_id = stable_uuid("prediction", run_id, feature_id, revision)
-        prediction_aliases[source_id] = canonical_id
+        _bind_identity_alias(prediction_aliases, source_id, canonical_id, kind="prediction")
         prediction_ids.append(canonical_id)
         prediction_sources.append(source_id)
         feature_references.append(feature_id)
@@ -550,6 +681,15 @@ def _canonicalize_feedback_identities(
             lambda value: prediction_aliases.get(str(value), str(value))
         )
     return canonical_features, canonical_predictions, canonical_validations
+
+
+def _bind_identity_alias(
+    aliases: dict[str, str], source_id: str, canonical_id: str, *, kind: str
+) -> None:
+    existing = aliases.get(source_id)
+    if existing is not None and existing != canonical_id:
+        raise ValueError(f"One source {kind} UUID resolves to incompatible canonical identities.")
+    aliases[source_id] = canonical_id
 
 
 def _deduplicate_equivalent_validations(validations: pd.DataFrame) -> pd.DataFrame:
@@ -666,9 +806,11 @@ def _validate_validation_graph_columns(  # noqa: C901 - valida el dominio humano
         raise ValueError("Catalog validation prediction_id values must be UUIDs.")
     if validations["id"].map(valid_uuid).eq(False).any():
         raise ValueError("Catalog validation id values must be UUIDs.")
-    if validations["validated_state"].map(
-        lambda value: type(value) is bool or type(value).__name__ == "bool_"
-    ).any():
+    if (
+        validations["validated_state"]
+        .map(lambda value: type(value) is bool or type(value).__name__ == "bool_")
+        .any()
+    ):
         raise ValueError("Human validations require integer states, not booleans.")
     states = pd.to_numeric(validations["validated_state"], errors="raise")
     if (
@@ -679,21 +821,31 @@ def _validate_validation_graph_columns(  # noqa: C901 - valida el dominio humano
     if "pipeline_run_id" in validations:
         declared_runs = validations["pipeline_run_id"].dropna()
         if not declared_runs.map(valid_uuid).all():
-            raise ValueError("Catalog validation pipeline_run_id values must be UUIDs when declared.")
-    if validations["reviewer_id"].isna().any() or validations[
-        "reviewer_id"
-    ].astype(str).str.strip().eq("").any():
+            raise ValueError(
+                "Catalog validation pipeline_run_id values must be UUIDs when declared."
+            )
+    if (
+        validations["reviewer_id"].isna().any()
+        or validations["reviewer_id"].astype(str).str.strip().eq("").any()
+    ):
         raise ValueError("Human validations require a stable reviewer_id.")
     reviewed = pd.to_datetime(validations["reviewed_at"], utc=True, errors="coerce")
     if reviewed.isna().any():
         raise ValueError("Human validations require a valid reviewed_at timestamp.")
-    if validations["review_source"].isna().any() or validations[
-        "review_source"
-    ].astype(str).str.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}").eq(False).any():
+    if (
+        validations["review_source"].isna().any()
+        or validations["review_source"]
+        .astype(str)
+        .str.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+        .eq(False)
+        .any()
+    ):
         raise ValueError("Human validations require a safe review_source identifier.")
-    if not validations["incident_context_reviewed"].map(
-        lambda value: type(value) is bool or type(value).__name__ == "bool_"
-    ).all():
+    if (
+        not validations["incident_context_reviewed"]
+        .map(lambda value: type(value) is bool or type(value).__name__ == "bool_")
+        .all()
+    ):
         raise ValueError("incident_context_reviewed must contain contractual booleans.")
     accidents = states.eq(3)
     notes = validations.get("notes", pd.Series(pd.NA, index=validations.index))
@@ -790,7 +942,12 @@ __all__ = [
     "HITL_CATALOG_CONTRACT",
     "HITL_CATALOG_FILE",
     "HITL_PACKAGE_FILE",
+    "HitlCatalogError",
+    "HitlCatalogIntegrityError",
+    "HitlCatalogPublicationError",
+    "HitlCatalogPublisher",
     "HitlCatalogSource",
+    "HitlCatalogUnavailableError",
     "HitlReviewCatalog",
     "load_hitl_catalog_feedback",
     "load_hitl_catalog_components",

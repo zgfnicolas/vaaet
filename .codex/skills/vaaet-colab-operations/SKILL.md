@@ -48,8 +48,10 @@ Use Drive only when governed persistence is needed:
 Do not provide an ephemeral fallback for immutable seed or frozen-holdout data.
 For HITL finalization, seal and validate the immutable ZIP under `/content`
 first; if Drive is unavailable, keep those exact bytes as `pending-sync` and do
-not update the catalog. Stop before training or updating a catalog when its
-required Drive source or checksum validation fails.
+not update the catalog. Publish only from the single runtime designated for that
+catalog, using an active local `HitlCatalogPublisher`. Its lock coordinates
+processes on the same host, not independent Colab runtimes. Stop before training
+or updating a catalog when its required Drive source or checksum validation fails.
 
 ### Data and resumability
 

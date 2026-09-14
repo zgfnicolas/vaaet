@@ -44,7 +44,11 @@ La concisión sirve cuando conserva la lectura del dominio; no es un objetivo en
 - Dejá que datos adquiera, valide y persista; visión procese frames; features produzca las variables canónicas; inferencia clasifique; y entrenamiento/evaluación gestione ciclo de vida y calidad.
 - Una función debe tener una responsabilidad entendible. Ramificación profunda, múltiples efectos y rutas de error confusas son señales para revisar el diseño. Complejidad alta o archivos extensos son señales de revisión, no límites mecánicos que obliguen a fragmentar módulos correctos.
 - Usá `vaaet.logging` en código reusable: `INFO` para ciclo de vida, `WARNING` para degradación recuperable, `ERROR` para fallos y `DEBUG` para diagnósticos acotados. No registres secretos, DSNs, certificados, credenciales, rutas privadas ni excepciones sin redactar. JSON logging es una mejora futura, no una dependencia ni configuración implícita.
-- Elevá la excepción más específica de `vaaet.exceptions` o `vaaet_ml.exceptions`, o agregá un subtipo documentado si cambia la recuperación posible. Encadená excepciones esperables con contexto seguro y detené pipelines corruptos antes de persistir o publicar artefactos.
+- Elevá la excepción de dominio más específica o agregá un subtipo documentado
+  si cambia la recuperación posible. Encadená sólo causas internas que ya sean
+  seguras; en bordes públicos suprimí la causa de drivers o servicios externos,
+  porque puede contener parámetros o credenciales. Detené pipelines corruptos
+  antes de persistir o publicar artefactos.
 - Delegá SQL parametrizado a la capa existente: nunca interpolés valores o identificadores no controlados en sentencias SQL. Recibí `Path` o valores de ruta en un borde validado, resolvelos contra una raíz permitida y rechazá escapes de esa raíz. No expongas esos valores en logs.
 
 ## 5. Concurrencia sólo con evidencia

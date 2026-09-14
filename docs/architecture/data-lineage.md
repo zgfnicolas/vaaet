@@ -1,4 +1,4 @@
-# Linaje de datos — VAAET ML 4.8.1
+# Linaje de datos — VAAET ML 4.8.2
 
 ## Flujo operacional
 
@@ -56,9 +56,10 @@ patentes ni identidades.
 `review` agrega validaciones sin modificar predicciones. El modo `all` conserva la
 validación previa como `supersedes_validation_id` al corregir. Accident requiere nota y
 revisión explícita del contexto. Sin base disponible se exporta
-un paquete inmutable `vaaet-training-dataset-v1.zip` por sesión. El paquete se
-registra en `vaaet-dataset-catalog-v1`; los registros omitidos permanecen como no
-supervisados y nunca son targets.
+un paquete inmutable `vaaet-training-dataset-v1.zip` por sesión. El sellado local
+produce `pending-sync`; un único runtime publicador lo registra después en
+`vaaet-dataset-catalog-v1`. Los registros omitidos permanecen como no supervisados
+y nunca son targets.
 Cada predicción conserva `model_version` como etiqueta y `model_revision` como
 SHA-256 del bundle exacto. Una reinferencia crea otra feature y predicción por
 ejecución; no modifica la fila a la que apunta una validación humana.
@@ -104,6 +105,9 @@ PostgreSQL, catálogos ni decisiones humanas de promoción.
 La semilla procesada vive bajo `data/seed-bootstrap/snapshots/` en Drive y
 `current.json` apunta a una generación inmutable. Las sesiones HITL viven bajo
 `data/hitl-reviews/YYYY/MM/DD/` y `catalog.json` selecciona paquetes `active`.
+Toda mutación del catálogo exige un publicador local activo que protege la
+secuencia lectura--validación--reemplazo--verificación. Esa exclusión no coordina
+hosts o runtimes Colab distintos; operacionalmente se designa uno solo.
 Los paquetes nuevos declaran `sha256-contractual-frames-v2` y sellan también la
 fecha humana `reviewed_at`; el lector conserva el algoritmo histórico sólo para
 verificar paquetes anteriores sin reescribirlos.

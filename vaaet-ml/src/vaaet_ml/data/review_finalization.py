@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 
 import pandas as pd
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
+from vaaet.logging import get_logger
 from vaaet.settings import MODEL_STATE_LABELS
 
 from vaaet_ml.data.artifact_serialization import (
@@ -28,6 +29,10 @@ from vaaet_ml.data.artifact_serialization import (
 from vaaet_ml.data.hitl_catalog import (
     HITL_CATALOG_FILE,
     HITL_PACKAGE_FILE,
+    HitlCatalogIntegrityError,
+    HitlCatalogPublicationError,
+    HitlCatalogPublisher,
+    HitlCatalogUnavailableError,
     HitlReviewCatalog,
 )
 from vaaet_ml.data.package_codec import create_dataset_package, load_dataset_package
@@ -35,6 +40,7 @@ from vaaet_ml.data.review_frames import normalize_review_frames
 
 HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v2"
 LEGACY_HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v1"
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -63,8 +69,9 @@ def finalize_review_session(
     vaaet_version: str,
     local_root: str | Path,
     canonical_root: str | Path | None = None,
+    publisher: HitlCatalogPublisher | None = None,
 ) -> FinalizedReviewSession:
-    """Finaliza una sesión inmutable y la registra opcionalmente en Drive."""
+    """Sella una sesión inmutable y sólo la publica con autoridad explícita."""
 
     finalized_at = utc_now()
     frames = normalize_review_frames(
@@ -96,7 +103,12 @@ def finalize_review_session(
     package_sha256 = sha256_file(local_path)
     reviewed_rows = int(metadata["reviewed_rows"])
     pending_rows = int(metadata["pending_rows"])
-    if canonical_root is None:
+    if canonical_root is None or publisher is None:
+        sync_error = (
+            "Canonical publication requires an active designated publisher."
+            if canonical_root is not None
+            else None
+        )
         return FinalizedReviewSession(
             package_id,
             fingerprint,
@@ -106,6 +118,7 @@ def finalize_review_session(
             "pending-sync",
             reviewed_rows,
             pending_rows,
+            sync_error=sync_error,
         )
     return _sync_to_catalog(
         frames,
@@ -119,6 +132,7 @@ def finalize_review_session(
         vaaet_version=vaaet_version,
         reviewed_rows=reviewed_rows,
         pending_rows=pending_rows,
+        publisher=publisher,
     )
 
 
@@ -126,8 +140,9 @@ def sync_finalized_review_session(
     local_path: str | Path,
     *,
     canonical_root: str | Path,
+    publisher: HitlCatalogPublisher | None = None,
 ) -> FinalizedReviewSession:
-    """Sincroniza un ZIP local ya sellado sin reconstruir identidad ni fechas."""
+    """Publica un ZIP sellado sin reconstruir identidad ni fechas."""
 
     package = Path(local_path)
     frames = load_dataset_package(package)
@@ -144,16 +159,28 @@ def sync_finalized_review_session(
         "finalized_at",
     }
     if not isinstance(metadata, Mapping):
-        raise ValueError("Pending HITL package metadata must be an object.")
+        raise HitlCatalogIntegrityError("Pending HITL package metadata must be an object.")
     missing = sorted(required - metadata.keys())
     if missing:
-        raise ValueError(f"Pending HITL package metadata is incomplete: {missing}")
+        raise HitlCatalogIntegrityError(f"Pending HITL package metadata is incomplete: {missing}")
     fingerprint_algorithm = str(
         metadata.get("fingerprint_algorithm", LEGACY_HITL_FINGERPRINT_ALGORITHM)
     )
     fingerprint = _review_fingerprint(frames, fingerprint_algorithm)
     if fingerprint != metadata["fingerprint"]:
-        raise ValueError("Pending HITL package content contradicts its fingerprint.")
+        raise HitlCatalogIntegrityError("Pending HITL package content contradicts its fingerprint.")
+    if publisher is None:
+        return FinalizedReviewSession(
+            str(metadata["package_id"]),
+            fingerprint,
+            sha256_file(package),
+            package,
+            None,
+            "pending-sync",
+            int(metadata["reviewed_rows"]),
+            int(metadata["pending_rows"]),
+            sync_error="Canonical publication requires an active designated publisher.",
+        )
     return _sync_to_catalog(
         frames,
         metadata=metadata,
@@ -166,6 +193,7 @@ def sync_finalized_review_session(
         vaaet_version=str(metadata["vaaet_version"]),
         reviewed_rows=int(metadata["reviewed_rows"]),
         pending_rows=int(metadata["pending_rows"]),
+        publisher=publisher,
     )
 
 
@@ -177,6 +205,7 @@ def import_legacy_hitl_package(
     vaaet_version: str,
     local_root: str | Path,
     canonical_root: str | Path,
+    publisher: HitlCatalogPublisher | None = None,
 ) -> FinalizedReviewSession:
     """Migra explícitamente un ZIP HITL legado al catálogo inmutable."""
 
@@ -231,6 +260,7 @@ def import_legacy_hitl_package(
         vaaet_version=vaaet_version,
         local_root=local_root,
         canonical_root=canonical_root,
+        publisher=publisher,
     )
 
 
@@ -279,7 +309,9 @@ def _ensure_local_package(
     pipeline_run_id: str,
     fingerprint: str,
 ) -> tuple[Path, Mapping[str, object]]:
-    local_path = local_root / "pending-sync" / f"{pipeline_run_id}_{fingerprint}" / HITL_PACKAGE_FILE
+    local_path = (
+        local_root / "pending-sync" / f"{pipeline_run_id}_{fingerprint}" / HITL_PACKAGE_FILE
+    )
     if local_path.is_file():
         existing = read_package_manifest(local_path).get("package_metadata", {})
         if not isinstance(existing, Mapping) or existing.get("fingerprint") != fingerprint:
@@ -314,27 +346,32 @@ def _sync_to_catalog(
     vaaet_version: str,
     reviewed_rows: int,
     pending_rows: int,
+    publisher: HitlCatalogPublisher,
 ) -> FinalizedReviewSession:
     """Sincroniza el paquete en forma idempotente y verifica su identidad canónica."""
 
     catalog = HitlReviewCatalog(canonical_root / HITL_CATALOG_FILE)
-    existing = catalog.find(pipeline_run_id=str(pipeline_run_id), fingerprint=fingerprint)
-    if existing is not None:
-        canonical_path = catalog.package_path(existing)
-        if not canonical_path.is_file() or sha256_file(canonical_path) != existing["sha256"]:
-            raise ValueError("Cataloged HITL package is missing or corrupted.")
-        return FinalizedReviewSession(
-            package_id,
-            fingerprint,
-            package_sha256,
-            local_path,
-            canonical_path,
-            "synced",
-            reviewed_rows,
-            pending_rows,
-            int(catalog.load()["revision"]),
+    if publisher.catalog.path.resolve() != catalog.path.resolve() or not publisher.active:
+        raise HitlCatalogPublicationError(
+            "The active HITL publisher does not own this canonical catalog."
         )
     try:
+        existing = catalog.find(pipeline_run_id=str(pipeline_run_id), fingerprint=fingerprint)
+        if existing is not None:
+            canonical_path = catalog.package_path(existing)
+            if not canonical_path.is_file() or sha256_file(canonical_path) != existing["sha256"]:
+                raise HitlCatalogIntegrityError("Cataloged HITL package is missing or corrupted.")
+            return FinalizedReviewSession(
+                package_id,
+                fingerprint,
+                package_sha256,
+                local_path,
+                canonical_path,
+                "synced",
+                reviewed_rows,
+                pending_rows,
+                int(catalog.load()["revision"]),
+            )
         canonical_path, document = _publish_to_catalog(
             catalog,
             frames=frames,
@@ -347,8 +384,9 @@ def _sync_to_catalog(
             vaaet_version=vaaet_version,
             reviewed_rows=reviewed_rows,
             pending_rows=pending_rows,
+            publisher=publisher,
         )
-    except (OSError, ValueError) as exc:
+    except (OSError, HitlCatalogUnavailableError) as exc:
         return FinalizedReviewSession(
             package_id,
             fingerprint,
@@ -386,6 +424,7 @@ def _publish_to_catalog(
     vaaet_version: str,
     reviewed_rows: int,
     pending_rows: int,
+    publisher: HitlCatalogPublisher,
 ) -> tuple[Path, dict[str, object]]:
     finalized_at = datetime.fromisoformat(str(metadata["finalized_at"]).replace("Z", "+00:00"))
     relative_path = PurePosixPath(
@@ -402,7 +441,9 @@ def _publish_to_catalog(
         metadata.get("fingerprint_algorithm", LEGACY_HITL_FINGERPRINT_ALGORITHM)
     )
     if _review_fingerprint(remote_frames, fingerprint_algorithm) != fingerprint:
-        raise ValueError("The synchronized HITL package failed remote content validation.")
+        raise HitlCatalogIntegrityError(
+            "The synchronized HITL package failed remote content validation."
+        )
     entry = {
         "package_id": package_id,
         "path": relative_path.as_posix(),
@@ -424,23 +465,30 @@ def _publish_to_catalog(
         "model_revision": str(metadata["model_revision"]),
         "vaaet_version": vaaet_version,
     }
-    return canonical_path, catalog.register(entry)
+    return canonical_path, catalog.register(entry, publisher=publisher)
 
 
 def _copy_immutable(source: Path, destination: Path, expected_sha256: str) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         if sha256_file(destination) != expected_sha256:
-            raise ValueError("Immutable HITL destination already contains different data.")
+            raise HitlCatalogIntegrityError(
+                "Immutable HITL destination already contains different data."
+            )
         return
     temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
     try:
         shutil.copy2(source, temporary)
         if sha256_file(temporary) != expected_sha256:
-            raise ValueError("HITL package checksum changed during Drive synchronization.")
+            raise HitlCatalogIntegrityError(
+                "HITL package checksum changed during Drive synchronization."
+            )
         os.replace(temporary, destination)
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Temporary HITL package cleanup failed: OSError")
 
 
 def _human_support(validations: pd.DataFrame) -> dict[str, int]:
@@ -453,9 +501,7 @@ def _human_support(validations: pd.DataFrame) -> dict[str, int]:
     }
 
 
-def _review_fingerprint(
-    frames: Mapping[str, pd.DataFrame], algorithm: str
-) -> str:
+def _review_fingerprint(frames: Mapping[str, pd.DataFrame], algorithm: str) -> str:
     if algorithm == HITL_FINGERPRINT_ALGORITHM:
         return frames_fingerprint(frames)
     if algorithm == LEGACY_HITL_FINGERPRINT_ALGORITHM:

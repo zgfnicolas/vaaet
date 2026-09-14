@@ -14,7 +14,7 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
 from vaaet_persistence.connection import dispose_engine, get_engine
-from vaaet_persistence.exceptions import DatabaseOperationError
+from vaaet_persistence.exceptions import DatabaseOperationError, safe_sqlstate
 from vaaet_persistence.settings import DatabaseSettings
 
 RAW_TABLE = "vaaet_raw.traffic_data"
@@ -123,9 +123,7 @@ _LEGACY_MISSING_COLUMNS = (
 )
 
 
-def _active_engine(
-    settings: DatabaseSettings | None, engine: Engine | None
-) -> tuple[Engine, bool]:
+def _active_engine(settings: DatabaseSettings | None, engine: Engine | None) -> tuple[Engine, bool]:
     """Resuelve ownership sin elegir un perfil implícito."""
 
     if engine is not None:
@@ -278,7 +276,7 @@ def load_human_feedback_components(
 
 
 def _raise_read_error(exc: SQLAlchemyError, *, operation: str) -> NoReturn:
-    sqlstate = getattr(getattr(exc, "orig", None), "pgcode", None)
+    sqlstate = safe_sqlstate(exc)
     raise DatabaseOperationError(
         "PostgreSQL read operation failed.",
         operation=operation,

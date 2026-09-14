@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+import traceback
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from sqlalchemy import URL
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from vaaet_persistence.connection import (
     database_engine,
@@ -39,7 +41,10 @@ def _settings() -> DatabaseSettings:
 
 
 def _operational_error() -> OperationalError:
-    return OperationalError("SELECT 1", {}, RuntimeError("offline"))
+    class TransientConnectivityError(RuntimeError):
+        pgcode = "08006"
+
+    return OperationalError("SELECT 1", {}, TransientConnectivityError("offline"))
 
 
 def test_get_engine_configures_a_bounded_redacted_pool(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,7 +68,9 @@ def test_get_engine_configures_a_bounded_redacted_pool(monkeypatch: pytest.Monke
     assert "lock_timeout=5000" in str(connect_args["options"])
 
 
-def test_execute_with_retry_retries_only_operational_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execute_with_retry_retries_only_operational_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     attempts = {"count": 0}
     monkeypatch.setattr("vaaet_persistence.connection.time.sleep", lambda _: None)
 
@@ -167,6 +174,33 @@ def test_connection_returns_false_only_for_expected_database_failures(
     assert not check_connection(_FakeEngine())
 
 
+def test_inspection_redacts_external_driver_error_from_public_traceback() -> None:
+    marker = "postgresql-secret-marker"
+
+    class FailingEngine(_FakeEngine):
+        @contextmanager
+        def connect(self):
+            raise OperationalError("SELECT sensitive", {"password": marker}, RuntimeError(marker))
+            yield  # pragma: no cover
+
+    with pytest.raises(DatabaseOperationError) as captured:
+        inspect_database(FailingEngine(), DatabaseProfile.TRAINING)
+
+    public_traceback = "".join(traceback.format_exception(captured.value))
+    assert marker not in public_traceback
+    assert captured.value.operation == "inspect-database"
+
+
+def test_connection_diagnostic_returns_false_on_pool_timeout() -> None:
+    class TimeoutEngine(_FakeEngine):
+        @contextmanager
+        def connect(self):
+            raise SQLAlchemyTimeoutError("pool-secret-marker")
+            yield  # pragma: no cover
+
+    assert not check_connection(TimeoutEngine())
+
+
 @pytest.mark.parametrize(
     ("revision", "accepted"),
     [("20260911_0005", True), ("20260909_0004", False), (None, False)],
@@ -210,9 +244,7 @@ def test_pem_certificate_lives_with_each_owned_engine(
         "verify-full",
         sslrootcert_pem="test-ca",
     )
-    monkeypatch.setattr(
-        "vaaet_persistence.connection.materialize_root_certificate", materialize
-    )
+    monkeypatch.setattr("vaaet_persistence.connection.materialize_root_certificate", materialize)
     monkeypatch.setattr("vaaet_persistence.connection.create_engine", fake_create_engine)
 
     first = get_engine(settings)

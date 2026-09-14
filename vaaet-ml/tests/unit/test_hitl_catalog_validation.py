@@ -13,6 +13,8 @@ from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
 from vaaet_ml.data.hitl_catalog import (
     CatalogSelection,
+    HitlCatalogPublicationError,
+    HitlCatalogPublisher,
     HitlReviewCatalog,
     _deduplicate_uuid_rows,
     _resolve_validation_graph,
@@ -82,25 +84,58 @@ def test_catalog_rejects_invalid_documents(document: object, message: str, tmp_p
 def test_catalog_rejects_invalid_entry_fields(
     overrides: dict[str, object], message: str, tmp_path
 ) -> None:
-    with pytest.raises(ValueError, match=message):
-        HitlReviewCatalog(tmp_path / "catalog.json").register(_entry(**overrides))
+    catalog = HitlReviewCatalog(tmp_path / "catalog.json")
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        with pytest.raises(ValueError, match=message):
+            catalog.register(_entry(**overrides), publisher=publisher)
 
 
 def test_catalog_registration_and_status_operations_are_idempotent(tmp_path) -> None:
     catalog = HitlReviewCatalog(tmp_path / "catalog.json")
     entry = _entry()
-    first = catalog.register(entry)
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        first = catalog.register(entry, publisher=publisher)
 
-    assert catalog.register(entry) == first
-    with pytest.raises(ValueError, match="conflicts"):
-        catalog.register({**entry, "rows": {"features": 2}})
-    with pytest.raises(ValueError, match="not a valid CatalogSelection"):
-        catalog.selected_entries(cast(CatalogSelection, "unknown"))
-    with pytest.raises(ValueError, match="status"):
-        catalog.set_status(str(entry["package_id"]), "deleted")
-    with pytest.raises(KeyError, match="not found"):
-        catalog.set_status(str(uuid.uuid4()), "active")
-    assert catalog.set_status(str(entry["package_id"]), "active") == first
+        assert catalog.register(entry, publisher=publisher) == first
+        with pytest.raises(ValueError, match="conflicts"):
+            catalog.register({**entry, "rows": {"features": 2}}, publisher=publisher)
+        with pytest.raises(ValueError, match="not a valid CatalogSelection"):
+            catalog.selected_entries(cast(CatalogSelection, "unknown"))
+        with pytest.raises(ValueError, match="status"):
+            catalog.set_status(str(entry["package_id"]), "deleted", publisher=publisher)
+        with pytest.raises(KeyError, match="not found"):
+            catalog.set_status(str(uuid.uuid4()), "active", publisher=publisher)
+        assert catalog.set_status(str(entry["package_id"]), "active", publisher=publisher) == first
+
+
+def test_catalog_mutation_requires_one_active_local_publisher(tmp_path) -> None:
+    catalog = HitlReviewCatalog(tmp_path / "catalog.json")
+    lock_directory = tmp_path / "locks"
+
+    with pytest.raises(HitlCatalogPublicationError, match="active local publisher"):
+        catalog.register(_entry())
+    with HitlCatalogPublisher(catalog, lock_directory=lock_directory) as first:
+        first.register(_entry())
+        with pytest.raises(HitlCatalogPublicationError, match="already active"):
+            with HitlCatalogPublisher(catalog, lock_directory=lock_directory):
+                pass
+    with HitlCatalogPublisher(catalog, lock_directory=lock_directory) as second:
+        second.register(_entry())
+
+    assert len(catalog.load()["entries"]) == 2
+
+
+def test_publisher_cleanup_is_idempotent_without_deleting_another_lock(tmp_path) -> None:
+    catalog = HitlReviewCatalog(tmp_path / "catalog.json")
+    lock_directory = tmp_path / "locks"
+    first = HitlCatalogPublisher(catalog, lock_directory=lock_directory)
+    with first:
+        assert first.lock_path.is_file()
+
+    with HitlCatalogPublisher(catalog, lock_directory=lock_directory) as second:
+        first.__exit__(None, None, None)
+        assert second.active
+        assert second.lock_path.is_file()
 
 
 def test_catalog_deduplication_rejects_invalid_or_conflicting_rows() -> None:
@@ -115,6 +150,60 @@ def test_catalog_deduplication_rejects_invalid_or_conflicting_rows() -> None:
         _deduplicate_uuid_rows(conflicting, name="features")
 
 
+def test_original_feature_uuid_conflict_is_rejected_before_alias_resolution() -> None:
+    feature_id = str(uuid.uuid4())
+    prediction_id = str(uuid.uuid4())
+    features = pd.DataFrame(
+        {
+            "id": [feature_id, feature_id],
+            "clip_id": ["clip-a", "clip-b"],
+            "record_time": ["2026-08-29T00:00:00Z"] * 2,
+        }
+    )
+    predictions = pd.DataFrame(
+        {
+            "id": [prediction_id],
+            "telemetry_feature_id": [feature_id],
+        }
+    )
+    validations = _complete_validations(
+        pd.DataFrame(
+            {
+                "id": [str(uuid.uuid4())],
+                "prediction_id": [prediction_id],
+                "validated_state": [1],
+                "is_human_validated": [True],
+                "supersedes_validation_id": [pd.NA],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="Conflicting catalog features"):
+        resolve_effective_human_feedback(features, predictions, validations)
+
+
+@pytest.mark.parametrize(
+    ("name", "reference_column", "message"),
+    [
+        ("predictions", "telemetry_feature_id", "catalog predictions"),
+        ("validations", "prediction_id", "human labels"),
+    ],
+)
+def test_original_prediction_and_validation_uuids_cannot_change_reference(
+    name: str, reference_column: str, message: str
+) -> None:
+    identifier = str(uuid.uuid4())
+    frame = pd.DataFrame(
+        {
+            "id": [identifier, identifier],
+            reference_column: [str(uuid.uuid4()), str(uuid.uuid4())],
+        }
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _deduplicate_uuid_rows(frame, name=name)
+
+
 def test_feedback_and_validation_graph_reject_inconsistent_relations() -> None:
     identifier = str(uuid.uuid4())
     prediction_id = str(uuid.uuid4())
@@ -122,18 +211,18 @@ def test_feedback_and_validation_graph_reject_inconsistent_relations() -> None:
         resolve_effective_human_feedback(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
 
     features = pd.DataFrame({"id": [identifier], "record_time": ["2026-08-29T00:00:00Z"]})
-    predictions = pd.DataFrame(
-        {"id": [prediction_id], "telemetry_feature_id": [str(uuid.uuid4())]}
+    predictions = pd.DataFrame({"id": [prediction_id], "telemetry_feature_id": [str(uuid.uuid4())]})
+    validations = _complete_validations(
+        pd.DataFrame(
+            {
+                "id": [str(uuid.uuid4())],
+                "prediction_id": [prediction_id],
+                "validated_state": [1],
+                "is_human_validated": [True],
+                "supersedes_validation_id": [pd.NA],
+            }
+        )
     )
-    validations = _complete_validations(pd.DataFrame(
-        {
-            "id": [str(uuid.uuid4())],
-            "prediction_id": [prediction_id],
-            "validated_state": [1],
-            "is_human_validated": [True],
-            "supersedes_validation_id": [pd.NA],
-        }
-    ))
     with pytest.raises(ValueError, match="missing feature UUIDs"):
         resolve_effective_human_feedback(features, predictions, validations)
 
@@ -148,33 +237,35 @@ def test_validation_graph_rejects_invalid_topology() -> None:
     first = str(uuid.uuid4())
     second = str(uuid.uuid4())
     prediction_id = str(uuid.uuid4())
-    unknown_parent = _complete_validations(pd.DataFrame(
-        {
-            "id": [first],
-            "prediction_id": [prediction_id],
-            "validated_state": [1],
-            "is_human_validated": [True],
-            "supersedes_validation_id": [str(uuid.uuid4())],
-        }
-    ))
+    unknown_parent = _complete_validations(
+        pd.DataFrame(
+            {
+                "id": [first],
+                "prediction_id": [prediction_id],
+                "validated_state": [1],
+                "is_human_validated": [True],
+                "supersedes_validation_id": [str(uuid.uuid4())],
+            }
+        )
+    )
     with pytest.raises(ValueError, match="unknown validation"):
         _resolve_validation_graph(unknown_parent)
 
-    roots = _complete_validations(pd.DataFrame(
-        {
-            "id": [first, second],
-            "prediction_id": [prediction_id, prediction_id],
-            "validated_state": [1, 2],
-            "is_human_validated": [True, True],
-            "supersedes_validation_id": [pd.NA, pd.NA],
-        }
-    ))
+    roots = _complete_validations(
+        pd.DataFrame(
+            {
+                "id": [first, second],
+                "prediction_id": [prediction_id, prediction_id],
+                "validated_state": [1, 2],
+                "is_human_validated": [True, True],
+                "supersedes_validation_id": [pd.NA, pd.NA],
+            }
+        )
+    )
     with pytest.raises(ValueError, match="conflicting roots"):
         _resolve_validation_graph(roots)
     with pytest.raises(ValueError, match="cycle"):
-        _validation_leaf_with_chain(
-            first, {first: [second], second: [first]}, prediction_id
-        )
+        _validation_leaf_with_chain(first, {first: [second], second: [first]}, prediction_id)
 
 
 def test_validation_graph_rejects_disconnected_cycle_beside_valid_root() -> None:

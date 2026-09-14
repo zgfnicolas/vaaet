@@ -1,4 +1,4 @@
-# VAAET ML 4.8.1
+# VAAET ML 4.8.2
 
 PostgreSQL se organiza en `vaaet_raw`, `vaaet_ml`, `vaaet_feedback` y
 `vaaet_ops`. La implementación y Alembic pertenecen a `vaaet-persistence`; ML
@@ -146,8 +146,10 @@ psql -v ON_ERROR_STOP=1 -f src/vaaet_persistence/migrations/provision-roles.sql
 
 El entrenamiento declara `TrainingMode.SEED_BOOTSTRAP` o
 `TrainingMode.HITL_RETRAINING` mediante `TrainingIngestionPlan`. La semilla se
-guarda como snapshot inmutable y cada sesión de revisión produce un paquete HITL
-catalogado. Sólo `human_validations` efectivas ingresan como etiquetas;
+guarda como snapshot inmutable y cada sesión de revisión sella un paquete HITL
+local. Un único runtime publicador lo sincroniza y cataloga explícitamente; un
+fallo remoto conserva el ZIP como `pending-sync`. Sólo `human_validations`
+efectivas ingresan como etiquetas;
 predicciones sin revisar nunca se convierten en ground truth. Cada entrenamiento
 escribe un `vaaet-training-input-lock-v1` con los fingerprints exactos utilizados.
 Consultá [ADR-0015](../docs/architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md),
@@ -157,5 +159,7 @@ La portabilidad por capacidades y las migraciones como código se rigen por
 [ADR-0024](../docs/architecture/decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
 La implementación compartida y la futura reutilización por backend se rigen por
 [ADR-0028](../docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
+La autoridad única de publicación y la asociación estricta de feedback se rigen
+por [ADR-0031](../docs/architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
 El provisionamiento, backup, rotación y recuperación están en la
 [guía PostgreSQL](../docs/operations/postgresql-guide.md).

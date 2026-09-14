@@ -16,10 +16,12 @@ from vaaet_ml.data.review_persistence import (
     load_review_queue,
     persist_human_validation_record,
 )
+from vaaet_ml.workflow_state import StaleInferenceExecutionError
 
 # Conserva el canal 4.x para no romper filtros de logs configurados en notebooks.
 logger = get_logger("vaaet_ml.data.review")
 ReviewSubmitter = Callable[[HumanValidation], None]
+ReviewGuard = Callable[[], bool]
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ def prepare_review_session(
     reviewer_id: str | None,
     settings: DatabaseSettings | Mapping[str, str] | None,
     mode: str,
+    is_current: ReviewGuard | None = None,
 ) -> PreparedReview:
     """Prepara selección y persistencia opt-in sin crear UI ni modificar notebooks."""
 
@@ -49,17 +52,35 @@ def prepare_review_session(
     if reviewer_id is None:
         raise ValueError("A stable reviewer identifier is required for human review.")
     if settings is not None and inference_pipeline_run_id is not None:
-        return _prepare_database_review(
+        prepared = _prepare_database_review(
             session,
             classified=classified,
             settings=settings,
             pipeline_run_id=inference_pipeline_run_id,
             mode=mode,
         )
+        return _guard_prepared_review(prepared, is_current)
     if classified is None or classified.empty:
         logger.info("Revisión HITL omitida porque no hay minutos clasificados.")
         return PreparedReview(session, pd.DataFrame(), session.validations.append)
-    return _prepare_portable_review(session, classified, inference_pipeline_run_id, mode)
+    prepared = _prepare_portable_review(session, classified, inference_pipeline_run_id, mode)
+    return _guard_prepared_review(prepared, is_current)
+
+
+def _guard_prepared_review(
+    prepared: PreparedReview, is_current: ReviewGuard | None
+) -> PreparedReview:
+    if is_current is None:
+        return prepared
+
+    def guarded_submit(decision: HumanValidation) -> None:
+        if not is_current():
+            raise StaleInferenceExecutionError(
+                "This review action belongs to an earlier inference attempt."
+            )
+        prepared.submit(decision)
+
+    return PreparedReview(prepared.session, prepared.queue, guarded_submit)
 
 
 def _prepare_database_review(
@@ -77,7 +98,9 @@ def _prepare_database_review(
     prediction_keys = full_queue[["clip_id", "record_time", "prediction_id"]].copy()
     prediction_keys["record_time"] = pd.to_datetime(prediction_keys["record_time"], utc=True)
     session.export_frame = classified.copy()
-    session.export_frame["record_time"] = pd.to_datetime(session.export_frame["record_time"], utc=True)
+    session.export_frame["record_time"] = pd.to_datetime(
+        session.export_frame["record_time"], utc=True
+    )
     session.export_frame = session.export_frame.merge(
         prediction_keys,
         on=["clip_id", "record_time"],
@@ -114,7 +137,11 @@ def _prepare_portable_review(
     session.export_frame = classified.copy().reset_index(drop=True)
     session.export_frame["prediction_id"] = session.export_frame.index + 1
     queue = select_review_queue(session.export_frame, mode=mode)
-    reason = "inference was not persisted" if pipeline_run_id is None else "review profile is unavailable"
+    reason = (
+        "inference was not persisted"
+        if pipeline_run_id is None
+        else "review profile is unavailable"
+    )
     logger.info(
         "Portable review prepared: reason=%s selected_rows=%s total_rows=%s mode=%s",
         reason,
@@ -125,4 +152,4 @@ def _prepare_portable_review(
     return PreparedReview(session, queue, session.validations.append)
 
 
-__all__ = ["PreparedReview", "ReviewSubmitter", "prepare_review_session"]
+__all__ = ["PreparedReview", "ReviewGuard", "ReviewSubmitter", "prepare_review_session"]

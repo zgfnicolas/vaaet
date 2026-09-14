@@ -23,7 +23,11 @@ from vaaet.logging import get_logger
 from vaaet.settings import MODEL_VERSION, TELEMETRY_SCHEMA_VERSION
 
 from vaaet_persistence.connection import require_database_revision
-from vaaet_persistence.exceptions import DatabaseOperationError, PersistenceConflictError
+from vaaet_persistence.exceptions import (
+    DatabaseOperationError,
+    PersistenceConflictError,
+    safe_sqlstate,
+)
 
 logger = get_logger(__name__)
 _APPLICATION_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
@@ -82,9 +86,7 @@ class PipelineRunMetadata:
             or self.input_rows < 0
         ):
             raise ValueError("Pipeline input_rows must be a non-negative integer.")
-        if self.git_commit is not None and not re.fullmatch(
-            r"[0-9a-fA-F]{7,40}", self.git_commit
-        ):
+        if self.git_commit is not None and not re.fullmatch(r"[0-9a-fA-F]{7,40}", self.git_commit):
             raise ValueError("git_commit must be a 7-40 character hexadecimal revision.")
         if self.model_revision is not None and not re.fullmatch(
             r"[0-9a-f]{64}", self.model_revision
@@ -98,8 +100,10 @@ class PipelineRunMetadata:
         ):
             if value is not None and any(token in value.lower() for token in ("password=", "://")):
                 raise ValueError(f"{label} may not contain credentials or a connection URL.")
-            if value is not None and label in {"source_kind", "clip_id"} and any(
-                separator in value for separator in ("/", "\\")
+            if (
+                value is not None
+                and label in {"source_kind", "clip_id"}
+                and any(separator in value for separator in ("/", "\\"))
             ):
                 raise ValueError(f"{label} must be an identifier, not a filesystem path.")
 
@@ -158,7 +162,9 @@ def _write_local_manifest(directory: Path, payload: dict[str, object]) -> Path:
     if destination.exists():
         existing = json.loads(destination.read_text(encoding="utf-8"))
         if existing.get("status") in {"succeeded", "failed"}:
-            stable_existing = {key: value for key, value in existing.items() if key != "completed_at"}
+            stable_existing = {
+                key: value for key, value in existing.items() if key != "completed_at"
+            }
             stable_payload = {key: value for key, value in payload.items() if key != "completed_at"}
             if stable_payload == stable_existing:
                 return destination
@@ -319,7 +325,7 @@ def _raise_pipeline_database_error(
     operation: str,
     run_id: UUID,
 ) -> None:
-    sqlstate = getattr(getattr(error, "orig", None), "pgcode", None)
+    sqlstate = safe_sqlstate(error)
     if sqlstate == "23505":
         raise PersistenceConflictError("Immutable pipeline run conflict.") from None
     raise DatabaseOperationError(

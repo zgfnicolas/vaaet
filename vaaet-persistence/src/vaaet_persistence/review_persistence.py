@@ -20,6 +20,7 @@ from vaaet_persistence.exceptions import (
     DatabaseOperationError,
     PersistenceConflictError,
     PersistenceError,
+    safe_sqlstate,
 )
 from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
 from vaaet_persistence.review_domain import HumanValidation, select_review_queue
@@ -118,7 +119,7 @@ def load_review_queue(
             raise DatabaseOperationError(
                 "PostgreSQL review queue read failed.",
                 operation="load-review-queue",
-                sqlstate=getattr(getattr(exc, "orig", None), "pgcode", None),
+                sqlstate=safe_sqlstate(exc),
                 run_id=str(pipeline_run_id) if pipeline_run_id else None,
             ) from None
     finally:
@@ -257,18 +258,23 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
             require_database_revision(connection)
             # Serializa dos creaciones simultáneas del mismo UUID sin ampliar
             # privilegios sobre la tabla append-only.
-            connection.execute(
-                text(LOCK_VALIDATION_ID_QUERY), {"id": str(decision.validation_id)}
+            connection.execute(text(LOCK_VALIDATION_ID_QUERY), {"id": str(decision.validation_id)})
+            inserted = (
+                connection.execute(text(INSERT_VALIDATION_QUERY), payload).mappings().one_or_none()
             )
-            inserted = connection.execute(text(INSERT_VALIDATION_QUERY), payload).mappings().one_or_none()
-            existing = inserted or connection.execute(
-                text(SELECT_VALIDATION_QUERY), {"id": str(decision.validation_id)}
-            ).mappings().one()
+            existing = (
+                inserted
+                or connection.execute(
+                    text(SELECT_VALIDATION_QUERY), {"id": str(decision.validation_id)}
+                )
+                .mappings()
+                .one()
+            )
             _assert_same_validation(existing, payload)
     except PersistenceError:
         raise
     except Exception as exc:
-        sqlstate = getattr(getattr(exc, "orig", None), "pgcode", None)
+        sqlstate = safe_sqlstate(exc)
         if sqlstate in {"23505", "23514"}:
             raise PersistenceConflictError(
                 "Immutable human validation lineage conflicts with stored history."
@@ -311,13 +317,15 @@ def _load_existing_validation(
     try:
         with engine.begin() as connection:
             require_database_revision(connection)
-            return connection.execute(
-                text(SELECT_VALIDATION_QUERY), {"id": str(validation_id)}
-            ).mappings().one_or_none()
+            return (
+                connection.execute(text(SELECT_VALIDATION_QUERY), {"id": str(validation_id)})
+                .mappings()
+                .one_or_none()
+            )
     except PersistenceError:
         raise
     except Exception as exc:
-        sqlstate = getattr(getattr(exc, "orig", None), "pgcode", None)
+        sqlstate = safe_sqlstate(exc)
         raise DatabaseOperationError(
             "PostgreSQL human validation lookup failed.",
             operation="load-human-validation",

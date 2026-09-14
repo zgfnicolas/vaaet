@@ -102,6 +102,8 @@ without separate authorization and tool adoption.
 - Make downloads, persistence, review finalization, and artifact publication explicitly
   idempotent through their existing VAAET APIs. Seal a HITL ZIP locally before
   attempting Drive; preserve the exact package as `pending-sync` on remote failure.
+  Keep finalization separate from catalog publication and require the designated
+  active `HitlCatalogPublisher` for every catalog mutation.
 - Fail fast with a clear recovery action when enabled behavior lacks inputs, credentials, schema,
   or compatible artifacts.
 - Keep useful progress and final summaries visible, but capture or suppress noisy package output.

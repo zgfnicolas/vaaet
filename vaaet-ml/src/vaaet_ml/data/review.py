@@ -4,12 +4,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import pandas as pd
 
 from vaaet_ml.data.database import DatabaseSettings
-from vaaet_ml.data.dataset_artifacts import finalize_review_session, sync_finalized_review_session
+from vaaet_ml.data.dataset_artifacts import (
+    HITL_CATALOG_FILE,
+    HitlCatalogPublisher,
+    HitlReviewCatalog,
+    finalize_review_session,
+    sync_finalized_review_session,
+)
 from vaaet_ml.data.review_domain import HumanValidation, InferenceReviewSession, select_review_queue
 from vaaet_ml.data.review_export import export_offline_review_package
 from vaaet_ml.data.review_orchestration import prepare_review_session
@@ -25,6 +31,7 @@ def prepare_inference_review(
     reviewer_id: str | None,
     settings: DatabaseSettings | Mapping[str, str] | None,
     mode: str,
+    is_current: Callable[[], bool] | None = None,
 ) -> InferenceReviewSession:
     """Conserva la UI 4.x delegando reglas y persistencia a servicios sin widgets."""
 
@@ -35,6 +42,7 @@ def prepare_inference_review(
         reviewer_id=reviewer_id,
         settings=settings,
         mode=mode,
+        is_current=is_current,
     )
     if enabled and reviewer_id is not None and prepared.session.export_frame is not None:
         build_review_widget(prepared.queue, reviewer_id=reviewer_id, on_submit=prepared.submit)
@@ -43,6 +51,9 @@ def prepare_inference_review(
 
 __all__ = [
     "HumanValidation",
+    "HITL_CATALOG_FILE",
+    "HitlCatalogPublisher",
+    "HitlReviewCatalog",
     "InferenceReviewSession",
     "build_review_widget",
     "export_offline_review_package",

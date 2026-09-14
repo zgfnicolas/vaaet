@@ -12,6 +12,7 @@ from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
 from vaaet_ml.data.dataset_artifacts import (
     CatalogSelection,
+    HitlCatalogPublisher,
     HitlCatalogSource,
     HitlReviewCatalog,
     finalize_review_session,
@@ -77,26 +78,30 @@ def _classified_frame(*, clip_id: str = "clip-a") -> pd.DataFrame:
 
 def test_catalog_loader_excludes_unreviewed_predictions(tmp_path: Path) -> None:
     root = tmp_path / "reviews"
-    reviewed = finalize_review_session(
-        classified=_classified_frame(clip_id="reviewed"),
-        validations=[HumanValidation(1, 1, "reviewer")],
-        pipeline_run_id=str(uuid.uuid4()),
-        model_version="mlp-v3.0",
-        git_commit="abc",
-        vaaet_version="4.5.0",
-        local_root=tmp_path / "local-a",
-        canonical_root=root,
-    )
-    finalize_review_session(
-        classified=_classified_frame(clip_id="unreviewed"),
-        validations=[],
-        pipeline_run_id=str(uuid.uuid4()),
-        model_version="mlp-v3.0",
-        git_commit="abc",
-        vaaet_version="4.5.0",
-        local_root=tmp_path / "local-b",
-        canonical_root=root,
-    )
+    catalog = HitlReviewCatalog(root / "catalog.json")
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        reviewed = finalize_review_session(
+            classified=_classified_frame(clip_id="reviewed"),
+            validations=[HumanValidation(1, 1, "reviewer")],
+            pipeline_run_id=str(uuid.uuid4()),
+            model_version="mlp-v3.0",
+            git_commit="abc",
+            vaaet_version="4.5.0",
+            local_root=tmp_path / "local-a",
+            canonical_root=root,
+            publisher=publisher,
+        )
+        finalize_review_session(
+            classified=_classified_frame(clip_id="unreviewed"),
+            validations=[],
+            pipeline_run_id=str(uuid.uuid4()),
+            model_version="mlp-v3.0",
+            git_commit="abc",
+            vaaet_version="4.5.0",
+            local_root=tmp_path / "local-b",
+            canonical_root=root,
+            publisher=publisher,
+        )
 
     feedback, descriptor = load_hitl_catalog_feedback(
         HitlCatalogSource(root / "catalog.json", CatalogSelection.ALL_ACTIVE)
@@ -109,22 +114,24 @@ def test_catalog_loader_excludes_unreviewed_predictions(tmp_path: Path) -> None:
 
 def test_catalog_quarantine_is_explicit_and_non_destructive(tmp_path: Path) -> None:
     root = tmp_path / "reviews"
-    result = finalize_review_session(
-        classified=_classified_frame(),
-        validations=[HumanValidation(1, 0, "reviewer")],
-        pipeline_run_id=str(uuid.uuid4()),
-        model_version="mlp-v3.0",
-        git_commit="abc",
-        vaaet_version="4.5.0",
-        local_root=tmp_path / "local",
-        canonical_root=root,
-    )
     catalog = HitlReviewCatalog(root / "catalog.json")
-    catalog.set_status(result.package_id, "quarantined")
-    _, active = catalog.selected_entries()
-    assert active == []
-    assert result.canonical_path.is_file()
-    catalog.set_status(result.package_id, "active")
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        result = finalize_review_session(
+            classified=_classified_frame(),
+            validations=[HumanValidation(1, 0, "reviewer")],
+            pipeline_run_id=str(uuid.uuid4()),
+            model_version="mlp-v3.0",
+            git_commit="abc",
+            vaaet_version="4.5.0",
+            local_root=tmp_path / "local",
+            canonical_root=root,
+            publisher=publisher,
+        )
+        catalog.set_status(result.package_id, "quarantined", publisher=publisher)
+        _, active = catalog.selected_entries()
+        assert active == []
+        assert result.canonical_path is not None and result.canonical_path.is_file()
+        catalog.set_status(result.package_id, "active", publisher=publisher)
     _, active = catalog.selected_entries()
     assert [entry["package_id"] for entry in active] == [result.package_id]
 
@@ -180,8 +187,9 @@ def test_catalog_rejects_platform_specific_unsafe_paths(tmp_path: Path, unsafe_p
         "model_revision": MODEL_REVISION,
         "vaaet_version": "4.5.0",
     }
-    with pytest.raises(ValueError, match="Unsafe"):
-        catalog.register(entry)
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        with pytest.raises(ValueError, match="Unsafe"):
+            catalog.register(entry, publisher=publisher)
 
 
 def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None:
@@ -272,7 +280,9 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
         "model_revision": MODEL_REVISION,
         "vaaet_version": "4.5.0",
     }
-    HitlReviewCatalog(root / "catalog.json").register(entry)
+    catalog = HitlReviewCatalog(root / "catalog.json")
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        catalog.register(entry, publisher=publisher)
     with pytest.raises(ValueError, match="branches"):
         load_hitl_catalog_feedback(HitlCatalogSource(root / "catalog.json"))
 
@@ -334,37 +344,43 @@ def test_catalog_resolves_valid_cross_package_correction_chain(tmp_path: Path) -
         ),
     ]
     catalog = HitlReviewCatalog(root / "catalog.json")
-    for index, validations in enumerate(validation_frames, start=1):
-        frames = {"features": features, "predictions": predictions, "validations": validations}
-        fingerprint = _frames_fingerprint(frames)
-        relative = (
-            Path("2026") / "08" / f"1{index}" / f"package-{index}" / "vaaet-training-dataset-v1.zip"
-        )
-        package = root / relative
-        create_dataset_package(
-            package,
-            features=features,
-            predictions=predictions,
-            validations=validations,
-            package_metadata={"fingerprint": fingerprint},
-        )
-        catalog.register(
-            {
-                "package_id": str(uuid.uuid4()),
-                "path": relative.as_posix(),
-                "created_at": f"2026-08-1{index}T00:00:00+00:00",
-                "pipeline_run_id": str(uuid.uuid4()),
-                "sha256": _sha256_file(package),
-                "fingerprint": fingerprint,
-                "clips": 1,
-                "rows": {"features": 1, "predictions": 1, "validations": 1, "unreviewed": 0},
-                "human_support": {},
-                "status": "active",
-                "feature_schema_version": FEATURE_SCHEMA_VERSION,
-                "model_revision": MODEL_REVISION,
-                "vaaet_version": "4.5.0",
-            }
-        )
+    with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
+        for index, validations in enumerate(validation_frames, start=1):
+            frames = {"features": features, "predictions": predictions, "validations": validations}
+            fingerprint = _frames_fingerprint(frames)
+            relative = (
+                Path("2026")
+                / "08"
+                / f"1{index}"
+                / f"package-{index}"
+                / "vaaet-training-dataset-v1.zip"
+            )
+            package = root / relative
+            create_dataset_package(
+                package,
+                features=features,
+                predictions=predictions,
+                validations=validations,
+                package_metadata={"fingerprint": fingerprint},
+            )
+            catalog.register(
+                {
+                    "package_id": str(uuid.uuid4()),
+                    "path": relative.as_posix(),
+                    "created_at": f"2026-08-1{index}T00:00:00+00:00",
+                    "pipeline_run_id": str(uuid.uuid4()),
+                    "sha256": _sha256_file(package),
+                    "fingerprint": fingerprint,
+                    "clips": 1,
+                    "rows": {"features": 1, "predictions": 1, "validations": 1, "unreviewed": 0},
+                    "human_support": {},
+                    "status": "active",
+                    "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                    "model_revision": MODEL_REVISION,
+                    "vaaet_version": "4.5.0",
+                },
+                publisher=publisher,
+            )
     feedback, descriptor = load_hitl_catalog_feedback(HitlCatalogSource(catalog.path))
     assert len(feedback) == 1
     assert feedback.iloc[0]["traffic_state"] == 1
@@ -425,7 +441,7 @@ def test_database_and_zip_identity_aliases_resolve_by_contract_content() -> None
     run_id = str(uuid.uuid4())
     feature_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
     prediction_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
-    validation_id = str(uuid.uuid4())
+    validation_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
     features = pd.DataFrame(
         [
             {
@@ -467,14 +483,21 @@ def test_database_and_zip_identity_aliases_resolve_by_contract_content() -> None
                 "reviewed_at": "2026-08-10T01:00:00Z",
                 "supersedes_validation_id": pd.NA,
             }
-            for prediction_id in prediction_ids
+            for prediction_id, validation_id in zip(prediction_ids, validation_ids, strict=True)
         ]
     )
 
     feedback = resolve_effective_human_feedback(features, predictions, validations)
+    reversed_feedback = resolve_effective_human_feedback(
+        features.iloc[::-1].reset_index(drop=True),
+        predictions.iloc[::-1].reset_index(drop=True),
+        validations.iloc[::-1].reset_index(drop=True),
+    )
 
     assert len(feedback) == 1
     assert set(feedback.iloc[0]["source_prediction_ids"].split(",")) == set(prediction_ids)
+    assert feedback["traffic_state"].tolist() == reversed_feedback["traffic_state"].tolist()
+    assert set(reversed_feedback.iloc[0]["source_prediction_ids"].split(",")) == set(prediction_ids)
 
 
 @pytest.mark.parametrize(

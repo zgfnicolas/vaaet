@@ -124,7 +124,7 @@ jobs:
       - name: Verificar independencia, tipado y pruebas
         run: |
           python -m pip check
-          python -c "import vaaet, vaaet_persistence; assert vaaet_persistence.__version__ == '0.2.1'"
+          python -c "import vaaet, vaaet_persistence; assert vaaet_persistence.__version__ == '0.2.2'"
           ruff check src tests
           pyright src
           python -m compileall -q src tests
@@ -214,7 +214,7 @@ jobs:
       - name: Verificar contratos de importación y DVC de raíz
         run: |
           python -m pip check
-          python -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.2.1'; assert vaaet_ml.__version__ == '4.8.1'"
+          python -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.2.2'; assert vaaet_ml.__version__ == '4.8.2'"
           test -d .dvc
           test -d vaaet-ml/artifacts/traffic-state
 
@@ -238,7 +238,7 @@ jobs:
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip install ./vaaet-core
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip install ./vaaet-persistence
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip check
-          "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -c "import vaaet_persistence; assert vaaet_persistence.__version__ == '0.2.1'"
+          "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -c "import vaaet_persistence; assert vaaet_persistence.__version__ == '0.2.2'"
 
           python -m venv "$RUNNER_TEMP/vaaet-workspace-base"
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install --upgrade pip
@@ -246,7 +246,7 @@ jobs:
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install ./vaaet-persistence
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install ./vaaet-ml
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip check
-          "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.2.1'; assert vaaet_ml.__version__ == '4.8.1'"
+          "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.1'; assert vaaet_persistence.__version__ == '0.2.2'; assert vaaet_ml.__version__ == '4.8.2'"
 
   typing:
     runs-on: ubuntu-latest

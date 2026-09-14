@@ -15,6 +15,31 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.8.2] - 2026-09-13
+
+### Añadido
+
+- ADR-0031, estado tipado por intento de inferencia y autoridad explícita
+  `HitlCatalogPublisher` para modificar el catálogo HITL.
+- Regresiones de UUID contradictorios, callbacks obsoletos, exclusión local,
+  recuperación remota y fallos secundarios de auditoría.
+
+### Cambiado
+
+- Finalizar una revisión sella primero el ZIP local `pending-sync`; publicarlo
+  en Drive es una acción separada del único runtime coordinador.
+- Los diagnósticos PostgreSQL traducen fallos externos a errores de dominio con
+  SQLSTATE validado y sin conservar causas sensibles en el traceback público.
+
+### Corregido
+
+- Las identidades originales se validan antes de resolver aliases, evitando que
+  una etiqueta humana pueda quedar asociada a otro clip o predicción.
+- Repetir sólo la clasificación invalida filas, permisos y callbacks anteriores
+  antes de ejecutar el modelo.
+- Un fallo de disponibilidad del catálogo conserva el paquete local y un fallo
+  de manifiesto ya no sustituye la excepción o el resultado principal.
+
 ## [4.8.1] - 2026-09-11
 
 ### Añadido

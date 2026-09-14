@@ -22,6 +22,9 @@ DVC, Google Drive, Colab ni la futura aplicación.
 - Conservá la idempotencia de decisiones, los aliases portables verificables y
   la recuperación local definida por
   [`ADR-0030`](../docs/architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md).
+- Traducí todos los fallos externos mediante errores de dominio y el SQLSTATE
+  validado conforme a
+  [`ADR-0031`](../docs/architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
 - Alembic es la única autoridad DDL. No ejecutes migraciones desde notebooks.
 - No modifiques revisiones publicadas; agregá una nueva revisión cuando cambie
   el schema.

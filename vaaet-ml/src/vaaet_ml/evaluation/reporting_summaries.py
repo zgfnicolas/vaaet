@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 import numpy as np
@@ -97,6 +97,33 @@ def build_class_support_notes(
     ]
 
 
+def format_inference_result_summary(
+    frame: pd.DataFrame,
+    *,
+    state_labels: Mapping[int, str] = STATE_LABELS,
+) -> str:
+    """Formatea el resumen público de una clasificación ya validada."""
+
+    _require_columns(frame, ("traffic_state",))
+    if frame.empty:
+        raise ValueError("Inference summary requires at least one classified minute.")
+    lines = ["✅ Minutos clasificados por estado:"]
+    for code in sorted(frame["traffic_state"].unique()):
+        count = int(frame["traffic_state"].eq(code).sum())
+        lines.append(f"   {state_labels.get(int(code), 'Desconocido'):>10}: {count} minutos")
+    automatic_accidents = int(frame["traffic_state"].eq(3).sum())
+    incident_candidates = int(
+        frame.get("accident_alert_started", pd.Series(False, index=frame.index)).sum()
+    )
+    lines.extend(
+        (
+            f"   Accident automáticos: {automatic_accidents} (siempre debe ser cero)",
+            f"   Posibles incidentes: {incident_candidates} (el estado permanece Congested)",
+        )
+    )
+    return "\n".join(lines)
+
+
 class _BalanceRow(Protocol):
     total: int
     state_label: str
@@ -118,6 +145,7 @@ def _support_note(row: _BalanceRow) -> str | None:
 
 __all__ = [
     "build_class_support_notes",
+    "format_inference_result_summary",
     "summarize_data_origin",
     "summarize_resampled_balance",
     "summarize_state_balance",

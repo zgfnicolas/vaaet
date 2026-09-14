@@ -1,4 +1,4 @@
-# Guía de contribución — VAAET ML 4.8.1
+# Guía de contribución — VAAET ML 4.8.2
 
 Antes de modificar el proyecto, leé el [contexto raíz](../AGENTS.md), el
 [resumen portable](../llms.txt), [AGENTS.md](AGENTS.md) y el ADR aplicable en

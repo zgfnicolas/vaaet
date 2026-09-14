@@ -41,7 +41,7 @@ def test_administrator_uses_shared_typed_endpoint_outside_colab(
     settings = load_database_admin_settings(allow_legacy=False)
 
     assert settings.host == "localhost"
-    assert settings.application == "vaaet-ml-migration/4.8.1"
+    assert settings.application == "vaaet-ml-migration/4.8.2"
     assert "not-a-real-secret" not in repr(settings)
 
 

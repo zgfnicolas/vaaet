@@ -37,6 +37,7 @@ from vaaet_persistence.exceptions import (
     DatabaseOperationError,
     DatabaseSchemaVersionError,
     PersistenceConflictError,
+    safe_sqlstate,
 )
 from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
 from vaaet_persistence.settings import DatabaseSettings
@@ -156,7 +157,11 @@ def _strict_integer(
         if nullable:
             return None
         raise ValueError(f"{label} is required.")
-    if _is_boolean(value) or isinstance(value, str) or not isinstance(value, (Integral, Real, Decimal)):
+    if (
+        _is_boolean(value)
+        or isinstance(value, str)
+        or not isinstance(value, (Integral, Real, Decimal))
+    ):
         raise ValueError(f"{label} must be an integer, not a coerced value.")
     if isinstance(value, Decimal):
         if not value.is_finite() or value != value.to_integral_value():
@@ -225,7 +230,9 @@ def _strict_choice(value: object, *, label: str, choices: tuple[str, ...]) -> st
 
 def _validate_raw_row(row: pd.Series) -> None:
     _strict_identifier(row["clip_id"], label="clip_id")
-    _strict_identifier(row.get("continuity_id", f"{row['clip_id']}:continuity-0001"), label="continuity_id")
+    _strict_identifier(
+        row.get("continuity_id", f"{row['clip_id']}:continuity-0001"), label="continuity_id"
+    )
     _utc_timestamp(row["record_time"])
     if row["telemetry_schema_version"] != TELEMETRY_SCHEMA_VERSION:
         raise ValueError("Operational raw persistence requires the current telemetry schema.")
@@ -264,7 +271,9 @@ def _validate_classified_row(  # noqa: C901 - valida el contrato tabular externo
     if row["feature_schema_version"] != FEATURE_SCHEMA_VERSION:
         raise ValueError("Operational prediction persistence requires the current feature schema.")
     if row["telemetry_schema_version"] != TELEMETRY_SCHEMA_VERSION:
-        raise ValueError("Operational prediction persistence requires the current telemetry schema.")
+        raise ValueError(
+            "Operational prediction persistence requires the current telemetry schema."
+        )
     for column in FEATURE_COLS:
         if column in {
             "total_vehicles",
@@ -288,20 +297,30 @@ def _validate_classified_row(  # noqa: C901 - valida el contrato tabular externo
                 row[column], label=column, nullable=False, minimum=minimum, maximum=maximum
             )
         else:
-            minimum = 0 if column in {
-                "avg_speed",
-                "heavy_vehicle_ratio",
-                "speed_variance",
-                "speed_measurement_quality",
-                "near_zero_motion_ratio",
-                "stationary_confirmed_ratio",
-            } else None
-            maximum = 1 if column in {
-                "heavy_vehicle_ratio",
-                "speed_measurement_quality",
-                "near_zero_motion_ratio",
-                "stationary_confirmed_ratio",
-            } else None
+            minimum = (
+                0
+                if column
+                in {
+                    "avg_speed",
+                    "heavy_vehicle_ratio",
+                    "speed_variance",
+                    "speed_measurement_quality",
+                    "near_zero_motion_ratio",
+                    "stationary_confirmed_ratio",
+                }
+                else None
+            )
+            maximum = (
+                1
+                if column
+                in {
+                    "heavy_vehicle_ratio",
+                    "speed_measurement_quality",
+                    "near_zero_motion_ratio",
+                    "stationary_confirmed_ratio",
+                }
+                else None
+            )
             if column == "low_speed_persistence":
                 _strict_integer(row[column], label=column, minimum=0, maximum=2)
             else:
@@ -336,9 +355,7 @@ def _validate_classified_row(  # noqa: C901 - valida el contrato tabular externo
         minimum=0,
         maximum=1,
     )
-    _strict_choice(
-        row.get("data_origin", "real"), label="data_origin", choices=DATA_ORIGINS
-    )
+    _strict_choice(row.get("data_origin", "real"), label="data_origin", choices=DATA_ORIGINS)
     _strict_choice(
         row.get("synthetic_scenario", "observed"),
         label="synthetic_scenario",
@@ -353,7 +370,10 @@ def _validate_classified_row(  # noqa: C901 - valida el contrato tabular externo
     )
     if row.get("state_label", STATE_LABELS[int(state)]) != STATE_LABELS[int(state)]:
         raise ValueError("traffic_state and state_label must describe the same state.")
-    if row.get("model_state_label", STATE_LABELS[int(model_state)]) != STATE_LABELS[int(model_state)]:
+    if (
+        row.get("model_state_label", STATE_LABELS[int(model_state)])
+        != STATE_LABELS[int(model_state)]
+    ):
         raise ValueError("model_traffic_state and model_state_label must describe the same state.")
     confidence = row.get("confidence", 0.0)
     _strict_float(confidence, label="confidence", minimum=0, maximum=1)
@@ -511,9 +531,7 @@ def _raw_payload(row: pd.Series, pipeline_run_id: str) -> dict[str, object]:
             row["count_motorcycle"], label="count_motorcycle", minimum=0
         ),
         "count_bicycle": _strict_integer(row["count_bicycle"], label="count_bicycle", minimum=0),
-        "total_vehicles": _strict_integer(
-            row["total_vehicles"], label="total_vehicles", minimum=0
-        ),
+        "total_vehicles": _strict_integer(row["total_vehicles"], label="total_vehicles", minimum=0),
         "near_zero_motion_count": _nullable_int(row.get("near_zero_motion_count")),
         "stationary_confirmed_count": _nullable_int(row.get("stationary_confirmed_count")),
         "rejected_speed_count": _nullable_int(row.get("rejected_speed_count")),
@@ -592,9 +610,7 @@ def _prediction_payload(
     model_revision: str,
 ) -> dict[str, object]:
     if row.get("traffic_state") == 3:
-        raise ValueError(
-            "Accident belongs exclusively to vaaet_feedback.human_validations."
-        )
+        raise ValueError("Accident belongs exclusively to vaaet_feedback.human_validations.")
     state = _strict_integer(
         row.get("traffic_state", 0), label="traffic_state", minimum=0, maximum=2
     )
@@ -613,7 +629,9 @@ def _prediction_payload(
     if _strict_boolean(row.get("accident_gate_applied", False), label="accident_gate_applied"):
         raise ValueError("The bundle forbids an automatic Accident gate override.")
     row_revision = row.get("model_revision")
-    exact_revision = model_revision if row_revision is None or pd.isna(row_revision) else str(row_revision)
+    exact_revision = (
+        model_revision if row_revision is None or pd.isna(row_revision) else str(row_revision)
+    )
     row_version = row.get("model_version")
     semantic_version = (
         model_version
@@ -739,7 +757,7 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
         raise DatabaseOperationError(
             "PostgreSQL raw telemetry persistence failed.",
             operation="persist-raw-telemetry",
-            sqlstate=getattr(getattr(exc, "orig", None), "pgcode", None),
+            sqlstate=safe_sqlstate(exc),
             run_id=run_id,
         ) from None
     finally:
@@ -785,7 +803,9 @@ def _persist_raw_rows(
             connection.execute(
                 text(_multi_values_statement(INSERT_RAW_SQL, batch)),
                 _multi_values_parameters(batch),
-            ).mappings().all()
+            )
+            .mappings()
+            .all()
         )
         query_count += 1
         inserted += len(inserted_rows)
@@ -794,7 +814,10 @@ def _persist_raw_rows(
         )
         query_count += 1
         _assert_batch_idempotent(
-            stored, batch, kind="raw telemetry", key_fields=("clip_id", "record_time"),
+            stored,
+            batch,
+            kind="raw telemetry",
+            key_fields=("clip_id", "record_time"),
             ignored_fields={"pipeline_run_id"},
         )
         if len(inserted_rows) != len(batch) - len(existing_before):
@@ -834,9 +857,7 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
     normalized = normalize_continuity_frame(df)
     schema_versions = normalized["feature_schema_version"].dropna().astype(str).unique()
     if len(schema_versions) != 1 or schema_versions[0] != FEATURE_SCHEMA_VERSION:
-        raise ValueError(
-            "Operational prediction persistence requires the current feature schema."
-        )
+        raise ValueError("Operational prediction persistence requires the current feature schema.")
     resolved_revision = _resolve_model_revision(normalized, model_revision)
     for _, row in normalized.iterrows():
         _validate_classified_row(row, model_revision=resolved_revision)
@@ -893,7 +914,7 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
         raise DatabaseOperationError(
             "PostgreSQL classified telemetry persistence failed.",
             operation="persist-classified-telemetry",
-            sqlstate=getattr(getattr(exc, "orig", None), "pgcode", None),
+            sqlstate=safe_sqlstate(exc),
             run_id=run_id,
         ) from None
     finally:
@@ -918,12 +939,7 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
 
 
 def _resolve_model_revision(frame: pd.DataFrame, requested: str | None) -> str:
-    revisions = (
-        frame.get("model_revision", pd.Series(dtype="string"))
-        .dropna()
-        .astype(str)
-        .unique()
-    )
+    revisions = frame.get("model_revision", pd.Series(dtype="string")).dropna().astype(str).unique()
     resolved = requested or (str(revisions[0]) if len(revisions) == 1 else None)
     if resolved is None or re.fullmatch(r"[0-9a-f]{64}", resolved) is None:
         raise ValueError("Classified telemetry requires one exact SHA-256 model_revision.")
@@ -967,10 +983,14 @@ def _persist_classified_rows(
                 kind="feature",
                 key_fields=("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
             )
-        inserted_features = connection.execute(
-            text(_multi_values_statement(INSERT_FEATURE_SQL, feature_payloads)),
-            _multi_values_parameters(feature_payloads),
-        ).mappings().all()
+        inserted_features = (
+            connection.execute(
+                text(_multi_values_statement(INSERT_FEATURE_SQL, feature_payloads)),
+                _multi_values_parameters(feature_payloads),
+            )
+            .mappings()
+            .all()
+        )
         inserted_feature_count += len(inserted_features)
         query_count += 1
         stored_features = _select_batch(
@@ -1029,10 +1049,14 @@ def _persist_classified_rows(
                 kind="prediction",
                 key_fields=("telemetry_feature_id", "model_revision"),
             )
-        inserted_predictions = connection.execute(
-            text(_multi_values_statement(INSERT_PREDICTION_SQL, prediction_payloads)),
-            _multi_values_parameters(prediction_payloads),
-        ).mappings().all()
+        inserted_predictions = (
+            connection.execute(
+                text(_multi_values_statement(INSERT_PREDICTION_SQL, prediction_payloads)),
+                _multi_values_parameters(prediction_payloads),
+            )
+            .mappings()
+            .all()
+        )
         inserted_prediction_count += len(inserted_predictions)
         query_count += 1
         stored_predictions = _select_batch(
@@ -1077,11 +1101,7 @@ def _select_batch(
         parts = []
         for field in key_fields:
             parameter = f"{field}_{index}"
-            cast = (
-                f"CAST(:{parameter} AS UUID)"
-                if field == "pipeline_run_id"
-                else f":{parameter}"
-            )
+            cast = f"CAST(:{parameter} AS UUID)" if field == "pipeline_run_id" else f":{parameter}"
             parts.append(f"{field} = {cast}")
             params[parameter] = payload[field]
         clauses.append("(" + " AND ".join(parts) + ")")
@@ -1196,7 +1216,9 @@ def _assert_idempotent(
     differences = [
         key
         for key, value in payload.items()
-        if key not in ignored and key in existing and not _database_values_equal(existing[key], value)
+        if key not in ignored
+        and key in existing
+        and not _database_values_equal(existing[key], value)
     ]
     if differences:
         raise PersistenceConflictError(

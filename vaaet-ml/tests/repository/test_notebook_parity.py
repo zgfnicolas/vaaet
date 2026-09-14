@@ -173,7 +173,7 @@ def test_notebooks_handle_clips_without_complete_minutes() -> None:
     assert "if df_classified.empty:" in inference
     assert "Se necesitan dos ventanas consecutivas de 60 segundos" in inference
     assert inference.index("if df_classified.empty:") < inference.index(
-        'df_classified["traffic_state"].unique()'
+        "format_inference_result_summary(df_classified"
     )
     assert "INFERENCE_PIPELINE_RUN_ID = None" in inference
     assert "Se omiten features, clasificación, PostgreSQL y revisión HITL" in inference
@@ -289,10 +289,27 @@ def test_inference_finalizes_immutable_hitl_review_sessions() -> None:
     code = _code(NOTEBOOKS["inference"])
     assert "finalize_review_session" in code
     assert "def finalize_current_review" in code
+    assert "def publish_pending_review" in code
+    assert "HitlCatalogPublisher" in code
     assert "prepare_inference_review" in code
     assert "/content/drive/MyDrive/vaaet-ml/data/hitl-reviews" in code
     assert "result.sync_status" in code
+    assert "canonical_root=None" in code
+    assert "publisher=publisher" in code
     assert "export_completed_offline_review" not in code
+
+
+def test_inference_invalidates_derived_state_before_each_classification() -> None:
+    code = _code(NOTEBOOKS["inference"])
+
+    assert "InferenceExecutionState(" in code
+    assert code.count("globals().pop('finalize_current_review', None)") >= 2
+    assert "INFERENCE_STATE.publish(" in code
+    assert "INFERENCE_STATE.fail()" in code
+    assert "INFERENCE_STATE.begin_persistence()" in code
+    assert "INFERENCE_STATE.fail_persistence()" in code
+    assert "is_current=_review_is_current" in code
+    assert "publish_verified_classification" not in code
 
 
 def test_inference_centralizes_and_documents_supported_workflow_configuration() -> None:

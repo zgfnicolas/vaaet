@@ -15,7 +15,7 @@ SOURCE_ROOT = COMPONENT_ROOT / "src" / "vaaet_persistence"
 
 
 def test_component_imports_without_the_ml_laboratory() -> None:
-    assert vaaet_persistence.__version__ == "0.2.1"
+    assert vaaet_persistence.__version__ == "0.2.2"
     forbidden = {"vaaet_ml", "tensorflow", "ultralytics", "dvc", "google", "ipywidgets"}
     imported: set[str] = set()
     for path in SOURCE_ROOT.rglob("*.py"):

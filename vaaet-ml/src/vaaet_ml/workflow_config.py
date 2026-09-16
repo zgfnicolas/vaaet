@@ -109,6 +109,7 @@ class TrainingWorkflowConfig:
     reference_training_run_id: str | None = None
     run_grouped_cross_validation: bool = False
     copy_bundle_to_drive: bool = False
+    postgres_telemetry_read_mode: str = "current"
 
     def __post_init__(self) -> None:
         if self.training_mode not in {"seed_bootstrap", "hitl_retraining"}:
@@ -122,6 +123,17 @@ class TrainingWorkflowConfig:
             "copy_bundle_to_drive",
         ):
             _require_bool(name, getattr(self, name))
+        if self.postgres_telemetry_read_mode not in {"current", "legacy"}:
+            raise RuntimeConfigurationError(
+                "postgres_telemetry_read_mode must be 'current' or 'legacy'."
+            )
+        if (
+            self.training_mode == "hitl_retraining"
+            and self.postgres_telemetry_read_mode == "legacy"
+        ):
+            raise RuntimeConfigurationError(
+                "Legacy PostgreSQL reads are valid only for raw seed telemetry."
+            )
         if self.human_holdout_frozen and self.training_mode != "hitl_retraining":
             raise RuntimeConfigurationError(
                 "human_holdout_frozen is valid only for hitl_retraining."

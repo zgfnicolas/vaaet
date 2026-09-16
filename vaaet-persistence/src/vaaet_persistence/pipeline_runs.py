@@ -9,7 +9,7 @@ import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -116,6 +116,7 @@ class PipelineRunHandle:
     metadata: PipelineRunMetadata
     output_rows: int | None = None
     model_revision: str | None = None
+    outcome: PipelineRunOutcome | None = field(default=None, init=False)
 
     def set_output_rows(self, rows: int) -> None:
         if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
@@ -128,6 +129,37 @@ class PipelineRunHandle:
         if not re.fullmatch(r"[0-9a-f]{64}", revision):
             raise ValueError("model_revision must be a lowercase SHA-256 value.")
         self.model_revision = revision
+
+    def set_outcome(
+        self,
+        *,
+        work_succeeded: bool,
+        audit_complete: bool,
+        audit_error_category: str | None = None,
+    ) -> None:
+        """Publica una sola conclusión segura del trabajo y su auditoría."""
+
+        self.outcome = PipelineRunOutcome(
+            run_id=self.id,
+            work_succeeded=work_succeeded,
+            audit_complete=audit_complete,
+            output_rows=self.output_rows,
+            model_revision=self.model_revision,
+            audit_error_category=audit_error_category,
+        )
+
+
+@dataclass(frozen=True)
+class PipelineRunOutcome:
+    """Distingue el resultado confirmado del workflow de su cierre auditable."""
+
+    run_id: UUID
+    work_succeeded: bool
+    audit_complete: bool
+    output_rows: int | None
+    model_revision: str | None
+    audit_error_category: str | None = None
+    reconciliation_run_id: UUID | None = None
 
 
 def _utc_now() -> str:
@@ -276,6 +308,42 @@ def finish_pipeline_run(
     )
 
 
+def finalize_pipeline_run_outcome(
+    handle: PipelineRunHandle,
+    *,
+    work_succeeded: bool,
+    started_at: str,
+    engine: Engine | None = None,
+    local_manifest_directory: str | Path | None = None,
+    error_category: str | None = None,
+) -> PipelineRunOutcome:
+    """Cierra la auditoría sin convertir su fallo en un fallo del trabajo confirmado."""
+
+    try:
+        finish_pipeline_run(
+            handle,
+            status="succeeded" if work_succeeded else "failed",
+            started_at=started_at,
+            engine=engine,
+            local_manifest_directory=local_manifest_directory,
+            error_category=error_category,
+        )
+        handle.set_outcome(work_succeeded=work_succeeded, audit_complete=True)
+    except Exception as audit_error:
+        handle.set_outcome(
+            work_succeeded=work_succeeded,
+            audit_complete=False,
+            audit_error_category=type(audit_error).__name__,
+        )
+        logger.warning(
+            "%s pipeline run audit is incomplete: %s",
+            "Successful" if work_succeeded else "Failed",
+            type(audit_error).__name__,
+        )
+    assert handle.outcome is not None
+    return handle.outcome
+
+
 @contextmanager
 def pipeline_run(
     metadata: PipelineRunMetadata,
@@ -294,29 +362,100 @@ def pipeline_run(
     try:
         yield handle
     except Exception as error:
-        try:
-            finish_pipeline_run(
-                handle,
-                status="failed",
-                started_at=started_at,
-                engine=engine,
-                local_manifest_directory=local_manifest_directory,
-                error_category=type(error).__name__,
-            )
-        except Exception as audit_error:  # La evidencia nunca debe ocultar el fallo del workflow.
-            logger.warning(
-                "Pipeline failure audit could not be finalized: %s",
-                type(audit_error).__name__,
-            )
+        finalize_pipeline_run_outcome(
+            handle,
+            work_succeeded=False,
+            started_at=started_at,
+            engine=engine,
+            local_manifest_directory=local_manifest_directory,
+            error_category=type(error).__name__,
+        )
         raise
     else:
-        finish_pipeline_run(
+        finalize_pipeline_run_outcome(
             handle,
-            status="succeeded",
+            work_succeeded=True,
             started_at=started_at,
             engine=engine,
             local_manifest_directory=local_manifest_directory,
         )
+
+
+def complete_reconciled_pipeline_run(
+    *,
+    run_id: UUID | str,
+    output_rows: int,
+    engine: Engine,
+    workflow: PipelineWorkflow,
+    application_version: str,
+    model_revision: str | None = None,
+) -> PipelineRunOutcome:
+    """Completa una corrida verificada y registra el intento de reconciliación."""
+
+    original = PipelineRunHandle(
+        UUID(str(run_id)),
+        PipelineRunMetadata(
+            workflow=workflow,
+            application_name="vaaet-persistence-reconciliation",
+            application_version=application_version,
+            model_revision=model_revision,
+        ),
+        output_rows=output_rows,
+        model_revision=model_revision,
+    )
+    try:
+        metadata = PipelineRunMetadata(
+            workflow=workflow,
+            application_name="vaaet-persistence-reconciliation",
+            application_version=application_version,
+            source_kind="audit-reconciliation",
+            input_rows=output_rows,
+            model_revision=model_revision,
+        )
+        with pipeline_run(metadata, engine=engine) as reconciliation:
+            finish_pipeline_run(
+                original,
+                status="succeeded",
+                started_at=_utc_now(),
+                engine=engine,
+            )
+            reconciliation.set_output_rows(output_rows)
+        reconciliation_outcome = reconciliation.outcome
+        audit_complete = bool(
+            reconciliation_outcome is not None and reconciliation_outcome.audit_complete
+        )
+        original.outcome = PipelineRunOutcome(
+            run_id=original.id,
+            work_succeeded=True,
+            audit_complete=audit_complete,
+            output_rows=output_rows,
+            model_revision=model_revision,
+            audit_error_category=(
+                None
+                if audit_complete
+                else (
+                    reconciliation_outcome.audit_error_category
+                    if reconciliation_outcome is not None
+                    else "MissingReconciliationOutcome"
+                )
+            ),
+            reconciliation_run_id=reconciliation.id,
+        )
+    except Exception as audit_error:
+        original.outcome = PipelineRunOutcome(
+            run_id=original.id,
+            work_succeeded=True,
+            audit_complete=False,
+            output_rows=output_rows,
+            model_revision=model_revision,
+            audit_error_category=type(audit_error).__name__,
+        )
+        logger.warning(
+            "Reconciled pipeline run audit remains incomplete: %s",
+            type(audit_error).__name__,
+        )
+    assert original.outcome is not None
+    return original.outcome
 
 
 def _raise_pipeline_database_error(
@@ -339,7 +478,10 @@ def _raise_pipeline_database_error(
 __all__ = [
     "PipelineRunHandle",
     "PipelineRunMetadata",
+    "PipelineRunOutcome",
     "PipelineWorkflow",
+    "complete_reconciled_pipeline_run",
+    "finalize_pipeline_run_outcome",
     "finish_pipeline_run",
     "pipeline_run",
     "start_pipeline_run",

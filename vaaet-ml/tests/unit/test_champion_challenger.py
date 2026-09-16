@@ -36,6 +36,12 @@ class _FeatureStateModel:
         return np.eye(3)[states]
 
 
+class _InvalidProbabilityModel(_FeatureStateModel):
+    def predict(self, values: np.ndarray, *, verbose: int = 0) -> np.ndarray:
+        del verbose
+        return np.full((len(values), 3), 0.5, dtype=float)
+
+
 def test_evaluation_reuses_the_portable_feature_scaler_protocol() -> None:
     """La evaluación conserva el alias público del contrato portable compartido."""
 
@@ -143,6 +149,25 @@ def test_evaluation_rejects_bundles_with_different_holdouts(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="different human holdout"):
         validate_evaluation_pair(champion, challenger, holdout)
+
+
+def test_evaluation_rejects_non_probability_model_output(tmp_path: Path) -> None:
+    holdout = _holdout(tmp_path)
+    current = _bundle("champion", holdout)
+    invalid = EvaluationBundle(
+        name=current.name,
+        path=current.path,
+        manifest=current.manifest,
+        model=_InvalidProbabilityModel(),
+        scaler=current.scaler,
+    )
+
+    with pytest.raises(ValueError, match="sum to 1"):
+        evaluate_champion_challenger(
+            invalid,
+            _bundle("challenger", holdout),
+            holdout,
+        )
 
 
 def test_evaluation_rejects_a_snapshot_other_than_the_manifest_snapshot(tmp_path: Path) -> None:

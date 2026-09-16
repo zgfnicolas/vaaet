@@ -4,13 +4,15 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
+from enum import Enum
 from typing import NoReturn
 
 import pandas as pd
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
 from vaaet_persistence.connection import dispose_engine, get_engine
@@ -19,6 +21,14 @@ from vaaet_persistence.settings import DatabaseSettings
 
 RAW_TABLE = "vaaet_raw.traffic_data"
 EFFECTIVE_LABELS_VIEW = "vaaet_feedback.effective_human_labels"
+
+
+class TelemetryReadMode(str, Enum):
+    """Selecciona de forma explícita el contrato PostgreSQL de telemetría."""
+
+    CURRENT = "current"
+    LEGACY = "legacy"
+
 
 TELEMETRY_QUERY = f"""
 SELECT id, pipeline_run_id, clip_id, continuity_id, record_time, avg_speed,
@@ -136,23 +146,42 @@ def _active_engine(settings: DatabaseSettings | None, engine: Engine | None) -> 
 def load_telemetry(
     settings: DatabaseSettings | None = None,
     engine: Engine | None = None,
+    *,
+    mode: TelemetryReadMode | str = TelemetryReadMode.CURRENT,
 ) -> pd.DataFrame:
-    """Carga telemetría canónica y agrega columnas nulas al fallback legado explícito."""
+    """Carga exclusivamente el contrato de telemetría seleccionado."""
 
+    try:
+        read_mode = mode if isinstance(mode, TelemetryReadMode) else TelemetryReadMode(mode)
+    except ValueError:
+        raise ValueError(f"Unsupported telemetry read mode: {mode!r}.") from None
     active_engine, owns_engine = _active_engine(settings, engine)
     try:
         try:
-            return pd.read_sql(text(TELEMETRY_QUERY), active_engine)
-        except ProgrammingError:
-            try:
-                legacy = pd.read_sql(text(LEGACY_TELEMETRY_QUERY), active_engine)
-            except SQLAlchemyError as exc:
-                _raise_read_error(exc, operation="load-legacy-telemetry")
+            if read_mode is TelemetryReadMode.CURRENT:
+                return pd.read_sql(text(TELEMETRY_QUERY), active_engine)
+            warnings.warn(
+                "Legacy PostgreSQL telemetry was selected explicitly; modern lineage and "
+                "quality fields remain unknown.",
+                UserWarning,
+                stacklevel=2,
+            )
+            legacy = pd.read_sql(text(LEGACY_TELEMETRY_QUERY), active_engine)
             for column in _LEGACY_MISSING_COLUMNS:
                 legacy[column] = pd.NA
+            legacy.attrs["vaaet_provenance"] = {
+                "archive_table": "public.traffic_data",
+                "database_layout": "legacy",
+                "telemetry_read_mode": TelemetryReadMode.LEGACY.value,
+            }
             return legacy
         except SQLAlchemyError as exc:
-            _raise_read_error(exc, operation="load-telemetry")
+            operation = (
+                "load-telemetry"
+                if read_mode is TelemetryReadMode.CURRENT
+                else "load-legacy-telemetry"
+            )
+            _raise_read_error(exc, operation=operation)
     finally:
         if owns_engine:
             dispose_engine(active_engine)

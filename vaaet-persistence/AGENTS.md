@@ -25,6 +25,9 @@ DVC, Google Drive, Colab ni la futura aplicación.
 - Traducí todos los fallos externos mediante errores de dominio y el SQLSTATE
   validado conforme a
   [`ADR-0031`](../docs/architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
+- Seleccioná telemetría `CURRENT` o `LEGACY` sin fallback por excepción y
+  reconciliá auditorías sólo después de verificar contenido, conforme a
+  [`ADR-0032`](../docs/architecture/decisions/0032-complete-cycle-integrity.md).
 - Alembic es la única autoridad DDL. No ejecutes migraciones desde notebooks.
 - No modifiques revisiones publicadas; agregá una nueva revisión cuando cambie
   el schema.

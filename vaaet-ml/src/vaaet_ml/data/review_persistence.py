@@ -21,6 +21,9 @@ from vaaet_persistence.review_persistence import (
 from vaaet_persistence.review_persistence import (
     persist_human_validation_record as _persist_human_validation_record,
 )
+from vaaet_persistence.review_persistence import (
+    reconcile_human_validation as _reconcile_human_validation,
+)
 from vaaet_persistence.settings import DatabaseSettings
 
 from vaaet_ml import __version__
@@ -92,10 +95,33 @@ def persist_human_validation_record(
             dispose_engine(active)
 
 
+def reconcile_human_validation(
+    decision: HumanValidation,
+    *,
+    pipeline_run_id: UUID | str,
+    settings: DatabaseSettings | Mapping[str, str] | None = None,
+    engine: Engine | None = None,
+) -> PersistedHumanValidation:
+    """Verifica una decisión existente sin generar otra validación humana."""
+
+    owns = engine is None
+    active = engine if engine is not None else get_engine(settings)
+    try:
+        return _reconcile_human_validation(
+            decision,
+            engine=active,
+            pipeline_run_id=pipeline_run_id,
+        )
+    finally:
+        if owns:
+            dispose_engine(active)
+
+
 __all__ = [
     "PersistedHumanValidation",
     "REVIEW_QUEUE_QUERY",
     "load_review_queue",
     "persist_human_validation",
     "persist_human_validation_record",
+    "reconcile_human_validation",
 ]

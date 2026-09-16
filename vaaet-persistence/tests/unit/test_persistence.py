@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from decimal import Decimal
+from types import SimpleNamespace
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -13,6 +16,7 @@ from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.features.engineering import engineer_features
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
+from vaaet_persistence.exceptions import PipelineAuditIncompleteError
 from vaaet_persistence.persistence import (
     INSERT_FEATURE_SQL,
     INSERT_PREDICTION_SQL,
@@ -251,6 +255,58 @@ def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -
         persist_raw_telemetry(frame, settings=settings)
 
     assert not created
+
+
+def test_raw_scalar_facade_exposes_confirmed_result_when_audit_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "clip_id": "audit-incomplete",
+                "record_time": pd.Timestamp("2026-09-15T00:00:00Z"),
+                "avg_speed": 10.0,
+                "count_car": 1,
+                "count_truck": 0,
+                "count_bus": 0,
+                "count_motorcycle": 0,
+                "count_bicycle": 0,
+                "total_vehicles": 1,
+                "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            }
+        ]
+    )
+    run_id = uuid4()
+    run = SimpleNamespace(
+        id=run_id,
+        outcome=SimpleNamespace(
+            run_id=run_id,
+            audit_complete=False,
+            audit_error_category="DatabaseOperationError",
+        ),
+        set_output_rows=lambda _rows: None,
+    )
+
+    @contextmanager
+    def fake_pipeline_run(*_args: object, **_kwargs: object):
+        yield run
+
+    monkeypatch.setattr("vaaet_persistence.persistence.pipeline_run", fake_pipeline_run)
+    monkeypatch.setattr(
+        "vaaet_persistence.persistence.persist_raw_telemetry",
+        lambda *_args, **_kwargs: 1,
+    )
+
+    with pytest.raises(PipelineAuditIncompleteError) as captured:
+        persist_raw_telemetry(
+            frame,
+            engine=object(),  # type: ignore[arg-type]
+            application_name="test-consumer",
+            application_version="1.0.0",
+        )
+
+    assert captured.value.confirmed_result == 1
+    assert captured.value.run_id == str(run_id)
 
 
 def test_classified_persistence_requires_declared_telemetry_schema() -> None:

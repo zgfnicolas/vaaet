@@ -392,6 +392,37 @@ def test_pending_package_without_algorithm_uses_historical_fingerprint(tmp_path:
     assert synced.package_id == package_id
 
 
+def test_review_export_rejects_duplicate_source_prediction_identity() -> None:
+    classified = _classified_frame().assign(prediction_id=[7, 7])
+
+    with pytest.raises(ValueError, match="ambiguous prediction identities"):
+        normalize_review_frames(
+            classified,
+            [HumanValidation(prediction_id=7, validated_state=0, reviewer_id="facundo")],
+            pipeline_run_id=str(uuid.uuid4()),
+            model_version="mlp-v3.0",
+            finalized_at=datetime.now(timezone.utc),
+        )
+
+
+def test_review_export_deduplicates_identical_source_prediction_rows() -> None:
+    classified = _classified_frame().assign(prediction_id=[7, 8])
+    equivalent = classified.iloc[[0]].copy()
+    equivalent["record_time"] = "2026-08-10T15:00:00-03:00"
+    classified = pd.concat([classified, equivalent], ignore_index=True)
+
+    frames = normalize_review_frames(
+        classified,
+        [],
+        pipeline_run_id=str(uuid.uuid4()),
+        model_version="mlp-v3.0",
+        finalized_at=datetime.now(timezone.utc),
+    )
+
+    assert len(frames["features"]) == 2
+    assert len(frames["predictions"]) == 2
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

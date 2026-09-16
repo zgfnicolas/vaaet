@@ -560,6 +560,8 @@ def _training_summary(config: TrainingWorkflowConfig) -> WorkflowSummary:
     if config.enable_postgres_ingestion:
         inputs.append("PostgreSQL read-only")
         requirements.append("perfil PostgreSQL training")
+        if config.postgres_telemetry_read_mode == "legacy":
+            warnings.append("telemetría PostgreSQL legacy seleccionada explícitamente")
     if config.enable_data_upload:
         requirements.append("upload explícito del archivo raw")
     if config.write_training_report:

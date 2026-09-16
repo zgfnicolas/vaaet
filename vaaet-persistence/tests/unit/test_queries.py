@@ -12,6 +12,9 @@ from vaaet_persistence.queries import (
     HUMAN_FEATURES_QUERY,
     HUMAN_PREDICTIONS_QUERY,
     HUMAN_VALIDATIONS_QUERY,
+    LEGACY_TELEMETRY_QUERY,
+    TELEMETRY_QUERY,
+    TelemetryReadMode,
     load_human_feedback_components,
     load_human_ground_truth,
     load_telemetry,
@@ -70,22 +73,38 @@ def _settings() -> DatabaseSettings:
     )
 
 
-def test_load_telemetry_falls_back_to_legacy_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_telemetry_legacy_mode_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = _DisposableEngine()
-    calls = {"count": 0}
 
     def fake_read_sql(statement: object, _engine: object) -> pd.DataFrame:
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise ProgrammingError(str(statement), {}, RuntimeError("missing v2"))
+        assert str(statement) == LEGACY_TELEMETRY_QUERY
         return pd.DataFrame({"clip_id": ["legacy"]})
 
     monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
-    result = load_telemetry(engine=engine)
+    with pytest.warns(UserWarning, match="selected explicitly"):
+        result = load_telemetry(engine=engine, mode=TelemetryReadMode.LEGACY)
 
     assert result["clip_id"].tolist() == ["legacy"]
     assert result["pipeline_run_id"].isna().all()
+    assert result.attrs["vaaet_provenance"]["telemetry_read_mode"] == "legacy"
     assert not engine.disposed
+
+
+def test_current_telemetry_error_never_falls_back_to_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_read_sql(statement: object, _engine: object) -> pd.DataFrame:
+        calls.append(str(statement))
+        raise ProgrammingError(str(statement), {}, RuntimeError("permission denied marker"))
+
+    monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
+    with pytest.raises(Exception) as captured:
+        load_telemetry(engine=_DisposableEngine())
+
+    assert calls == [TELEMETRY_QUERY]
+    assert "permission denied marker" not in str(captured.value)
 
 
 def test_read_only_queries_dispose_owned_engine(monkeypatch: pytest.MonkeyPatch) -> None:

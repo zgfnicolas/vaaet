@@ -11,9 +11,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from enum import Enum
-from numbers import Integral, Real
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
@@ -25,6 +23,7 @@ from vaaet.timestamps import normalize_timestamp_series
 
 from vaaet_ml.data.artifact_serialization import (
     atomic_json_write,
+    canonical_contract_value,
     canonical_timestamp_identity,
     is_sha256,
     read_package_manifest,
@@ -499,7 +498,9 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     # comprobación permitiría reasociar silenciosamente referencias repetidas.
     features = _deduplicate_uuid_rows(features, name="features")
     predictions = _deduplicate_uuid_rows(predictions, name="predictions")
-    validations = _deduplicate_uuid_rows(validations, name="validations")
+    # Las referencias humanas se comparan después de resolver aliases de
+    # predicciones ya verificados. Dos paquetes históricos pueden conservar el
+    # mismo UUID de validación apuntando a IDs equivalentes de la misma predicción.
     features, predictions, validations = _canonicalize_feedback_identities(
         features, predictions, validations
     )
@@ -564,6 +565,11 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
         validation_lineage
     ].transform(_join_lineage_values)
     feedback = feedback.drop_duplicates(["clip_id", "record_time"], keep="last")
+    # Las tablas relacionales y los ZIP no prometen orden físico. La continuidad
+    # se valida sobre la secuencia consolidada, no sobre el orden accidental de UUID.
+    feedback = feedback.sort_values(["clip_id", "record_time"], kind="stable").reset_index(
+        drop=True
+    )
     return normalize_continuity_frame(feedback)
 
 
@@ -593,7 +599,7 @@ def _deduplicate_uuid_rows(  # noqa: C901 - consolida contenido y procedencia po
         merged = group.iloc[0].copy()
         for column in comparison:
             present = [value for value in group[column] if not _missing_value(value)]
-            canonical = {_canonical_comparison_value(column, value) for value in present}
+            canonical = {canonical_contract_value(column, value) for value in present}
             if len(canonical) > 1:
                 if name == "validations":
                     raise ValueError(
@@ -709,7 +715,7 @@ def _deduplicate_equivalent_validations(validations: pd.DataFrame) -> pd.DataFra
     groups: dict[tuple[tuple[str, object], ...], list[int]] = {}
     for index, row in frame.iterrows():
         key = tuple(
-            _canonical_comparison_value(column, row[column])
+            canonical_contract_value(column, row[column])
             if not _missing_value(row[column])
             else ("missing", "")
             for column in comparison
@@ -739,22 +745,6 @@ def _missing_value(value: object) -> bool:
         return bool(pd.isna(value))
     except (TypeError, ValueError):
         return False
-
-
-def _canonical_comparison_value(column: str, value: object) -> tuple[str, object]:
-    if column in {"record_time", "reviewed_at", "created_at", "classified_at"}:
-        return ("timestamp", canonical_timestamp_identity(value))
-    if type(value) is bool or type(value).__name__ == "bool_":
-        return ("boolean", bool(value))
-    if isinstance(value, Decimal):
-        return ("number", float(value))
-    if isinstance(value, Integral) and not isinstance(value, bool):
-        return ("number", int(value))
-    if isinstance(value, Real) and not isinstance(value, bool):
-        return ("number", float(value))
-    if isinstance(value, str):
-        return ("text", value)
-    return (type(value).__name__, str(value))
 
 
 def _join_lineage_values(values: pd.Series) -> str:

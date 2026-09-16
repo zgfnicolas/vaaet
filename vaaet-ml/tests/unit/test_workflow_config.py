@@ -59,6 +59,37 @@ def test_training_config_requires_an_explicit_boolean_for_drive_copy() -> None:
         )
 
 
+def test_training_config_allows_legacy_read_only_for_seed_postgres() -> None:
+    config = TrainingWorkflowConfig(
+        "seed_bootstrap",
+        True,
+        False,
+        False,
+        "reuse_or_create",
+        None,
+        "reuse_or_create",
+        None,
+        postgres_telemetry_read_mode="legacy",
+    )
+
+    assert config.postgres_telemetry_read_mode == "legacy"
+
+
+def test_training_config_rejects_legacy_read_for_hitl_feedback() -> None:
+    with pytest.raises(RuntimeConfigurationError, match="only for raw seed"):
+        TrainingWorkflowConfig(
+            "hitl_retraining",
+            True,
+            False,
+            False,
+            "reuse_or_create",
+            None,
+            "reuse_or_create",
+            None,
+            postgres_telemetry_read_mode="legacy",
+        )
+
+
 def test_evaluation_config_requires_exact_holdout() -> None:
     with pytest.raises(RuntimeConfigurationError, match="must not be current.json"):
         EvaluationWorkflowConfig(

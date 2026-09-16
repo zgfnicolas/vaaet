@@ -14,7 +14,11 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score
 from vaaet.artifacts import validate_manifest
-from vaaet.calibration import apply_temperature_scaling, multiclass_brier_score
+from vaaet.calibration import (
+    apply_temperature_scaling,
+    multiclass_brier_score,
+    validate_probability_matrix,
+)
 from vaaet.inference.protocols import FeatureScaler
 from vaaet.inference.traffic_state import classify_telemetry_dataframe
 from vaaet.settings import FEATURE_COLS, MODEL_STATE_LABELS
@@ -196,15 +200,14 @@ def _calibrated_probabilities(bundle: EvaluationBundle, frame: pd.DataFrame) -> 
     input_policy = _bundle_input_policy(bundle)
     matrix = apply_model_input_policy(frame, input_policy)
     values = np.asarray(bundle.scaler.transform(matrix.to_numpy()), dtype=float)
-    raw_probabilities = np.asarray(bundle.model.predict(values, verbose=0), dtype=float)
-    expected_shape = (len(frame), len(MODEL_STATE_LABELS))
-    if raw_probabilities.shape != expected_shape:
-        raise ValueError(
-            f"Bundle {bundle.name!r} returned probabilities with shape {raw_probabilities.shape}; "
-            f"expected {expected_shape}."
+    try:
+        raw_probabilities = validate_probability_matrix(
+            bundle.model.predict(values, verbose=0),
+            rows=len(frame),
+            classes=len(MODEL_STATE_LABELS),
         )
-    if not np.isfinite(raw_probabilities).all() or (raw_probabilities < 0).any():
-        raise ValueError(f"Bundle {bundle.name!r} returned invalid probabilities.")
+    except ValueError as exc:
+        raise ValueError(f"Bundle {bundle.name!r} returned invalid probabilities: {exc}") from exc
     policy = _bundle_decision_policy(bundle)
     temperature = policy.get("temperature", 1.0)
     return apply_temperature_scaling(raw_probabilities, float(temperature))

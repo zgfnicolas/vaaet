@@ -133,6 +133,10 @@ antes de deserializar un bundle.
 - La asociación estricta de identidades, el estado vigente de inferencia y el
   publicador único del catálogo HITL están gobernados por
   [ADR-0031](docs/architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
+- El orden determinista de consolidación, los modos PostgreSQL explícitos, la
+  reconciliación sin reinserciones y la validación compartida de probabilidades
+  están gobernados por
+  [ADR-0032](docs/architecture/decisions/0032-complete-cycle-integrity.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

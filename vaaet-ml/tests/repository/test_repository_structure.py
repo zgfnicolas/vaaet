@@ -359,7 +359,7 @@ def test_python_313_is_declared_and_exercised_by_ci() -> None:
     assert 'requires-python = ">=3.10,<3.14"' in pyproject
     assert '"Programming Language :: Python :: 3.13"' in pyproject
     assert "tensorflow" not in pyproject
-    assert "vaaet-core[inference]==0.2.1" in pyproject
+    assert "vaaet-core[inference]==0.2.2" in pyproject
     assert "python_version >= '3.13'" in core_pyproject
     assert 'python-version: ["3.10", "3.11", "3.12", "3.13"]' in workflow
 
@@ -413,16 +413,16 @@ def test_portable_agent_context_describes_the_active_monorepo() -> None:
     ml_context = (ML_ROOT / "llms.txt").read_text(encoding="utf-8")
     normalized_core_rules = " ".join(core_rules.split())
 
-    assert "vaaet-core==0.2.1" in root_context
-    assert "vaaet-persistence==0.2.2" in root_context
-    assert "vaaet-ml==4.8.2" in root_context
+    assert "vaaet-core==0.2.2" in root_context
+    assert "vaaet-persistence==0.2.3" in root_context
+    assert "vaaet-ml==4.8.3" in root_context
     assert "import `vaaet_ml`" in root_context
     assert "cuatro notebooks" in root_context
     assert "No puede importar `vaaet_ml`, PostgreSQL, DVC, Google Drive" in normalized_core_rules
     assert "Pipe-and-Filter síncrono" in core_rules
     assert "ADR-0025" in root_context
     assert "`vaaet_ml`" in ml_context
-    assert "`vaaet-persistence==0.2.2`" in ml_context
+    assert "`vaaet-persistence==0.2.3`" in ml_context
     assert "`src/vaaet_ml/`" in ml_context
     assert "Los cuatro notebooks" in ml_context
     assert "Tres workflows Colab" not in ml_context
@@ -474,7 +474,7 @@ def test_normative_documentation_matches_the_active_monorepo() -> None:
         assert stale_claim not in combined
 
     assert "Normativo y vigente" in documents["docs/product/product-requirements.md"]
-    assert "`vaaet-core==0.2.1`" in documents["docs/product/software-requirements.md"]
+    assert "`vaaet-core==0.2.2`" in documents["docs/product/software-requirements.md"]
     assert "fuera de alcance" in documents["docs/product/software-requirements.md"]
     assert "Cuatro notebooks" in documents["docs/product/product-requirements.md"]
     assert "cuarto\nnotebook" in documents["docs/operations/user-guide.md"]

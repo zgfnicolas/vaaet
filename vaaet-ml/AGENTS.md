@@ -5,10 +5,10 @@
 | Campo | Detalle |
 |---|---|
 | Proyecto | VAAET ML — Video Advanced Analysis of Traffic |
-| Versión | 4.8.2 |
+| Versión | 4.8.3 |
 | Runtime objetivo | Python 3.10–3.13; Google Colab |
 | Responsable | Facundo Nicolás González |
-| Última revisión | 2026-08-27 |
+| Última revisión | 2026-09-16 |
 
 ## Mandato
 
@@ -35,8 +35,9 @@ consume ambas bibliotecas. La Web App futura sólo consumirá una API cuyo backe
 usará core/persistencia y validará el bundle v3. El MLP aprende tres estados estables;
 Accident es un estado público exclusivamente humano conforme a ADR-0014.
 ADR-0021 gobierna esta frontera junto con los ADRs de datos, HITL y holdouts;
-ADR-0030 completa la idempotencia operacional y ADR-0031 gobierna la
-publicación coordinada del catálogo y la recuperación portable.
+ADR-0030 completa la idempotencia operacional, ADR-0031 gobierna la
+publicación coordinada del catálogo y la recuperación portable, y ADR-0032
+gobierna el orden de consolidación y los resultados con auditoría incompleta.
 
 ## Gobernanza
 

@@ -14,6 +14,7 @@ from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils.class_weight import compute_class_weight
+from vaaet.calibration import validate_probability_matrix
 from vaaet.settings import N_MODEL_STATES, STATE_LABELS
 
 from vaaet_ml.data.datasets import build_group_ids
@@ -212,7 +213,12 @@ def _evaluate_fold(
         verbose=0,
     )
     validate_training_history(history)
-    predictions = model.predict(validation_features, verbose=0).argmax(axis=1).astype(int)
+    probabilities = validate_probability_matrix(
+        model.predict(validation_features, verbose=0),
+        rows=len(validation_features),
+        classes=N_MODEL_STATES,
+    )
+    predictions = probabilities.argmax(axis=1).astype(int)
     support = {state: int((validation_labels == state).sum()) for state in range(N_MODEL_STATES)}
     missing_labels = tuple(STATE_LABELS[state] for state, count in support.items() if count == 0)
     f1_macro = None if missing_labels else _macro_f1(validation_labels, predictions)

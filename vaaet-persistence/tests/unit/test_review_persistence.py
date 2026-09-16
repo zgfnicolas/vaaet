@@ -134,7 +134,11 @@ def test_persist_validation_uses_supplied_pipeline_run_and_disposes_owned_engine
 
 def test_persist_validation_creates_review_lineage_when_run_is_missing(monkeypatch) -> None:
     engine = _Engine()
-    run = SimpleNamespace(id=uuid4(), set_output_rows=lambda rows: setattr(run, "rows", rows))
+    run = SimpleNamespace(
+        id=uuid4(),
+        outcome=SimpleNamespace(audit_complete=True, audit_error_category=None),
+        set_output_rows=lambda rows: setattr(run, "rows", rows),
+    )
 
     @contextmanager
     def fake_pipeline_run(*_args, **_kwargs):

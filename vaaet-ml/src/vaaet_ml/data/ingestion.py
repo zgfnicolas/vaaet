@@ -19,6 +19,7 @@ from vaaet.timestamps import (
     count_naive_timestamps,
     normalize_timestamp_series,
 )
+from vaaet_persistence import TelemetryReadMode
 
 from vaaet_ml.data.database import (
     DatabaseSettings,
@@ -73,6 +74,16 @@ class FeedbackPolicy(str, Enum):
 class PostgresSource:
     settings: DatabaseSettings
     feature_schema_version: str | None = FEATURE_SCHEMA_VERSION
+    telemetry_read_mode: TelemetryReadMode | str = TelemetryReadMode.CURRENT
+
+    def __post_init__(self) -> None:
+        try:
+            mode = TelemetryReadMode(self.telemetry_read_mode)
+        except ValueError:
+            raise ValueError(
+                f"Unsupported PostgreSQL telemetry read mode: {self.telemetry_read_mode!r}."
+            ) from None
+        object.__setattr__(self, "telemetry_read_mode", mode)
 
 
 @dataclass(frozen=True)
@@ -206,6 +217,8 @@ def _load_feedback_components(
     source: TrainingSource,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
     if isinstance(source, PostgresSource):
+        if source.telemetry_read_mode is not TelemetryReadMode.CURRENT:
+            raise ValueError("Legacy PostgreSQL mode is supported only for raw telemetry sources.")
         return (
             portable_feedback_components(load_human_feedback_components(
                 settings=source.settings,
@@ -293,7 +306,10 @@ def _frames_from_backup(  # noqa: C901 - valida variantes históricas en un úni
 
 def _load_raw(source: TrainingSource) -> pd.DataFrame:
     if isinstance(source, PostgresSource):
-        frame = load_telemetry(settings=source.settings)
+        frame = load_telemetry(
+            settings=source.settings,
+            mode=source.telemetry_read_mode,
+        )
     elif isinstance(source, RawCsvSource):
         frame = pd.read_csv(source.path, float_precision="round_trip")
     elif isinstance(source, DatasetPackageSource):

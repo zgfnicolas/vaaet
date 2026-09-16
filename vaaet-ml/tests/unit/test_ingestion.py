@@ -7,21 +7,26 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
+from vaaet_persistence import DatabaseSettings, TelemetryReadMode
 
 from vaaet_ml.data.ingestion import (
     RAW_REQUIRED_COLUMNS,
     DatasetPackageSource,
     FeedbackPolicy,
     PostgresBackupSource,
+    PostgresSource,
     RawCsvSource,
     SeedDatasetPackageSource,
     TrainingIngestionPlan,
     _deduplicate_feedback,
+    _load_feedback_components,
+    _load_raw,
     compose_supervised_dataset,
     create_dataset_package,
     load_dataset_package,
@@ -120,6 +125,50 @@ def test_legacy_backup_review_flags_are_not_invented_as_ground_truth(
 
 def test_only_validated_feedback_policy_exists() -> None:
     assert list(FeedbackPolicy) == [FeedbackPolicy.VALIDATED_ONLY]
+
+
+def test_postgres_raw_source_forwards_explicit_legacy_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_load_telemetry(*, settings: object, mode: object) -> pd.DataFrame:
+        captured.update(settings=settings, mode=mode)
+        return pd.DataFrame(
+            [
+                {
+                    "clip_id": "clip-a",
+                    "record_time": "2026-01-01T00:00:00Z",
+                    "avg_speed": 10.0,
+                    "count_car": 1,
+                    "count_truck": 0,
+                    "count_bus": 0,
+                    "count_motorcycle": 0,
+                    "count_bicycle": 0,
+                    "total_vehicles": 1,
+                }
+            ]
+        )
+
+    monkeypatch.setattr("vaaet_ml.data.ingestion.load_telemetry", fake_load_telemetry)
+    settings = cast(DatabaseSettings, object())
+
+    result = _load_raw(
+        PostgresSource(settings, telemetry_read_mode=TelemetryReadMode.LEGACY)
+    )
+
+    assert len(result) == 1
+    assert captured == {"settings": settings, "mode": TelemetryReadMode.LEGACY}
+
+
+def test_legacy_postgres_mode_is_rejected_for_human_feedback() -> None:
+    source = PostgresSource(
+        cast(DatabaseSettings, object()),
+        telemetry_read_mode=TelemetryReadMode.LEGACY,
+    )
+
+    with pytest.raises(ValueError, match="only for raw telemetry"):
+        _load_feedback_components(source)
 
 
 def test_feedback_requires_explicit_human_validation_evidence() -> None:

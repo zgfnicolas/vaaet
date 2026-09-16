@@ -20,9 +20,15 @@ from vaaet_persistence.exceptions import (
     DatabaseOperationError,
     PersistenceConflictError,
     PersistenceError,
+    PipelineAuditIncompleteError,
     safe_sqlstate,
 )
-from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
+from vaaet_persistence.pipeline_runs import (
+    PipelineRunMetadata,
+    PipelineWorkflow,
+    complete_reconciled_pipeline_run,
+    pipeline_run,
+)
 from vaaet_persistence.review_domain import HumanValidation, select_review_queue
 from vaaet_persistence.settings import DatabaseSettings
 
@@ -81,6 +87,8 @@ class PersistedHumanValidation:
 
     decision: HumanValidation
     pipeline_run_id: UUID
+    audit_complete: bool = True
+    audit_error_category: str | None = None
 
     @property
     def validation_id(self) -> UUID:
@@ -172,14 +180,67 @@ def persist_human_validation(
 ) -> UUID:
     """Fachada compatible que devuelve el UUID de una decisión persistida."""
 
-    return persist_human_validation_record(
+    persisted = persist_human_validation_record(
         decision,
         settings=settings,
         engine=engine,
         pipeline_run_id=pipeline_run_id,
         application_name=application_name,
         application_version=application_version,
-    ).validation_id
+    )
+    if not persisted.audit_complete:
+        raise PipelineAuditIncompleteError(
+            "The human validation was stored, but its pipeline audit is incomplete.",
+            confirmed_result=persisted.validation_id,
+            run_id=str(persisted.pipeline_run_id),
+            audit_error_category=persisted.audit_error_category,
+        )
+    return persisted.validation_id
+
+
+def reconcile_human_validation(
+    decision: HumanValidation,
+    *,
+    pipeline_run_id: UUID | str,
+    settings: DatabaseSettings | None = None,
+    engine: Engine | None = None,
+) -> PersistedHumanValidation:
+    """Verifica una decisión almacenada y completa únicamente su auditoría pendiente."""
+
+    try:
+        run_uuid = UUID(str(pipeline_run_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("pipeline_run_id must be a UUID.") from None
+    owns_engine = engine is None
+    if engine is not None:
+        active_engine = engine
+    elif settings is not None:
+        active_engine = get_engine(settings)
+    else:
+        raise ValueError("PostgreSQL reconciliation requires explicit settings or an engine.")
+    try:
+        existing = _load_existing_validation(active_engine, decision.validation_id)
+        if existing is None:
+            raise PersistenceConflictError(
+                "The human validation cannot be reconciled because it is not stored."
+            )
+        _assert_same_validation(existing, _validation_payload(decision, run_uuid))
+        outcome = complete_reconciled_pipeline_run(
+            run_id=run_uuid,
+            output_rows=1,
+            engine=active_engine,
+            workflow=PipelineWorkflow.REVIEW,
+            application_version="0.2.3",
+        )
+        return PersistedHumanValidation(
+            decision=_stored_decision(existing),
+            pipeline_run_id=run_uuid,
+            audit_complete=outcome.audit_complete,
+            audit_error_category=outcome.audit_error_category,
+        )
+    finally:
+        if owns_engine:
+            dispose_engine(active_engine)
 
 
 def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL idempotente.
@@ -246,7 +307,15 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
                     pipeline_run_id=run.id,
                 )
                 run.set_output_rows(1)
-            return persisted
+            outcome = run.outcome
+            if outcome is None:
+                raise RuntimeError("Pipeline run did not publish an outcome.")
+            return PersistedHumanValidation(
+                decision=persisted.decision,
+                pipeline_run_id=persisted.pipeline_run_id,
+                audit_complete=outcome.audit_complete,
+                audit_error_category=outcome.audit_error_category,
+            )
         finally:
             if owns_engine:
                 dispose_engine(active_engine)
@@ -386,4 +455,5 @@ __all__ = [
     "load_review_queue",
     "persist_human_validation",
     "persist_human_validation_record",
+    "reconcile_human_validation",
 ]

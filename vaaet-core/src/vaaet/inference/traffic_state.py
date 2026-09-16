@@ -9,7 +9,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
-from vaaet.calibration import apply_temperature_scaling
+from vaaet.calibration import apply_temperature_scaling, validate_probability_matrix
 from vaaet.features.engineering import engineer_features
 from vaaet.features.labeling import assign_instant_state
 from vaaet.inference.policy import (
@@ -96,15 +96,25 @@ def _ensure_feature_compatibility(scaler: FeatureScaler, feature_cols: list[str]
 
 
 def _validate_probabilities(probabilities: object, rows: int) -> np.ndarray:
-    values = np.asarray(probabilities, dtype=float)
-    if values.shape != (rows, len(MODEL_STATE_LABELS)):
-        raise ValueError(
-            "The bundle model must return exactly three probabilities in the order "
-            "Normal, Reduced, Congested."
+    try:
+        return validate_probability_matrix(
+            probabilities,
+            rows=rows,
+            classes=len(MODEL_STATE_LABELS),
         )
-    if not np.isfinite(values).all() or (values < 0).any():
-        raise ValueError("Model probabilities contain invalid values.")
-    return values
+    except ValueError as exc:
+        detail = str(exc)
+        if "shape" in detail:
+            message = (
+                "The bundle model must return exactly three probabilities per row "
+                "in the order Normal, Reduced, Congested."
+            )
+        else:
+            message = (
+                "The bundle model returned invalid values; every row must be a finite "
+                "probability distribution between 0 and 1 whose sum is 1."
+            )
+        raise ValueError(message) from exc
 
 
 def classify_telemetry_dataframe(

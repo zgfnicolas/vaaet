@@ -3,6 +3,7 @@
 """Excepciones seguras de la capa PostgreSQL compartida."""
 
 import re
+from typing import Any
 
 from vaaet.exceptions import VAAETError
 
@@ -48,6 +49,23 @@ class DatabaseSchemaVersionError(RuntimeError, PersistenceError):
     """Indica que una escritura apunta a una revisión Alembic incompatible."""
 
 
+class PipelineAuditIncompleteError(RuntimeError, PersistenceError):
+    """Comunica un resultado confirmado cuyo cierre auditable quedó pendiente."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        confirmed_result: Any,
+        run_id: str,
+        audit_error_category: str | None,
+    ) -> None:
+        super().__init__(message)
+        self.confirmed_result = confirmed_result
+        self.run_id = run_id
+        self.audit_error_category = audit_error_category
+
+
 def safe_sqlstate(error: BaseException) -> str | None:
     """Extrae únicamente un SQLSTATE contractual sin exponer mensajes externos."""
 
@@ -60,6 +78,7 @@ __all__ = [
     "DatabaseNotConfiguredError",
     "DatabaseOperationError",
     "DatabaseSchemaVersionError",
+    "PipelineAuditIncompleteError",
     "PersistenceConflictError",
     "PersistenceError",
     "PersistenceValidationError",

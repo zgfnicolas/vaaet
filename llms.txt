@@ -4,9 +4,9 @@ Antes de editar: leer `AGENTS.md`, este archivo, `docs/index.md`, ADR-0021 y, si
 el cambio afecta serving con YOLO, ADR-0022. Los ADRs, contratos y reglas de
 seguridad prevalecen sobre este resumen.
 
-Monorepo único: `vaaet-core/` (distribución `vaaet-core==0.2.1`, import
-`vaaet`), `vaaet-persistence/` (distribución `vaaet-persistence==0.2.2`, import
-`vaaet_persistence`), `vaaet-ml/` (distribución `vaaet-ml==4.8.2`,
+Monorepo único: `vaaet-core/` (distribución `vaaet-core==0.2.2`, import
+`vaaet`), `vaaet-persistence/` (distribución `vaaet-persistence==0.2.3`, import
+`vaaet_persistence`), `vaaet-ml/` (distribución `vaaet-ml==4.8.3`,
 import `vaaet_ml`), `vaaet-app/` (reservado), `docs/`, `.dvc/` y `.github/`. No existe paquete
 instalable en la raíz. Instalar core, persistencia y luego ML; DVC permanece en la raíz y
 versiona `vaaet-ml/artifacts/traffic-state/`. El remoto lógico único es
@@ -47,7 +47,9 @@ Los workflows usan `VAAET_DB_*` y una credencial por perfil; Alembic usa
 gobierna el consumo compartido por notebooks y el futuro backend; ADR-0029
 define fidelidad `float64`, linaje idempotente y resolución HITL terminal;
 ADR-0030 y ADR-0031 gobiernan identidades portables, estado por intento y
-publicación coordinada del catálogo.
+publicación coordinada del catálogo; ADR-0032 exige orden determinista,
+lecturas PostgreSQL explícitas, reconciliación sin reinserciones y
+probabilidades válidas en todos los consumidores.
 
 Invariantes: las 19 `FEATURE_COLS` contractuales mantienen orden exacto; el MLP aprende
 `Normal`, `Reduced` y `Congested`; `Accident` sólo se publica tras validación

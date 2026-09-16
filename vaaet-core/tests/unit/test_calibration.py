@@ -16,6 +16,7 @@ from vaaet.calibration import (
     multiclass_brier_score,
     pixels_per_meter_from_segment,
     pseudo_ground_truth_speed_kmh,
+    validate_probability_matrix,
 )
 
 
@@ -72,3 +73,40 @@ class TestCalibrationHelpers:
     def test_multiclass_brier_is_zero_for_perfect_predictions(self) -> None:
         probabilities = np.eye(3)
         assert multiclass_brier_score(np.array([0, 1, 2]), probabilities) == 0.0
+
+    @pytest.mark.parametrize(
+        "probabilities",
+        [
+            [[2.0, 0.0, 0.0]],
+            [[0.0, 0.0, 0.0]],
+            [[0.5, 0.4, 0.0]],
+            [[-0.1, 0.5, 0.6]],
+            [[np.nan, 0.5, 0.5]],
+            [[np.inf, 0.0, 0.0]],
+        ],
+    )
+    def test_probability_contract_rejects_invalid_distributions(
+        self, probabilities: list[list[float]]
+    ) -> None:
+        with pytest.raises(ValueError, match="probabilit"):
+            validate_probability_matrix(probabilities)
+
+    def test_probability_contract_accepts_float32_and_boundary_zeros(self) -> None:
+        probabilities = np.array([[1.0, 0.0, 0.0], [0.2, 0.3, 0.5]], dtype=np.float32)
+        validated = validate_probability_matrix(probabilities, rows=2)
+
+        assert validated.dtype == np.float64
+        np.testing.assert_allclose(validated, probabilities)
+
+    @pytest.mark.parametrize(
+        "probabilities",
+        (
+            [[True, False, False]],
+            [["1", "0", "0"]],
+        ),
+    )
+    def test_probability_contract_rejects_non_numeric_values(
+        self, probabilities: object
+    ) -> None:
+        with pytest.raises(ValueError, match="numeric matrix"):
+            validate_probability_matrix(probabilities)

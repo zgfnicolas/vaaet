@@ -16,6 +16,7 @@ from vaaet.continuity import normalize_continuity_frame
 from vaaet.settings import FEATURE_COLS
 
 from vaaet_ml.data.artifact_serialization import (
+    canonical_contract_value,
     canonical_timestamp_identity,
     is_sha256,
     stable_uuid,
@@ -36,6 +37,7 @@ def normalize_review_frames(
     """Convierte clasificación y decisiones a tablas relacionales verificables."""
 
     run_id = _validated_run_id(pipeline_run_id)
+    classified = _deduplicate_source_predictions(classified)
     normalized = normalize_continuity_frame(classified).reset_index(drop=True)
     features = _normalize_features(normalized, run_id)
     predictions, source_prediction_ids = _normalize_predictions(
@@ -57,6 +59,38 @@ def normalize_review_frames(
         "predictions": predictions,
         "validations": validation_frame,
     }
+
+
+def _deduplicate_source_predictions(classified: pd.DataFrame) -> pd.DataFrame:
+    """Rechaza un ID ambiguo y admite sólo repeticiones contractualmente idénticas."""
+
+    if "prediction_id" not in classified or classified["prediction_id"].isna().any():
+        return classified.copy()
+    result: list[pd.Series] = []
+    for identifier, group in classified.groupby(
+        classified["prediction_id"].astype(str), sort=False, dropna=False
+    ):
+        first = group.iloc[0]
+        reference = tuple(
+            canonical_contract_value(column, first[column])
+            for column in classified.columns
+            if column != "prediction_id"
+        )
+        if any(
+            tuple(
+                canonical_contract_value(column, row[column])
+                for column in classified.columns
+                if column != "prediction_id"
+            )
+            != reference
+            for _, row in group.iloc[1:].iterrows()
+        ):
+            raise ValueError(
+                "Classified review rows contain ambiguous prediction identities: "
+                f"{identifier}"
+            )
+        result.append(first)
+    return pd.DataFrame(result, columns=classified.columns).reset_index(drop=True)
 
 
 def _validated_run_id(pipeline_run_id: str) -> str:
@@ -147,6 +181,13 @@ def _normalize_predictions(
     )
     if source_ids.isna().any():
         raise ValueError("Classified review rows contain incomplete prediction identities.")
+    source_identity = source_ids.astype(str)
+    if source_identity.duplicated(keep=False).any():
+        duplicates = sorted(source_identity[source_identity.duplicated(keep=False)].unique())
+        raise ValueError(
+            "Classified review rows contain ambiguous prediction identities: "
+            f"{duplicates}"
+        )
     prediction_ids = [
         stable_uuid("prediction", run_id, feature_id, model_revision)
         for feature_id in features["id"]
@@ -220,7 +261,7 @@ def _normalize_validations(  # noqa: C901 - normaliza el contrato externo comple
         raise ValueError(f"Review validations are missing fields: {missing}")
     id_map = {
         str(source_id): prediction_id
-        for source_id, prediction_id in zip(source_prediction_ids, prediction_ids, strict=False)
+        for source_id, prediction_id in zip(source_prediction_ids, prediction_ids, strict=True)
     }
     frame["prediction_id"] = frame["prediction_id"].map(
         lambda value: id_map.get(str(value), str(value))

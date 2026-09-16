@@ -10,8 +10,10 @@ from uuid import uuid4
 import pytest
 
 from vaaet_persistence.pipeline_runs import (
+    PipelineRunHandle,
     PipelineRunMetadata,
     PipelineWorkflow,
+    complete_reconciled_pipeline_run,
     pipeline_run,
 )
 
@@ -40,6 +42,36 @@ def test_local_pipeline_run_records_success_without_arbitrary_metadata(tmp_path)
     assert payload["workflow"] == "collection"
     assert payload["output_rows"] == 12
     assert "password" not in json.dumps(payload).lower()
+    assert run.outcome is not None
+    assert run.outcome.work_succeeded
+    assert run.outcome.audit_complete
+
+
+def test_successful_work_survives_audit_close_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    completed: list[str] = []
+
+    def fail_finish(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("audit storage unavailable")
+
+    monkeypatch.setattr("vaaet_persistence.pipeline_runs.finish_pipeline_run", fail_finish)
+    with pipeline_run(
+        PipelineRunMetadata(
+            workflow=PipelineWorkflow.INFERENCE,
+            application_name="test-consumer",
+            application_version="1.0.0",
+        ),
+        local_manifest_directory=tmp_path,
+    ) as run:
+        completed.append("written")
+        run.set_output_rows(1)
+
+    assert completed == ["written"]
+    assert run.outcome is not None
+    assert run.outcome.work_succeeded
+    assert not run.outcome.audit_complete
+    assert run.outcome.audit_error_category == "RuntimeError"
 
 
 def test_pipeline_run_preserves_a_preallocated_training_identifier(tmp_path) -> None:
@@ -157,3 +189,64 @@ def test_local_fallback_requires_explicit_destination() -> None:
             )
         ):
             pass
+
+
+def test_reconciliation_closes_original_and_records_a_separate_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_id = uuid4()
+    finished: list[tuple[object, str]] = []
+
+    def fake_start(metadata, **_kwargs):
+        return PipelineRunHandle(uuid4(), metadata), "2026-09-14T00:00:00+00:00"
+
+    def fake_finish(handle, *, status, **_kwargs):
+        finished.append((handle.id, status))
+
+    monkeypatch.setattr("vaaet_persistence.pipeline_runs.start_pipeline_run", fake_start)
+    monkeypatch.setattr("vaaet_persistence.pipeline_runs.finish_pipeline_run", fake_finish)
+
+    outcome = complete_reconciled_pipeline_run(
+        run_id=original_id,
+        output_rows=3,
+        engine=object(),  # type: ignore[arg-type]
+        workflow=PipelineWorkflow.COLLECTION,
+        application_version="0.2.3",
+    )
+
+    assert outcome.audit_complete
+    assert outcome.run_id == original_id
+    assert outcome.reconciliation_run_id is not None
+    assert outcome.reconciliation_run_id != original_id
+    assert finished == [
+        (original_id, "succeeded"),
+        (outcome.reconciliation_run_id, "succeeded"),
+    ]
+
+
+def test_failed_reconciliation_keeps_the_original_result_recoverable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_id = uuid4()
+
+    def fake_start(metadata, **_kwargs):
+        return PipelineRunHandle(uuid4(), metadata), "2026-09-14T00:00:00+00:00"
+
+    def fake_finish(handle, *, status, **_kwargs):
+        if handle.id == original_id:
+            raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr("vaaet_persistence.pipeline_runs.start_pipeline_run", fake_start)
+    monkeypatch.setattr("vaaet_persistence.pipeline_runs.finish_pipeline_run", fake_finish)
+
+    outcome = complete_reconciled_pipeline_run(
+        run_id=original_id,
+        output_rows=3,
+        engine=object(),  # type: ignore[arg-type]
+        workflow=PipelineWorkflow.INFERENCE,
+        application_version="0.2.3",
+    )
+
+    assert outcome.work_succeeded
+    assert not outcome.audit_complete
+    assert outcome.audit_error_category == "RuntimeError"

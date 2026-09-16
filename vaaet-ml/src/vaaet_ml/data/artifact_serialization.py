@@ -11,6 +11,8 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
+from numbers import Integral, Real
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
@@ -60,6 +62,32 @@ def canonical_timestamp_identity(value: object) -> str:
     """Representa un instante UTC de forma estable antes de derivar identidades."""
 
     return normalize_timestamp(value).isoformat()
+
+
+def canonical_contract_value(column: str, value: object) -> tuple[str, object]:
+    """Compara scalars contractuales sin depender de formato ni tipo NumPy."""
+
+    if value is None or value is pd.NA or value is pd.NaT:
+        return ("missing", "")
+    try:
+        missing = pd.isna(value)
+        if (type(missing) is bool or type(missing).__name__ == "bool_") and bool(missing):
+            return ("missing", "")
+    except (TypeError, ValueError):
+        pass
+    if column in {"record_time", "reviewed_at", "created_at", "classified_at"}:
+        return ("timestamp", canonical_timestamp_identity(value))
+    if type(value) is bool or type(value).__name__ == "bool_":
+        return ("boolean", bool(value))
+    if isinstance(value, Decimal):
+        return ("number", float(value))
+    if isinstance(value, Integral) and not isinstance(value, bool):
+        return ("number", int(value))
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return ("number", float(value))
+    if isinstance(value, str):
+        return ("text", value)
+    return (type(value).__name__, str(value))
 
 
 def valid_uuid(value: object) -> bool:
@@ -208,6 +236,7 @@ def read_package_manifest(path: Path) -> dict[str, object]:
 
 __all__ = [
     "atomic_json_write",
+    "canonical_contract_value",
     "canonical_timestamp_identity",
     "canonical_frame",
     "frame_bytes",

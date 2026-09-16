@@ -500,6 +500,116 @@ def test_database_and_zip_identity_aliases_resolve_by_contract_content() -> None
     assert set(reversed_feedback.iloc[0]["source_prediction_ids"].split(",")) == set(prediction_ids)
 
 
+def test_same_validation_uuid_accepts_verified_prediction_aliases() -> None:
+    run_id = str(uuid.uuid4())
+    feature_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    prediction_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    validation_id = str(uuid.uuid4())
+    features = pd.DataFrame(
+        [
+            {
+                "id": feature_id,
+                "pipeline_run_id": run_id,
+                "clip_id": "clip-alias",
+                "continuity_id": "clip-alias:continuity-0001",
+                "record_time": timestamp,
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                **_feature_values(),
+            }
+            for feature_id, timestamp in zip(
+                feature_ids,
+                ("2026-08-10T00:00:00Z", "2026-08-09T21:00:00-03:00"),
+                strict=True,
+            )
+        ]
+    )
+    predictions = pd.DataFrame(
+        [
+            {
+                "id": prediction_id,
+                "pipeline_run_id": run_id,
+                "telemetry_feature_id": feature_id,
+                "model_version": "mlp-v3.0",
+                "model_revision": MODEL_REVISION,
+            }
+            for feature_id, prediction_id in zip(feature_ids, prediction_ids, strict=True)
+        ]
+    )
+    validations = pd.DataFrame(
+        [
+            {
+                "id": validation_id,
+                "prediction_id": prediction_id,
+                "validated_state": 1,
+                "is_human_validated": True,
+                **_review_metadata(),
+                "reviewed_at": "2026-08-10T01:00:00Z",
+                "supersedes_validation_id": pd.NA,
+            }
+            for prediction_id in prediction_ids
+        ]
+    )
+
+    feedback = resolve_effective_human_feedback(features, predictions, validations)
+
+    assert len(feedback) == 1
+    assert set(feedback.iloc[0]["source_prediction_ids"].split(",")) == set(prediction_ids)
+    assert feedback.iloc[0]["source_validation_ids"] == validation_id
+
+
+def test_feedback_is_ordered_before_continuity_validation() -> None:
+    feature_ids = [
+        "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        "88888888-8888-4888-8888-888888888888",
+        "00000000-0000-4000-8000-000000000001",
+    ]
+    prediction_ids = [str(uuid.uuid4()) for _ in feature_ids]
+    features = pd.DataFrame(
+        [
+            {
+                "id": feature_id,
+                "clip_id": "clip-ordered",
+                "continuity_id": "clip-ordered:continuity-0001",
+                "record_time": pd.Timestamp("2026-08-10T00:00:00Z")
+                + pd.Timedelta(minutes=index),
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                **_feature_values(10.0 + index),
+            }
+            for index, feature_id in enumerate(feature_ids)
+        ]
+    )
+    predictions = pd.DataFrame(
+        [
+            {
+                "id": prediction_id,
+                "telemetry_feature_id": feature_id,
+                "model_version": "mlp-v3.0",
+                "model_revision": MODEL_REVISION,
+            }
+            for feature_id, prediction_id in zip(feature_ids, prediction_ids, strict=True)
+        ]
+    )
+    validations = pd.DataFrame(
+        [
+            {
+                "id": str(uuid.uuid4()),
+                "prediction_id": prediction_id,
+                "validated_state": index,
+                "is_human_validated": True,
+                **_review_metadata(),
+                "reviewed_at": "2026-08-10T01:00:00Z",
+                "supersedes_validation_id": pd.NA,
+            }
+            for index, prediction_id in enumerate(prediction_ids)
+        ]
+    )
+
+    feedback = resolve_effective_human_feedback(features, predictions, validations)
+
+    assert feedback["record_time"].is_monotonic_increasing
+    assert feedback["traffic_state"].tolist() == [0, 1, 2]
+
+
 @pytest.mark.parametrize(
     ("flag", "state", "message"),
     [

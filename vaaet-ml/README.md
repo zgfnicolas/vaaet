@@ -1,4 +1,4 @@
-# VAAET ML 4.8.2
+# VAAET ML 4.8.3
 
 PostgreSQL se organiza en `vaaet_raw`, `vaaet_ml`, `vaaet_feedback` y
 `vaaet_ops`. La implementación y Alembic pertenecen a `vaaet-persistence`; ML
@@ -161,5 +161,8 @@ La implementación compartida y la futura reutilización por backend se rigen po
 [ADR-0028](../docs/architecture/decisions/0028-shared-postgresql-persistence-layer.md).
 La autoridad única de publicación y la asociación estricta de feedback se rigen
 por [ADR-0031](../docs/architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
+El orden determinista, los modos PostgreSQL explícitos y la reconciliación sin
+reinserciones se rigen por
+[ADR-0032](../docs/architecture/decisions/0032-complete-cycle-integrity.md).
 El provisionamiento, backup, rotación y recuperación están en la
 [guía PostgreSQL](../docs/operations/postgresql-guide.md).

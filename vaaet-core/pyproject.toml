@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaaet-core"
-version = "0.2.1"
+version = "0.2.2"
 description = "VAAET Core — percepción e inferencia portables"
 readme = "README.md"
 license = "AGPL-3.0-only"

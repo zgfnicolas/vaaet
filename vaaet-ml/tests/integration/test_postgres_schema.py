@@ -365,7 +365,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         model_version="mlp-v3.0-test",
         model_revision="a" * 64,
         application_name="vaaet-ml-integration",
-        application_version="4.8.2",
+        application_version="4.8.3",
     )
     with engine.connect() as connection:
         prediction_id = connection.execute(
@@ -382,7 +382,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         HumanValidation(prediction_id, 1, "integration-reviewer"),
         engine=engine,
         application_name="vaaet-ml-integration",
-        application_version="4.8.2",
+        application_version="4.8.3",
     )
     frame.loc[0, "confidence"] = 0.92
     frame.loc[0, "model_revision"] = "b" * 64
@@ -392,7 +392,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         model_version="mlp-v3.0-test",
         model_revision="b" * 64,
         application_name="vaaet-ml-integration",
-        application_version="4.8.2",
+        application_version="4.8.3",
     )
     with engine.connect() as connection:
         feature_count, prediction_count = connection.execute(
@@ -431,7 +431,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         ),
         engine=engine,
         application_name="vaaet-ml-integration",
-        application_version="4.8.2",
+        application_version="4.8.3",
     )
     with engine.connect() as connection:
         count, effective = connection.execute(

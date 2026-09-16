@@ -20,6 +20,13 @@ from vaaet_persistence.persistence import (
     persist_classified_telemetry as _persist_classified_telemetry,
 )
 from vaaet_persistence.persistence import persist_raw_telemetry as _persist_raw_telemetry
+from vaaet_persistence.persistence import (
+    reconcile_classified_telemetry as _reconcile_classified_telemetry,
+)
+from vaaet_persistence.persistence import (
+    reconcile_raw_telemetry as _reconcile_raw_telemetry,
+)
+from vaaet_persistence.pipeline_runs import PipelineRunOutcome
 from vaaet_persistence.settings import DatabaseSettings
 
 from vaaet_ml import __version__
@@ -96,10 +103,60 @@ def persist_classified_telemetry(
         dispose_engine(active_engine)
 
 
+def reconcile_raw_telemetry(
+    df: pd.DataFrame,
+    *,
+    pipeline_run_id: UUID | str,
+    settings: DatabaseSettings | Mapping[str, str] | None = None,
+    engine: Engine | None = None,
+) -> PipelineRunOutcome:
+    """Verifica la escritura raw sin reinsertarla y completa su auditoría."""
+
+    owns = engine is None
+    active = engine if engine is not None else get_engine(settings)
+    try:
+        return _reconcile_raw_telemetry(
+            df,
+            engine=active,
+            pipeline_run_id=pipeline_run_id,
+        )
+    finally:
+        if owns:
+            dispose_engine(active)
+
+
+def reconcile_classified_telemetry(
+    df: pd.DataFrame,
+    *,
+    pipeline_run_id: UUID | str,
+    model_version: str = MODEL_VERSION,
+    model_revision: str | None = None,
+    settings: DatabaseSettings | Mapping[str, str] | None = None,
+    engine: Engine | None = None,
+) -> PipelineRunOutcome:
+    """Verifica features y predicciones sin repetir su escritura."""
+
+    owns = engine is None
+    active = engine if engine is not None else get_engine(settings)
+    try:
+        return _reconcile_classified_telemetry(
+            df,
+            engine=active,
+            pipeline_run_id=pipeline_run_id,
+            model_version=model_version,
+            model_revision=model_revision,
+        )
+    finally:
+        if owns:
+            dispose_engine(active)
+
+
 __all__ = [
     "PersistResult",
     "ensure_persistence_tables",
     "ensure_raw_telemetry_table",
     "persist_classified_telemetry",
     "persist_raw_telemetry",
+    "reconcile_classified_telemetry",
+    "reconcile_raw_telemetry",
 ]

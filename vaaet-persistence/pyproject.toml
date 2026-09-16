@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaaet-persistence"
-version = "0.2.2"
+version = "0.2.3"
 description = "Shared PostgreSQL persistence for VAAET workflows and services"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "vaaet-core==0.2.1",
+    "vaaet-core==0.2.2",
     "pandas>=2.2,<3",
     "sqlalchemy>=2,<3",
     "psycopg2-binary>=2.9,<3",

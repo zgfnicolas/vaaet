@@ -19,6 +19,7 @@ from vaaet_persistence.queries import (
     LEGACY_TELEMETRY_QUERY,
     RAW_TABLE,
     TELEMETRY_QUERY,
+    TelemetryReadMode,
 )
 from vaaet_persistence.queries import load_human_feedback_components as _load_components
 from vaaet_persistence.queries import load_human_ground_truth as _load_ground_truth
@@ -40,10 +41,12 @@ def _resolve(
 def load_telemetry(
     settings: DatabaseSettings | Mapping[str, str] | None = None,
     engine: Engine | None = None,
+    *,
+    mode: TelemetryReadMode | str = TelemetryReadMode.CURRENT,
 ) -> pd.DataFrame:
     active, owns = _resolve(settings, engine)
     try:
-        return _load_telemetry(engine=active)
+        return _load_telemetry(engine=active, mode=mode)
     finally:
         if owns:
             dispose_engine(active)
@@ -121,6 +124,7 @@ __all__ = [
     "LEGACY_TELEMETRY_QUERY",
     "RAW_TABLE",
     "TELEMETRY_QUERY",
+    "TelemetryReadMode",
     "load_human_feedback_components",
     "load_human_ground_truth",
     "load_telemetry",

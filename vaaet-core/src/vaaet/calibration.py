@@ -20,14 +20,40 @@ __all__ = [
     "apply_temperature_scaling",
     "fit_temperature",
     "multiclass_brier_score",
+    "validate_probability_matrix",
 ]
+
+
+def validate_probability_matrix(
+    probabilities: object,
+    *,
+    rows: int | None = None,
+    classes: int = 3,
+) -> np.ndarray:
+    """Valida una distribución multiclase sin corregir salidas inválidas."""
+
+    raw_values = np.asarray(probabilities)
+    if np.issubdtype(raw_values.dtype, np.bool_) or raw_values.dtype.kind in {"U", "S"}:
+        raise ValueError("probabilities must be a numeric matrix, not booleans or text.")
+    values = np.asarray(probabilities, dtype=float)
+    expected_rows = len(values) if rows is None and values.ndim == 2 else rows
+    if expected_rows is None or values.shape != (expected_rows, classes):
+        raise ValueError(
+            f"probabilities must have shape ({expected_rows if expected_rows is not None else 'N'}, "
+            f"{classes})."
+        )
+    if not np.isfinite(values).all():
+        raise ValueError("probabilities must contain only finite values.")
+    if (values < 0).any() or (values > 1).any():
+        raise ValueError("probabilities must remain between 0 and 1.")
+    if not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-6):
+        raise ValueError("Each probability row must sum to 1 within absolute tolerance 1e-6.")
+    return values
 
 
 def apply_temperature_scaling(probabilities: np.ndarray, temperature: float) -> np.ndarray:
     """Calibra probabilidades multiclase mediante una temperatura escalar."""
-    values = np.asarray(probabilities, dtype=float)
-    if values.ndim != 2 or values.shape[1] != 3:
-        raise ValueError("probabilities must have shape (records, 3).")
+    values = validate_probability_matrix(probabilities)
     if not np.isfinite(temperature) or temperature <= 0:
         raise ValueError("temperature must be a finite positive number.")
     logits = np.log(np.clip(values, 1e-12, 1.0)) / float(temperature)
@@ -38,9 +64,9 @@ def apply_temperature_scaling(probabilities: np.ndarray, temperature: float) -> 
 
 def fit_temperature(probabilities: np.ndarray, y_true: np.ndarray) -> float:
     """Selecciona la temperatura usando sólo la log-verosimilitud de validación."""
-    values = np.asarray(probabilities, dtype=float)
+    values = validate_probability_matrix(probabilities)
     truth = np.asarray(y_true, dtype=int)
-    if values.shape != (len(truth), 3) or len(truth) == 0:
+    if len(truth) == 0 or len(values) != len(truth):
         raise ValueError("Validation probabilities must have shape (records, 3).")
     candidates = np.geomspace(0.5, 3.0, 80)
     losses = []
@@ -53,8 +79,8 @@ def fit_temperature(probabilities: np.ndarray, y_true: np.ndarray) -> float:
 def multiclass_brier_score(y_true: np.ndarray, probabilities: np.ndarray) -> float:
     """Calcula el error cuadrático medio sobre los tres estados estables."""
     truth = np.asarray(y_true, dtype=int)
-    values = np.asarray(probabilities, dtype=float)
-    if values.shape != (len(truth), 3):
+    values = validate_probability_matrix(probabilities)
+    if len(values) != len(truth):
         raise ValueError("probabilities must have shape (records, 3).")
     one_hot = np.eye(3)[truth]
     return float(np.mean(np.sum((values - one_hot) ** 2, axis=1)))

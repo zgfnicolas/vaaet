@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.2.2
+# Operación PostgreSQL compartida — VAAET Persistence 0.2.3
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -16,6 +16,9 @@ en [ADR-0030](../architecture/decisions/0030-operational-idempotency-and-portabl
 La asociación estricta del feedback y la redacción uniforme de errores públicos
 se definen en
 [ADR-0031](../architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
+El orden determinista, la lectura legacy explícita y la reconciliación sin
+reinserciones se definen en
+[ADR-0032](../architecture/decisions/0032-complete-cycle-integrity.md).
 
 ## Configuración
 
@@ -78,6 +81,23 @@ with database_engine(settings) as engine:
 Los notebooks mantienen flags operativos deshabilitados por defecto. La futura
 API usará identidades de servicio propias; el navegador sólo hablará con HTTP y
 nunca recibirá acceso PostgreSQL.
+
+### Lectura moderna y legacy
+
+La telemetría raw selecciona un contrato de forma explícita. `CURRENT` es el
+valor predeterminado y consulta únicamente el schema vigente. `LEGACY` se usa
+sólo para importar una tabla histórica declarada y conserva lineage y métricas
+modernas como desconocidas:
+
+```python
+from vaaet_persistence import TelemetryReadMode, load_telemetry
+
+current = load_telemetry(engine=engine, mode=TelemetryReadMode.CURRENT)
+legacy = load_telemetry(engine=engine, mode=TelemetryReadMode.LEGACY)
+```
+
+Un error de permisos, SQL, timeout o schema en `CURRENT` se informa; nunca
+activa `LEGACY`. El modo legacy no se admite como fuente de feedback humano.
 
 ## Provisionamiento y migraciones
 
@@ -167,6 +187,15 @@ una sola transacción por operación pública. La observabilidad informa
 sentencias realmente ejecutadas, lotes, filas procesadas y duración; una
 repetición idempotente puede insertar cero filas nuevas sin convertir una
 corrida de entrada válida en una corrida de cero filas procesadas.
+
+Una operación confirmada puede quedar con `audit_complete=False` si falla sólo
+el cierre de su corrida. Eso significa «datos guardados, auditoría pendiente»,
+no rollback. Conservá el resultado y el `pipeline_run_id`; las operaciones
+`reconcile_raw_telemetry()`, `reconcile_classified_telemetry()` y
+`reconcile_human_validation()` verifican identidad y contenido almacenados y
+completan únicamente la auditoría. Nunca reinsertan filas. Mientras la
+reconciliación no termine, los pasos que exigen trazabilidad completa permanecen
+bloqueados.
 
 ## Backup y recuperación
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaaet-ml"
-version = "4.8.2"
+version = "4.8.3"
 description = "Video Advanced Analysis of Traffic — Sistema de análisis vehicular avanzado para el Puente Gral. Manuel Belgrano"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -26,23 +26,23 @@ classifiers = [
 ]
 
 dependencies = [
-    "vaaet-core==0.2.1",
-    "vaaet-persistence==0.2.2",
+    "vaaet-core==0.2.2",
+    "vaaet-persistence==0.2.3",
 ]
 
 [project.optional-dependencies]
 vision = [
-    "vaaet-core[vision]==0.2.1",
+    "vaaet-core[vision]==0.2.2",
 ]
 training = [
-    "vaaet-core[inference]==0.2.1",
+    "vaaet-core[inference]==0.2.2",
     "imbalanced-learn>=0.13,<1",
 ]
 evaluation = [
-    "vaaet-core[inference]==0.2.1",
+    "vaaet-core[inference]==0.2.2",
 ]
 database = [
-    "vaaet-persistence==0.2.2",
+    "vaaet-persistence==0.2.3",
 ]
 visualization = [
     "matplotlib>=3.8,<4",
@@ -50,7 +50,7 @@ visualization = [
     "ipywidgets>=8.1,<9",
 ]
 dev = [
-    "vaaet-persistence[admin]==0.2.2",
+    "vaaet-persistence[admin]==0.2.3",
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.12.0",

@@ -13,8 +13,14 @@ from sqlalchemy import text
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
+import vaaet_persistence.pipeline_runs as pipeline_run_module
 from vaaet_persistence.connection import database_engine, inspect_database
-from vaaet_persistence.persistence import persist_classified_telemetry, persist_raw_telemetry
+from vaaet_persistence.exceptions import PipelineAuditIncompleteError
+from vaaet_persistence.persistence import (
+    persist_classified_telemetry,
+    persist_raw_telemetry,
+    reconcile_raw_telemetry,
+)
 from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
 from vaaet_persistence.queries import load_telemetry_window
 from vaaet_persistence.review_domain import HumanValidation
@@ -152,6 +158,59 @@ def test_independent_consumer_can_persist_and_read_raw_telemetry() -> None:
             application_name="independent-backend-consumer-test",
             application_version="0.1.0",
         )
+
+
+def test_confirmed_write_is_reconciled_without_reinserting_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+    frame = pd.DataFrame(
+        [
+            {
+                "clip_id": f"audit-reconciliation-{uuid4()}",
+                "record_time": pd.Timestamp("2026-09-15T12:00:00Z"),
+                "avg_speed": 18.125,
+                "count_car": 1,
+                "count_truck": 0,
+                "count_bus": 0,
+                "count_motorcycle": 0,
+                "count_bicycle": 0,
+                "total_vehicles": 1,
+                "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            }
+        ]
+    )
+    original_finish = pipeline_run_module.finish_pipeline_run
+
+    def fail_audit_close(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated audit close failure")
+
+    monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", fail_audit_close)
+    with pytest.raises(PipelineAuditIncompleteError) as captured:
+        persist_raw_telemetry(
+            frame,
+            settings=settings,
+            application_name="independent-backend-consumer-test",
+            application_version="0.1.0",
+        )
+
+    assert captured.value.confirmed_result == 1
+    monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", original_finish)
+    outcome = reconcile_raw_telemetry(
+        frame,
+        pipeline_run_id=captured.value.run_id,
+        settings=settings,
+    )
+
+    assert outcome.work_succeeded
+    assert outcome.audit_complete
+    assert outcome.reconciliation_run_id is not None
+    assert persist_raw_telemetry(
+        frame,
+        settings=settings,
+        application_name="independent-backend-consumer-test",
+        application_version="0.1.0",
+    ) == 0
 
 
 def test_independent_consumer_preserves_feature_and_probability_float64() -> None:

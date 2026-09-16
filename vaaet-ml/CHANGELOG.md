@@ -15,6 +15,31 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.8.3] - 2026-09-16
+
+### Añadido
+
+- ADR-0032, modos explícitos `CURRENT`/`LEGACY` para telemetría PostgreSQL y
+  `PipelineRunOutcome` para separar el trabajo confirmado de su auditoría.
+- Reconciliación verificable de telemetría, predicciones y revisiones humanas
+  que completa lineage sin repetir escrituras.
+- Validador único de distribuciones de probabilidad reutilizado por inferencia,
+  calibración, entrenamiento y evaluación.
+
+### Corregido
+
+- La consolidación HITL recupera el orden cronológico después de resolver
+  identidades y acepta aliases históricos sólo cuando su equivalencia está
+  demostrada.
+- La exportación de revisión rechaza una `prediction_id` asociada a más de una
+  observación y deduplica únicamente repeticiones idénticas.
+- Una auditoría incompleta ya no convierte una escritura confirmada en un fallo
+  ni activa una segunda escritura durante la recuperación.
+- Los errores de la consulta PostgreSQL moderna ya no activan silenciosamente
+  una lectura legacy.
+- El core rechaza probabilidades no finitas, fuera de rango, de suma cero o que
+  no suman uno.
+
 ## [4.8.2] - 2026-09-13
 
 ### Añadido

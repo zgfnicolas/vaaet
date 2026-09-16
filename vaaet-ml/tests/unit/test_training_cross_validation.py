@@ -33,6 +33,12 @@ class _PredictingModel:
         return np.eye(3, dtype=float)[states]
 
 
+class _InvalidProbabilityModel(_PredictingModel):
+    def predict(self, features: np.ndarray, *, verbose: int) -> np.ndarray:
+        del verbose
+        return np.zeros((len(features), 3), dtype=float)
+
+
 class _History:
     history = {
         "loss": [0.4],
@@ -87,4 +93,18 @@ def test_cross_validation_requires_multiple_real_groups() -> None:
             model_factory=lambda **_: _PredictingModel(),
             callbacks_factory=lambda: (),
             scaler_factory=_IdentityScaler,
+        )
+
+
+def test_cross_validation_rejects_non_probability_model_output() -> None:
+    with pytest.raises(ValueError, match="sum to 1"):
+        run_grouped_cross_validation(
+            _frame(),
+            input_policy=ModelInputPolicy.CANONICAL_V2,
+            random_seed=42,
+            model_factory=lambda **_: _InvalidProbabilityModel(),
+            callbacks_factory=lambda: (),
+            scaler_factory=_IdentityScaler,
+            requested_folds=3,
+            epochs=1,
         )

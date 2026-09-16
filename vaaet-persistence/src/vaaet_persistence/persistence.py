@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from math import isfinite
@@ -37,9 +37,16 @@ from vaaet_persistence.exceptions import (
     DatabaseOperationError,
     DatabaseSchemaVersionError,
     PersistenceConflictError,
+    PipelineAuditIncompleteError,
     safe_sqlstate,
 )
-from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
+from vaaet_persistence.pipeline_runs import (
+    PipelineRunMetadata,
+    PipelineRunOutcome,
+    PipelineWorkflow,
+    complete_reconciled_pipeline_run,
+    pipeline_run,
+)
 from vaaet_persistence.settings import DatabaseSettings
 
 logger = get_logger(__name__)
@@ -61,6 +68,8 @@ class PersistResult:
     pipeline_run_id: str
     inserted_telemetry_rows: int = 0
     inserted_classification_rows: int = 0
+    audit_complete: bool = True
+    audit_error_category: str | None = None
 
 
 def _log_write_metrics(
@@ -741,6 +750,16 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
                     pipeline_run_id=run.id,
                 )
                 run.set_output_rows(len(normalized))
+            outcome = run.outcome
+            if outcome is None:
+                raise RuntimeError("Pipeline run did not publish an outcome.")
+            if not outcome.audit_complete:
+                raise PipelineAuditIncompleteError(
+                    "Raw telemetry was stored, but its pipeline audit is incomplete.",
+                    confirmed_result=inserted,
+                    run_id=str(outcome.run_id),
+                    audit_error_category=outcome.audit_error_category,
+                )
             return inserted
         except ProgrammingError as exc:
             raise _require_migrated_schema(exc) from None
@@ -825,6 +844,61 @@ def _persist_raw_rows(
     return inserted, query_count
 
 
+def reconcile_raw_telemetry(
+    df: pd.DataFrame,
+    *,
+    pipeline_run_id: UUID | str,
+    settings: DatabaseSettings | None = None,
+    engine: Engine | None = None,
+) -> PipelineRunOutcome:
+    """Verifica telemetría almacenada y completa únicamente su auditoría pendiente."""
+
+    if df.empty:
+        raise ValueError("Raw telemetry reconciliation requires at least one row.")
+    run_id = _validated_pipeline_run_id(pipeline_run_id)
+    normalized = normalize_continuity_frame(df)
+    payloads = [_raw_payload(row, run_id) for _, row in normalized.iterrows()]
+    for _, row in normalized.iterrows():
+        _validate_raw_row(row)
+    active_engine, owns_engine = _operation_engine(settings, engine)
+    try:
+        with active_engine.begin() as connection:
+            require_database_revision(connection)
+            for batch in _batches(payloads):
+                stored = _select_batch(
+                    connection,
+                    SELECT_RAW_SQL,
+                    batch,
+                    key_fields=("clip_id", "record_time"),
+                )
+                _assert_batch_idempotent(
+                    stored,
+                    batch,
+                    kind="raw telemetry reconciliation",
+                    key_fields=("clip_id", "record_time"),
+                    ignored_fields={"pipeline_run_id"},
+                )
+        return complete_reconciled_pipeline_run(
+            run_id=run_id,
+            output_rows=len(normalized),
+            engine=active_engine,
+            workflow=PipelineWorkflow.COLLECTION,
+            application_version="0.2.3",
+        )
+    except PersistenceConflictError:
+        raise
+    except SQLAlchemyError as exc:
+        raise DatabaseOperationError(
+            "PostgreSQL raw telemetry reconciliation failed.",
+            operation="reconcile-raw-telemetry",
+            sqlstate=safe_sqlstate(exc),
+            run_id=run_id,
+        ) from None
+    finally:
+        if owns_engine:
+            dispose_engine(active_engine)
+
+
 def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opcional en un borde público.
     df: pd.DataFrame,
     *,
@@ -890,7 +964,14 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
                     pipeline_run_id=run.id,
                 )
                 run.set_output_rows(len(normalized))
-            return persisted
+            outcome = run.outcome
+            if outcome is None:
+                raise RuntimeError("Pipeline run did not publish an outcome.")
+            return replace(
+                persisted,
+                audit_complete=outcome.audit_complete,
+                audit_error_category=outcome.audit_error_category,
+            )
         except ProgrammingError as exc:
             raise _require_migrated_schema(exc) from None
         finally:
@@ -936,6 +1017,114 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
         inserted_telemetry_rows,
         inserted_prediction_rows,
     )
+
+
+def reconcile_classified_telemetry(
+    df: pd.DataFrame,
+    *,
+    pipeline_run_id: UUID | str,
+    model_version: str = MODEL_VERSION,
+    model_revision: str | None = None,
+    settings: DatabaseSettings | None = None,
+    engine: Engine | None = None,
+) -> PipelineRunOutcome:
+    """Verifica features y predicciones existentes antes de cerrar su corrida."""
+
+    if df.empty:
+        raise ValueError("Classified telemetry reconciliation requires at least one row.")
+    run_id = _validated_pipeline_run_id(pipeline_run_id)
+    normalized = normalize_continuity_frame(df)
+    resolved_revision = _resolve_model_revision(normalized, model_revision)
+    for _, row in normalized.iterrows():
+        _validate_classified_row(row, model_revision=resolved_revision)
+    active_engine, owns_engine = _operation_engine(settings, engine)
+    try:
+        with active_engine.begin() as connection:
+            require_database_revision(connection)
+            for batch_rows in _batches(list(normalized.iterrows())):
+                feature_payloads = [_feature_payload(row, run_id) for _, row in batch_rows]
+                stored_features = _select_batch(
+                    connection,
+                    SELECT_FEATURE_SQL,
+                    feature_payloads,
+                    key_fields=(
+                        "pipeline_run_id",
+                        "clip_id",
+                        "record_time",
+                        "feature_schema_version",
+                    ),
+                )
+                _assert_batch_idempotent(
+                    stored_features,
+                    feature_payloads,
+                    kind="feature reconciliation",
+                    key_fields=(
+                        "pipeline_run_id",
+                        "clip_id",
+                        "record_time",
+                        "feature_schema_version",
+                    ),
+                )
+                feature_index = _rows_by_key(
+                    stored_features,
+                    ("pipeline_run_id", "clip_id", "record_time", "feature_schema_version"),
+                )
+                prediction_payloads = []
+                for (_, row), feature_payload in zip(
+                    batch_rows, feature_payloads, strict=True
+                ):
+                    stored_feature = feature_index[
+                        _row_key(
+                            feature_payload,
+                            (
+                                "pipeline_run_id",
+                                "clip_id",
+                                "record_time",
+                                "feature_schema_version",
+                            ),
+                        )
+                    ]
+                    prediction_payloads.append(
+                        _prediction_payload(
+                            row,
+                            feature_id=int(stored_feature["id"]),
+                            pipeline_run_id=run_id,
+                            model_version=model_version,
+                            model_revision=resolved_revision,
+                        )
+                    )
+                stored_predictions = _select_batch(
+                    connection,
+                    SELECT_PREDICTION_SQL,
+                    prediction_payloads,
+                    key_fields=("telemetry_feature_id", "model_revision"),
+                )
+                _assert_batch_idempotent(
+                    stored_predictions,
+                    prediction_payloads,
+                    kind="prediction reconciliation",
+                    key_fields=("telemetry_feature_id", "model_revision"),
+                )
+        return complete_reconciled_pipeline_run(
+            run_id=run_id,
+            output_rows=len(normalized),
+            model_revision=resolved_revision,
+            engine=active_engine,
+            workflow=PipelineWorkflow.INFERENCE,
+            application_version="0.2.3",
+        )
+    except PersistenceConflictError:
+        raise
+    except SQLAlchemyError as exc:
+        raise DatabaseOperationError(
+            "PostgreSQL classified telemetry reconciliation failed.",
+            operation="reconcile-classified-telemetry",
+            sqlstate=safe_sqlstate(exc),
+            run_id=run_id,
+        ) from None
+    finally:
+        if owns_engine:
+            dispose_engine(active_engine)
 
 
 def _resolve_model_revision(frame: pd.DataFrame, requested: str | None) -> str:
@@ -1263,4 +1452,6 @@ __all__ = [
     "ensure_raw_telemetry_table",
     "persist_classified_telemetry",
     "persist_raw_telemetry",
+    "reconcile_classified_telemetry",
+    "reconcile_raw_telemetry",
 ]

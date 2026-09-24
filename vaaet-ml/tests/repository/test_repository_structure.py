@@ -71,7 +71,7 @@ def test_artifact_facade_keeps_cohesive_owners_and_review_uses_the_codec() -> No
     ):
         assert data_root.joinpath(module).is_file()
     assert "from vaaet_ml.data.ingestion import create_dataset_package" not in review
-    assert "from vaaet_ml.data.package_codec import create_dataset_package" in review_export
+    assert "from vaaet_ml.data.review_finalization import seal_review_package" in review_export
     assert "from vaaet_ml.data.seed_artifacts import" in facade
     assert "from vaaet_ml.data.hitl_catalog import" in facade
     assert "from vaaet_ml.data.review_finalization import" in facade
@@ -414,15 +414,15 @@ def test_portable_agent_context_describes_the_active_monorepo() -> None:
     normalized_core_rules = " ".join(core_rules.split())
 
     assert "vaaet-core==0.2.2" in root_context
-    assert "vaaet-persistence==0.2.3" in root_context
-    assert "vaaet-ml==4.8.3" in root_context
+    assert "vaaet-persistence==0.3.0" in root_context
+    assert "vaaet-ml==4.9.0" in root_context
     assert "import `vaaet_ml`" in root_context
     assert "cuatro notebooks" in root_context
     assert "No puede importar `vaaet_ml`, PostgreSQL, DVC, Google Drive" in normalized_core_rules
     assert "Pipe-and-Filter síncrono" in core_rules
     assert "ADR-0025" in root_context
     assert "`vaaet_ml`" in ml_context
-    assert "`vaaet-persistence==0.2.3`" in ml_context
+    assert "`vaaet-persistence==0.3.0`" in ml_context
     assert "`src/vaaet_ml/`" in ml_context
     assert "Los cuatro notebooks" in ml_context
     assert "Tres workflows Colab" not in ml_context

@@ -9,7 +9,7 @@ operación comercial ni un despliegue web; esos alcances aún no existen.
 
 | Campo | Detalle |
 |---|---|
-| Versión del laboratorio | 4.8.3 |
+| Versión del laboratorio | 4.9.0 |
 | Última revisión | 2026-08-27 |
 
 ## Factibilidad técnica

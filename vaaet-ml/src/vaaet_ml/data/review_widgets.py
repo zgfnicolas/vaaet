@@ -11,13 +11,14 @@ import pandas as pd
 from vaaet.settings import STATE_LABELS
 
 from vaaet_ml.data.review_domain import HumanValidation
+from vaaet_ml.data.review_orchestration import ReviewSubmissionResult
 
 
 def build_review_widget(
     queue: pd.DataFrame,
     *,
     reviewer_id: str,
-    on_submit: Callable[[HumanValidation], None],
+    on_submit: Callable[[HumanValidation], ReviewSubmissionResult | None],
 ) -> object | None:
     """Construye UI diferida; ``print`` queda limitado a la presentación notebook."""
 
@@ -38,6 +39,7 @@ def build_review_widget(
     submit = widgets.Button(description="Save validation", button_style="success")
     skip = widgets.Button(description="Skip")
     output = widgets.Output()
+    pending_decision: dict[str, HumanValidation | None] = {"value": None}
 
     def render() -> None:
         row = queue.iloc[position["value"]]
@@ -47,6 +49,8 @@ def build_review_widget(
         )
         notes.value = ""
         context.value = False
+        pending_decision["value"] = None
+        submit.description = "Save validation"
         heading.value = (
             f"<b>{position['value'] + 1}/{len(queue)}</b> — {row.get('clip_id')} "
             f"{row.get('record_time')} — predicted {row.get('state_label')} "
@@ -65,21 +69,34 @@ def build_review_widget(
 
     def submit_row(_button: object) -> None:
         row = queue.iloc[position["value"]]
-        decision = HumanValidation(
-            prediction_id=int(row["prediction_id"]),
-            validated_state=int(state.value),
-            reviewer_id=reviewer_id,
-            notes=notes.value.strip() or None,
-            incident_context_reviewed=bool(context.value),
-            supersedes_validation_id=(
-                UUID(str(row["latest_validation_id"]))
-                if pd.notna(row.get("latest_validation_id"))
-                else None
-            ),
-        )
+        decision = pending_decision["value"]
+        if decision is None:
+            decision = HumanValidation(
+                prediction_id=int(row["prediction_id"]),
+                validated_state=int(state.value),
+                reviewer_id=reviewer_id,
+                notes=notes.value.strip() or None,
+                incident_context_reviewed=bool(context.value),
+                supersedes_validation_id=(
+                    UUID(str(row["latest_validation_id"]))
+                    if pd.notna(row.get("latest_validation_id"))
+                    else None
+                ),
+            )
         with output:
-            on_submit(decision)
-            print(f"Saved {STATE_LABELS[decision.validated_state]} for {row.get('record_time')}")
+            result = on_submit(decision)
+            if result is not None and not result.confirmed:
+                pending_decision["value"] = result.decision
+                submit.description = "Complete audit"
+                print(
+                    "Guardado; auditoría pendiente. Volvé a pulsar Complete audit "
+                    "para reconciliar la misma decisión."
+                )
+                return
+            print(
+                f"Saved {STATE_LABELS[(result.decision if result else decision).validated_state]} "
+                f"for {row.get('record_time')}"
+            )
         advance()
 
     submit.on_click(submit_row)

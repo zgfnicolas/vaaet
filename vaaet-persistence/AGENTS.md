@@ -27,7 +27,11 @@ DVC, Google Drive, Colab ni la futura aplicación.
   [`ADR-0031`](../docs/architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md).
 - Seleccioná telemetría `CURRENT` o `LEGACY` sin fallback por excepción y
   reconciliá auditorías sólo después de verificar contenido, conforme a
-  [`ADR-0032`](../docs/architecture/decisions/0032-complete-cycle-integrity.md).
+  [`ADR-0032`](../docs/architecture/decisions/0032-complete-cycle-integrity.md)
+  y [`ADR-0033`](../docs/architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
+- Registrá el comprobante de cada escritura de datos dentro de su misma
+  transacción. Una reconciliación sólo puede cerrar la corrida original si
+  coinciden propietario, metadata, fingerprint, soporte y filas almacenadas.
 - Alembic es la única autoridad DDL. No ejecutes migraciones desde notebooks.
 - No modifiques revisiones publicadas; agregá una nueva revisión cuando cambie
   el schema.

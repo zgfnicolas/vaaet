@@ -15,7 +15,7 @@ SOURCE_ROOT = COMPONENT_ROOT / "src" / "vaaet_persistence"
 
 
 def test_component_imports_without_the_ml_laboratory() -> None:
-    assert vaaet_persistence.__version__ == "0.2.3"
+    assert vaaet_persistence.__version__ == "0.3.0"
     forbidden = {"vaaet_ml", "tensorflow", "ultralytics", "dvc", "google", "ipywidgets"}
     imported: set[str] = set()
     for path in SOURCE_ROOT.rglob("*.py"):
@@ -42,6 +42,9 @@ def test_historical_migration_bytes_are_unchanged() -> None:
         "20260909_0004_numeric_fidelity_hitl_integrity.py": (
             "9ff7ea5264fbef2daab800b2aed344b941152da19d179c9e56b0878bcb7d5360"
         ),
+        "20260911_0005_review_least_privilege.py": (
+            "8b1980cd29ebf8ce112a217c96320938772f3e88dcb120f94543c707d5204fa4"
+        ),
     }
     versions = SOURCE_ROOT / "migrations" / "versions"
     observed = {
@@ -57,10 +60,10 @@ def test_alembic_has_one_canonical_revision_directory() -> None:
     config = (COMPONENT_ROOT / "alembic.ini").read_text(encoding="utf-8")
     assert "script_location = vaaet_persistence:migrations" in config
     current = SOURCE_ROOT / "migrations" / "versions" / (
-        "20260911_0005_review_least_privilege.py"
+        "20260920_0006_persistence_receipts.py"
     )
     assert current.is_file()
-    assert 'down_revision = "20260909_0004"' in current.read_text(encoding="utf-8")
+    assert 'down_revision = "20260911_0005"' in current.read_text(encoding="utf-8")
 
 
 def test_current_migration_encodes_numeric_hitl_and_privilege_contracts() -> None:
@@ -89,6 +92,22 @@ def test_latest_migration_keeps_reviewer_trigger_at_minimum_privilege() -> None:
     assert "FOR KEY SHARE" not in source
     assert "SECURITY INVOKER" in source
     assert "SET search_path = pg_catalog, vaaet_feedback, vaaet_ml" in source
+
+
+def test_current_migration_adds_immutable_transactional_receipts() -> None:
+    migration = SOURCE_ROOT / "migrations" / "versions" / (
+        "20260920_0006_persistence_receipts.py"
+    )
+    source = migration.read_text(encoding="utf-8")
+    assert "CREATE TABLE vaaet_ops.persistence_receipts" in source
+    assert "sha256-persistence-contract-v1" in source
+    assert "complete_verified_reconciliation" in source
+    assert "jsonb_object_length" not in source
+    assert "jsonb_object_keys" in source
+    assert "reconciles_run_id" in source
+    assert "SECURITY DEFINER" in source
+    assert "FROM PUBLIC" in source
+    assert "forward-only" in source
 
 
 def test_role_provisioning_can_verify_the_required_alembic_revision() -> None:

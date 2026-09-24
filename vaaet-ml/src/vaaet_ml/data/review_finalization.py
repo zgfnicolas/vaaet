@@ -59,6 +59,49 @@ class FinalizedReviewSession:
     sync_error: str | None = None
 
 
+def seal_review_package(
+    output_path: str | Path,
+    *,
+    classified: pd.DataFrame,
+    validations: pd.DataFrame | Sequence[object],
+    pipeline_run_id: str,
+    model_version: str,
+    git_commit: str,
+    vaaet_version: str,
+) -> Path:
+    """Sella un ZIP canónico en un destino exacto sin publicarlo ni sobrescribirlo."""
+
+    finalized_at = utc_now()
+    frames = normalize_review_frames(
+        classified,
+        validations,
+        pipeline_run_id=pipeline_run_id,
+        model_version=model_version,
+        finalized_at=finalized_at,
+    )
+    fingerprint = _review_fingerprint(frames, HITL_FINGERPRINT_ALGORITHM)
+    metadata = _session_metadata(
+        frames,
+        package_id=stable_uuid("hitl-package", pipeline_run_id, fingerprint),
+        pipeline_run_id=pipeline_run_id,
+        fingerprint=fingerprint,
+        model_version=model_version,
+        git_commit=git_commit,
+        vaaet_version=vaaet_version,
+        finalized_at=finalized_at,
+    )
+    destination = Path(output_path)
+    if destination.is_file():
+        existing = read_package_manifest(destination).get("package_metadata", {})
+        if not isinstance(existing, Mapping) or existing.get("fingerprint") != fingerprint:
+            raise ValueError("Review package destination contains different immutable content.")
+        load_dataset_package(destination)
+        return destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _write_review_package(destination, frames=frames, metadata=metadata)
+    return destination
+
+
 def finalize_review_session(
     *,
     classified: pd.DataFrame,
@@ -70,8 +113,15 @@ def finalize_review_session(
     local_root: str | Path,
     canonical_root: str | Path | None = None,
     publisher: HitlCatalogPublisher | None = None,
+    pending_validations: Sequence[object] = (),
 ) -> FinalizedReviewSession:
     """Sella una sesión inmutable y sólo la publica con autoridad explícita."""
+
+    if pending_validations:
+        raise RuntimeError(
+            "The review session contains PostgreSQL decisions with pending audit; "
+            "reconcile them before sealing a portable package."
+        )
 
     finalized_at = utc_now()
     frames = normalize_review_frames(
@@ -319,8 +369,20 @@ def _ensure_local_package(
         load_dataset_package(local_path)
         return local_path, existing
     local_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_review_package(local_path, frames=frames, metadata=metadata)
+    return local_path, metadata
+
+
+def _write_review_package(
+    destination: Path,
+    *,
+    frames: Mapping[str, pd.DataFrame],
+    metadata: Mapping[str, object],
+) -> None:
+    """Escribe y vuelve a validar el único formato canónico de sesión HITL."""
+
     create_dataset_package(
-        local_path,
+        destination,
         features=frames["features"],
         predictions=frames["predictions"],
         validations=frames["validations"],
@@ -329,8 +391,7 @@ def _ensure_local_package(
         overwrite=False,
         include_empty_components=("validations",),
     )
-    load_dataset_package(local_path)
-    return local_path, metadata
+    load_dataset_package(destination)
 
 
 def _sync_to_catalog(
@@ -515,5 +576,6 @@ __all__ = [
     "LEGACY_HITL_FINGERPRINT_ALGORITHM",
     "finalize_review_session",
     "import_legacy_hitl_package",
+    "seal_review_package",
     "sync_finalized_review_session",
 ]

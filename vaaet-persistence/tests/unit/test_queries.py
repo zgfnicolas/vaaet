@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import ProgrammingError
 
+from vaaet_persistence.exceptions import PersistenceConflictError
 from vaaet_persistence.queries import (
     HUMAN_FEATURES_QUERY,
     HUMAN_PREDICTIONS_QUERY,
@@ -112,7 +113,11 @@ def test_read_only_queries_dispose_owned_engine(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("vaaet_persistence.queries.get_engine", lambda _: engine)
     monkeypatch.setattr(
         "vaaet_persistence.queries.pd.read_sql",
-        lambda *_args, **_kwargs: pd.DataFrame({"clip_id": ["clip-a"]}),
+        lambda statement, *_args, **_kwargs: (
+            pd.DataFrame()
+            if "list_pending_validation_audits" in str(statement)
+            else pd.DataFrame({"clip_id": ["clip-a"]})
+        ),
     )
 
     assert len(load_human_ground_truth(settings=_settings())) == 1
@@ -126,6 +131,8 @@ def test_human_history_queries_are_explicit_and_load_every_component(
     statements: list[str] = []
 
     def fake_read_sql(statement: object, _engine: object, *, params: object) -> pd.DataFrame:
+        if "list_pending_validation_audits" in str(statement):
+            return pd.DataFrame(columns=["validation_id", "pipeline_run_id"])
         statements.append(str(statement))
         assert params == {"feature_schema_version": "traffic-features-v3"}
         return pd.DataFrame({"id": [len(statements)]})
@@ -145,6 +152,28 @@ def test_human_history_queries_are_explicit_and_load_every_component(
         )
     )
     assert "supersedes_validation_id" in HUMAN_VALIDATIONS_QUERY
+
+
+def test_human_feedback_blocks_pending_audits_instead_of_training_a_subset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    validation_id = "00000000-0000-4000-8000-000000000001"
+
+    def fake_read_sql(statement: object, _engine: object, *, params: object) -> pd.DataFrame:
+        assert params == {"feature_schema_version": "traffic-features-v3"}
+        if "list_pending_validation_audits" in str(statement):
+            return pd.DataFrame(
+                {
+                    "validation_id": [validation_id],
+                    "pipeline_run_id": ["00000000-0000-4000-8000-000000000002"],
+                }
+            )
+        pytest.fail("Feedback components must not be read while audit is pending")
+
+    monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
+
+    with pytest.raises(PersistenceConflictError, match=validation_id):
+        load_human_feedback_components(engine=_DisposableEngine())
 
 
 @pytest.mark.parametrize("filters", [{"pipeline_run_ids": ("",)}, {"clip_ids": ("",)}])

@@ -16,13 +16,17 @@ from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.features.engineering import engineer_features
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
-from vaaet_persistence.exceptions import PipelineAuditIncompleteError
+from vaaet_persistence.exceptions import (
+    PersistenceConflictError,
+    PipelineAuditIncompleteError,
+)
 from vaaet_persistence.persistence import (
     INSERT_FEATURE_SQL,
     INSERT_PREDICTION_SQL,
     INSERT_RAW_SQL,
     SELECT_RAW_SQL,
     _assert_idempotent,
+    _assert_reconciliation_state,
     _batch_count,
     _batches,
     _database_values_equal,
@@ -40,6 +44,8 @@ from vaaet_persistence.persistence import (
     persist_classified_telemetry,
     persist_raw_telemetry,
 )
+from vaaet_persistence.pipeline_runs import PipelineWorkflow
+from vaaet_persistence.receipts import PipelineRunAuditState, build_persistence_receipt
 from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
 
@@ -386,6 +392,68 @@ def test_raw_idempotency_ignores_lineage_but_rejects_changed_measurements() -> N
             {**retry, "avg_speed": 11.0},
             "raw telemetry",
             ignored_fields={"pipeline_run_id"},
+        )
+
+
+def test_reconciliation_rejects_receipt_from_another_run_or_clip() -> None:
+    requested_run = uuid4()
+    other_run = uuid4()
+    frame = pd.DataFrame(
+        [
+            {
+                "clip_id": "clip-requested",
+                "record_time": pd.Timestamp("2026-09-20T12:00:00Z"),
+                "avg_speed": 10.0,
+                "count_car": 1,
+                "count_truck": 0,
+                "count_bus": 0,
+                "count_motorcycle": 0,
+                "count_bicycle": 0,
+                "total_vehicles": 1,
+                "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            }
+        ]
+    )
+    expected = build_persistence_receipt(
+        pipeline_run_id=requested_run,
+        operation="raw-telemetry",
+        observations=[_raw_payload(frame.iloc[0], str(requested_run))],
+        processed_counts={"raw_telemetry": 1},
+        inserted_counts={"raw_telemetry": 0},
+        telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+    )
+    wrong_receipt = build_persistence_receipt(
+        pipeline_run_id=other_run,
+        operation="raw-telemetry",
+        observations=[_raw_payload(frame.iloc[0], str(other_run))],
+        processed_counts={"raw_telemetry": 1},
+        inserted_counts={"raw_telemetry": 1},
+        telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+    )
+    state = PipelineRunAuditState(
+        pipeline_run_id=other_run,
+        workflow="collection",
+        application_name="test-consumer",
+        application_version="1.0.0",
+        database_user="collection",
+        status="running",
+        source_kind="dataframe",
+        clip_id="clip-other",
+        input_rows=1,
+        output_rows=None,
+        telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+        feature_schema_version=None,
+        model_version=None,
+        model_revision=None,
+        receipt=wrong_receipt,
+    )
+
+    with pytest.raises(PersistenceConflictError, match="clip_id.*persistence_receipt"):
+        _assert_reconciliation_state(
+            state,
+            expected,
+            workflow=PipelineWorkflow.COLLECTION,
+            frame=frame,
         )
 
 

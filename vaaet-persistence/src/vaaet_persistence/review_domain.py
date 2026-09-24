@@ -79,6 +79,9 @@ class InferenceReviewSession:
 
     export_frame: pd.DataFrame | None
     validations: list[HumanValidation | Mapping[str, object]]
+    pending_validations: list[HumanValidation | Mapping[str, object]] = field(
+        default_factory=list[HumanValidation | Mapping[str, object]]
+    )
 
 
 def select_review_queue(frame: pd.DataFrame, *, mode: str = "priority") -> pd.DataFrame:

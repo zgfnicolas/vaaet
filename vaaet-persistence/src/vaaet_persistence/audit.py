@@ -147,6 +147,18 @@ def audit_database(connection: Connection) -> dict[str, Any]:
             "FROM vaaet_ops.pipeline_runs WHERE status = 'running' "
             "ORDER BY started_at, id",
         ),
+        "persistence_receipts": _rows(
+            connection,
+            "SELECT pipeline_run_id, operation, fingerprint_algorithm, "
+            "content_fingerprint, processed_counts, inserted_counts, confirmed_at, "
+            "database_user FROM vaaet_ops.persistence_receipts "
+            "ORDER BY confirmed_at, pipeline_run_id",
+        ),
+        "pending_human_validation_audits": _rows(
+            connection,
+            "SELECT * FROM vaaet_feedback.list_pending_validation_audits(NULL) "
+            "ORDER BY validation_id",
+        ),
         "human_validation_conflicts": _rows(
             connection,
             "SELECT prediction_id, root_count, terminal_count, "

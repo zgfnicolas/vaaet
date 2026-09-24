@@ -1,6 +1,6 @@
 # Modelo PostgreSQL — `vaaet-db-v3`
 
-VAAET Persistence 0.2.3 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
+VAAET Persistence 0.3.0 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
 portabilidad por capacidades y la configuración administrativa se rigen por
 [ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
 Los notebooks nunca crean ni alteran tablas. La revisión vigente encadena la
@@ -12,7 +12,10 @@ y la [revisión `0004`](../../vaaet-persistence/src/vaaet_persistence/migrations
 implementa [ADR-0029](decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
 La [revisión `0005`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260911_0005_review_least_privilege.py)
 aplica [ADR-0030](decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
-sin cambiar la familia contractual `vaaet-db-v3`.
+sin cambiar la familia contractual `vaaet-db-v3`. La
+[revisión `0006`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260920_0006_persistence_receipts.py)
+implementa [ADR-0033](decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md)
+mediante comprobantes transaccionales y reconciliaciones enlazadas.
 
 ## Relaciones
 
@@ -25,6 +28,8 @@ erDiagram
     PIPELINE_RUNS ||--o{ TELEMETRY_FEATURES : "pipeline_run_id"
     PIPELINE_RUNS ||--o{ TRAFFIC_PREDICTIONS : "pipeline_run_id"
     PIPELINE_RUNS ||--o{ HUMAN_VALIDATIONS : "pipeline_run_id (nullable)"
+    PIPELINE_RUNS ||--o| PERSISTENCE_RECEIPTS : "pipeline_run_id"
+    PIPELINE_RUNS ||--o| PIPELINE_RUNS : "reconciles_run_id"
 
     PIPELINE_RUNS {
       uuid id PK
@@ -35,6 +40,17 @@ erDiagram
       text database_user
       text application_name
       text model_revision
+      uuid reconciles_run_id FK
+    }
+    PERSISTENCE_RECEIPTS {
+      uuid pipeline_run_id PK_FK
+      text operation
+      text fingerprint_algorithm
+      char content_fingerprint
+      jsonb processed_counts
+      jsonb inserted_counts
+      timestamptz confirmed_at
+      name database_user
     }
 
     TRAFFIC_DATA {
@@ -85,6 +101,7 @@ erDiagram
 | `vaaet_ml.traffic_predictions` | MLP, política temporal y candidato de incidente | `(telemetry_feature_id, model_revision)` |
 | `vaaet_feedback.human_validations` | Revisión humana append-only | UUID; sustitución explícita por FK |
 | `vaaet_ops.pipeline_runs` | Ciclo redactado y auditable de cada workflow | UUID |
+| `vaaet_ops.persistence_receipts` | Prueba inmutable del contenido confirmado dentro de la transacción | `pipeline_run_id` |
 
 Todas las fechas son `TIMESTAMPTZ` UTC. Las medidas continuas, features y
 probabilidades usan `DOUBLE PRECISION`, en paridad con `float64`; los conteos
@@ -124,9 +141,11 @@ El administrador aplica `alembic upgrade head` y
 [`provision-roles.sql`](../../vaaet-persistence/src/vaaet_persistence/migrations/provision-roles.sql), luego crea usuarios
 LOGIN específicos del proveedor y les concede un solo rol de grupo.
 
-Las funciones `vaaet_ops.start_pipeline_run` y
-`vaaet_ops.finish_pipeline_run` son la única escritura operacional disponible
-para los workflows. Verifican membresía del rol y no aceptan metadata arbitraria.
+Las funciones controladas de `vaaet_ops` son la única escritura operacional
+disponible para los workflows. Inician y cierran corridas, registran el
+comprobante inmutable y completan una reconciliación verificada. Usan
+`search_path` fijo, comprueban propietario/workflow y no habilitan `UPDATE` o
+`DELETE` directo sobre historia.
 
 ## Normalización e índices
 

@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -12,7 +14,11 @@ import pandas as pd
 import pytest
 
 from vaaet_persistence.review_domain import HumanValidation
-from vaaet_persistence.review_persistence import load_review_queue, persist_human_validation
+from vaaet_persistence.review_persistence import (
+    load_human_validation_record,
+    load_review_queue,
+    persist_human_validation,
+)
 from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
 
@@ -22,6 +28,7 @@ class _Connection:
         self.validations: dict[str, dict[str, object]] = {}
         self.isolation_level: str | None = None
         self.read_only = False
+        self.audit_status = "running"
 
     def execution_options(self, *, isolation_level: str):
         self.isolation_level = isolation_level
@@ -42,8 +49,56 @@ class _Connection:
 
     def execute(self, statement: object, payload: dict[str, object] | None = None):
         if "alembic_version" in str(statement):
-            return _Result({"version_num": "20260911_0005"})
+            return _Result({"version_num": "20260920_0006"})
         assert payload is not None
+        if "record_persistence_receipt" in str(statement):
+            return _Result(
+                {
+                    "pipeline_run_id": payload["pipeline_run_id"],
+                    "operation": payload["operation"],
+                    "fingerprint_algorithm": payload["fingerprint_algorithm"],
+                    "content_fingerprint": payload["content_fingerprint"],
+                    "processed_counts": json.loads(str(payload["processed_counts"])),
+                    "inserted_counts": json.loads(str(payload["inserted_counts"])),
+                    "receipt_telemetry_schema_version": payload[
+                        "telemetry_schema_version"
+                    ],
+                    "receipt_feature_schema_version": payload["feature_schema_version"],
+                    "receipt_model_revision": payload["model_revision"],
+                    "confirmed_at": datetime.now(timezone.utc),
+                    "receipt_database_user": "reviewer",
+                }
+            )
+        if "read_pipeline_run_audit_state" in str(statement):
+            return _Result(
+                {
+                    "pipeline_run_id": payload["pipeline_run_id"],
+                    "workflow": "review",
+                    "application_name": "test-review",
+                    "application_version": "1.0.0",
+                    "database_user": "reviewer",
+                    "status": self.audit_status,
+                    "source_kind": "colab",
+                    "clip_id": None,
+                    "input_rows": 1,
+                    "output_rows": 1 if self.audit_status == "succeeded" else None,
+                    "telemetry_schema_version": None,
+                    "feature_schema_version": None,
+                    "model_version": None,
+                    "model_revision": None,
+                    "reconciles_run_id": None,
+                    "operation": "human-validation",
+                    "fingerprint_algorithm": "sha256-persistence-contract-v1",
+                    "content_fingerprint": "a" * 64,
+                    "processed_counts": {"human_validations": 1},
+                    "inserted_counts": {"human_validations": 1},
+                    "receipt_telemetry_schema_version": None,
+                    "receipt_feature_schema_version": None,
+                    "receipt_model_revision": None,
+                    "confirmed_at": datetime.now(timezone.utc),
+                    "receipt_database_user": "reviewer",
+                }
+            )
         if "SELECT id, prediction_id" in str(statement):
             return _Result(self.validations.get(str(payload["id"])))
         self.payloads.append(payload)
@@ -119,21 +174,27 @@ def test_load_review_queue_is_read_only_and_filters_in_memory(monkeypatch) -> No
     assert engine.connection.read_only
 
 
-def test_persist_validation_uses_supplied_pipeline_run_and_disposes_owned_engine(monkeypatch) -> None:
+def test_persist_validation_with_running_supplied_run_is_audit_pending(monkeypatch) -> None:
     engine = _Engine()
     monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", lambda _: engine)
     decision = HumanValidation(1, 1, "reviewer", validation_id=uuid4())
 
     run_id = uuid4()
-    identifier = persist_human_validation(decision, settings=_settings(), pipeline_run_id=run_id)
+    from vaaet_persistence.review_persistence import persist_human_validation_record
 
-    assert identifier == decision.validation_id
+    result = persist_human_validation_record(
+        decision, settings=_settings(), pipeline_run_id=run_id
+    )
+
+    assert result.validation_id == decision.validation_id
+    assert not result.audit_complete
     assert engine.connection.payloads[-1]["pipeline_run_id"] == str(run_id)
     assert engine.disposed
 
 
 def test_persist_validation_creates_review_lineage_when_run_is_missing(monkeypatch) -> None:
     engine = _Engine()
+    engine.connection.audit_status = "running"
     run = SimpleNamespace(
         id=uuid4(),
         outcome=SimpleNamespace(audit_complete=True, audit_error_category=None),
@@ -178,6 +239,7 @@ def test_retry_without_run_returns_original_lineage_without_creating_another_run
         "pipeline_run_id": str(original_run),
     }
     engine.connection.validations[str(decision.validation_id)] = payload
+    engine.connection.audit_status = "running"
     monkeypatch.setattr("vaaet_persistence.review_persistence.get_engine", lambda _: engine)
     monkeypatch.setattr(
         "vaaet_persistence.review_persistence.pipeline_run",
@@ -195,6 +257,13 @@ def test_retry_without_run_returns_original_lineage_without_creating_another_run
 
     assert result.pipeline_run_id == original_run
     assert result.reviewed_at == decision.reviewed_at
+    assert not result.audit_complete
+
+    engine.connection.audit_status = "succeeded"
+    recovered = load_human_validation_record(decision.validation_id, engine=engine)
+    assert recovered.pipeline_run_id == original_run
+    assert recovered.audit_complete
+    assert recovered.receipt is not None
 
 
 def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:

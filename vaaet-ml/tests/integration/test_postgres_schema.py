@@ -36,6 +36,8 @@ def engine():
     try:
         settings = load_database_admin_settings(allow_legacy=False)
     except RuntimeError:
+        if os.environ.get("VAAET_REQUIRE_POSTGRES_INTEGRATION") == "1":
+            pytest.fail("Required PostgreSQL administrator settings are not configured")
         pytest.skip("Typed PostgreSQL administrator settings are not configured")
     active = create_admin_engine(settings)
     try:
@@ -58,6 +60,8 @@ def test_real_pg17_custom_backups_are_ingested_exactly(
     backup_value = os.getenv(path_variable)
     pg_restore_value = os.getenv("VAAET_PG_RESTORE_PATH")
     if not backup_value or not pg_restore_value:
+        if os.environ.get("VAAET_REQUIRE_POSTGRES_INTEGRATION") == "1":
+            pytest.fail("Required PostgreSQL 17 backup fixtures are not configured")
         pytest.skip("PostgreSQL 17 backup fixtures are not configured")
 
     result = load_training_inputs(
@@ -87,6 +91,7 @@ def test_migrated_schemas_tables_and_views_exist(engine) -> None:
         "vaaet_feedback.review_queue",
         "vaaet_feedback.effective_human_labels",
         "vaaet_ops.pipeline_runs",
+        "vaaet_ops.persistence_receipts",
         "public.traffic_data",
         "public.telemetry_raw",
         "public.traffic_classifications",
@@ -302,7 +307,7 @@ def test_hardening_constraints_comments_and_indexes(engine) -> None:
                 "WHERE conname='ck_raw_total_matches_types'"
             )
         ).scalar_one()
-    assert revision == "20260911_0005"
+    assert revision == "20260920_0006"
     assert undocumented == 0
     assert "idx_raw_clip_time" not in indexes
     assert "idx_features_clip_time" not in indexes
@@ -365,7 +370,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         model_version="mlp-v3.0-test",
         model_revision="a" * 64,
         application_name="vaaet-ml-integration",
-        application_version="4.8.3",
+        application_version="4.9.0",
     )
     with engine.connect() as connection:
         prediction_id = connection.execute(
@@ -382,7 +387,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         HumanValidation(prediction_id, 1, "integration-reviewer"),
         engine=engine,
         application_name="vaaet-ml-integration",
-        application_version="4.8.3",
+        application_version="4.9.0",
     )
     frame.loc[0, "confidence"] = 0.92
     frame.loc[0, "model_revision"] = "b" * 64
@@ -392,7 +397,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         model_version="mlp-v3.0-test",
         model_revision="b" * 64,
         application_name="vaaet-ml-integration",
-        application_version="4.8.3",
+        application_version="4.9.0",
     )
     with engine.connect() as connection:
         feature_count, prediction_count = connection.execute(
@@ -431,7 +436,7 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         ),
         engine=engine,
         application_name="vaaet-ml-integration",
-        application_version="4.8.3",
+        application_version="4.9.0",
     )
     with engine.connect() as connection:
         count, effective = connection.execute(

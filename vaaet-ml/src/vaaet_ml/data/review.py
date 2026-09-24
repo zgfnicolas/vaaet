@@ -17,9 +17,20 @@ from vaaet_ml.data.dataset_artifacts import (
     sync_finalized_review_session,
 )
 from vaaet_ml.data.review_domain import HumanValidation, InferenceReviewSession, select_review_queue
-from vaaet_ml.data.review_export import export_offline_review_package
-from vaaet_ml.data.review_orchestration import prepare_review_session
-from vaaet_ml.data.review_persistence import load_review_queue, persist_human_validation
+from vaaet_ml.data.review_export import (
+    OfflineReviewExportContext,
+    export_offline_review_package,
+)
+from vaaet_ml.data.review_orchestration import (
+    prepare_review_session,
+    recover_pending_review_validation,
+)
+from vaaet_ml.data.review_persistence import (
+    load_human_validation_record,
+    load_review_queue,
+    persist_human_validation,
+    reconcile_human_validation,
+)
 from vaaet_ml.data.review_widgets import build_review_widget
 
 
@@ -55,12 +66,16 @@ __all__ = [
     "HitlCatalogPublisher",
     "HitlReviewCatalog",
     "InferenceReviewSession",
+    "OfflineReviewExportContext",
     "build_review_widget",
     "export_offline_review_package",
     "finalize_review_session",
     "load_review_queue",
+    "load_human_validation_record",
     "prepare_inference_review",
+    "recover_pending_review_validation",
     "persist_human_validation",
+    "reconcile_human_validation",
     "select_review_queue",
     "sync_finalized_review_session",
 ]

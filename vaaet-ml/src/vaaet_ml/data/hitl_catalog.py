@@ -406,15 +406,16 @@ def load_hitl_catalog_feedback(
 
     combined, source_descriptor = load_hitl_catalog_components(source)
     input_counts = {kind: int(len(frame)) for kind, frame in combined.items()}
-    features = _deduplicate_uuid_rows(combined["features"], name="features")
-    predictions = _deduplicate_uuid_rows(combined["predictions"], name="predictions")
-    validations = _deduplicate_uuid_rows(combined["validations"], name="validations")
+    features = combined["features"]
+    predictions = combined["predictions"]
+    validations = combined["validations"]
     feedback = resolve_effective_human_feedback(features, predictions, validations)
     descriptor = {
         **source_descriptor,
         "resolved_validations": int(len(feedback)),
         "duplicate_rows_resolved": {
-            kind: input_counts[kind] - len(frame)
+            kind: input_counts[kind]
+            - int(frame["id"].astype(str).nunique() if "id" in frame else len(frame))
             for kind, frame in {
                 "features": features,
                 "predictions": predictions,
@@ -497,17 +498,25 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     # Primero protege las identidades recibidas. Canonicalizar antes de esta
     # comprobación permitiría reasociar silenciosamente referencias repetidas.
     features = _deduplicate_uuid_rows(features, name="features")
-    predictions = _deduplicate_uuid_rows(predictions, name="predictions")
-    # Las referencias humanas se comparan después de resolver aliases de
-    # predicciones ya verificados. Dos paquetes históricos pueden conservar el
-    # mismo UUID de validación apuntando a IDs equivalentes de la misma predicción.
-    features, predictions, validations = _canonicalize_feedback_identities(
-        features, predictions, validations
-    )
+    features, feature_aliases = _canonicalize_feature_identities(features)
     features = _deduplicate_uuid_rows(features, name="features")
+
+    predictions = predictions.copy()
+    predictions["telemetry_feature_id"] = predictions["telemetry_feature_id"].map(
+        lambda value: feature_aliases.get(str(value), str(value))
+    )
+    # Recién después de demostrar la equivalencia de las features resulta
+    # válido comparar dos apariciones históricas de una misma predicción.
     predictions = _deduplicate_uuid_rows(predictions, name="predictions")
+    predictions, prediction_aliases = _canonicalize_prediction_identities(predictions)
+    predictions = _deduplicate_uuid_rows(predictions, name="predictions")
+
+    validations = validations.copy()
+    validations["prediction_id"] = validations["prediction_id"].map(
+        lambda value: prediction_aliases.get(str(value), str(value))
+    )
     validations = _deduplicate_uuid_rows(validations, name="validations")
-    validations = _deduplicate_equivalent_validations(validations)
+    validations = _deduplicate_validation_alias_layers(validations)
     if not set(predictions["telemetry_feature_id"].astype(str)).issubset(
         set(features["id"].astype(str))
     ):
@@ -619,16 +628,12 @@ def _deduplicate_uuid_rows(  # noqa: C901 - consolida contenido y procedencia po
     return pd.DataFrame(result_rows, columns=frame.columns).reset_index(drop=True)
 
 
-def _canonicalize_feedback_identities(
+def _canonicalize_feature_identities(
     features: pd.DataFrame,
-    predictions: pd.DataFrame,
-    validations: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Reconcilia aliases históricos únicamente desde claves naturales completas."""
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Demuestra equivalencias de features antes de tocar referencias dependientes."""
 
     canonical_features = features.copy()
-    canonical_predictions = predictions.copy()
-    canonical_validations = validations.copy()
     feature_aliases: dict[str, str] = {}
     if "record_time" in canonical_features:
         canonical_features["record_time"] = normalize_timestamp_series(
@@ -660,6 +665,15 @@ def _canonicalize_feedback_identities(
         feature_sources.append(source_id)
     canonical_features["id"] = feature_ids
     canonical_features["_source_feature_ids"] = feature_sources
+    return canonical_features, feature_aliases
+
+
+def _canonicalize_prediction_identities(
+    predictions: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Demuestra equivalencias de predicciones con features ya verificadas."""
+
+    canonical_predictions = predictions.copy()
 
     prediction_aliases: dict[str, str] = {}
     prediction_ids: list[str] = []
@@ -667,8 +681,7 @@ def _canonicalize_feedback_identities(
     feature_references: list[str] = []
     for row in canonical_predictions.itertuples(index=False):
         source_id = str(row.id)
-        source_feature = str(row.telemetry_feature_id)
-        feature_id = feature_aliases.get(source_feature, source_feature)
+        feature_id = str(row.telemetry_feature_id)
         run_id = getattr(row, "pipeline_run_id", None)
         revision = getattr(row, "model_revision", None)
         canonical_id = source_id
@@ -681,12 +694,7 @@ def _canonicalize_feedback_identities(
     canonical_predictions["id"] = prediction_ids
     canonical_predictions["telemetry_feature_id"] = feature_references
     canonical_predictions["_source_prediction_ids"] = prediction_sources
-
-    if not canonical_validations.empty:
-        canonical_validations["prediction_id"] = canonical_validations["prediction_id"].map(
-            lambda value: prediction_aliases.get(str(value), str(value))
-        )
-    return canonical_features, canonical_predictions, canonical_validations
+    return canonical_predictions, prediction_aliases
 
 
 def _bind_identity_alias(
@@ -704,7 +712,8 @@ def _deduplicate_equivalent_validations(validations: pd.DataFrame) -> pd.DataFra
     if validations.empty:
         return validations
     frame = validations.copy()
-    frame["_source_validation_ids"] = frame["id"].astype(str)
+    if "_source_validation_ids" not in frame:
+        frame["_source_validation_ids"] = frame["id"].astype(str)
     comparison = [
         column
         for column in frame.columns
@@ -727,7 +736,9 @@ def _deduplicate_equivalent_validations(validations: pd.DataFrame) -> pd.DataFra
         canonical_id = sorted(group["id"].astype(str))[0]
         merged = group.iloc[0].copy()
         merged["id"] = canonical_id
-        merged["_source_validation_ids"] = _join_lineage_values(group["id"])
+        merged["_source_validation_ids"] = _join_lineage_values(
+            group["_source_validation_ids"]
+        )
         for source_id in group["id"].astype(str):
             aliases[source_id] = canonical_id
         rows.append(merged)
@@ -736,6 +747,18 @@ def _deduplicate_equivalent_validations(validations: pd.DataFrame) -> pd.DataFra
         lambda value: aliases.get(str(value), value) if not _missing_value(value) else pd.NA
     )
     return result
+
+
+def _deduplicate_validation_alias_layers(validations: pd.DataFrame) -> pd.DataFrame:
+    """Resuelve aliases desde las raíces hacia cada corrección dependiente."""
+
+    result = validations.copy()
+    for _ in range(len(result) + 1):
+        previous_length = len(result)
+        result = _deduplicate_equivalent_validations(result)
+        if len(result) == previous_length:
+            return result
+    raise ValueError("Human validation aliases did not converge deterministically.")
 
 
 def _missing_value(value: object) -> bool:

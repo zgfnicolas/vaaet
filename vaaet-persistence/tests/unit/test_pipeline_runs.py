@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from vaaet_persistence.pipeline_runs import (
-    PipelineRunHandle,
     PipelineRunMetadata,
     PipelineWorkflow,
     complete_reconciled_pipeline_run,
@@ -195,58 +196,70 @@ def test_reconciliation_closes_original_and_records_a_separate_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original_id = uuid4()
-    finished: list[tuple[object, str]] = []
+    executed: list[dict[str, object]] = []
 
-    def fake_start(metadata, **_kwargs):
-        return PipelineRunHandle(uuid4(), metadata), "2026-09-14T00:00:00+00:00"
+    class Result:
+        def scalar_one(self):
+            return executed[-1]["reconciliation_run_id"]
 
-    def fake_finish(handle, *, status, **_kwargs):
-        finished.append((handle.id, status))
+    class Connection:
+        def execute(self, _statement, payload):
+            executed.append(payload)
+            return Result()
 
-    monkeypatch.setattr("vaaet_persistence.pipeline_runs.start_pipeline_run", fake_start)
-    monkeypatch.setattr("vaaet_persistence.pipeline_runs.finish_pipeline_run", fake_finish)
+    class Engine:
+        @contextmanager
+        def begin(self):
+            yield Connection()
+
+    monkeypatch.setattr(
+        "vaaet_persistence.pipeline_runs.require_database_revision", lambda _connection: None
+    )
 
     outcome = complete_reconciled_pipeline_run(
         run_id=original_id,
         output_rows=3,
-        engine=object(),  # type: ignore[arg-type]
+        engine=Engine(),  # type: ignore[arg-type]
         workflow=PipelineWorkflow.COLLECTION,
-        application_version="0.2.3",
+        application_version="0.3.0",
+        operation="raw-telemetry",
+        content_fingerprint="a" * 64,
     )
 
     assert outcome.audit_complete
     assert outcome.run_id == original_id
     assert outcome.reconciliation_run_id is not None
     assert outcome.reconciliation_run_id != original_id
-    assert finished == [
-        (original_id, "succeeded"),
-        (outcome.reconciliation_run_id, "succeeded"),
-    ]
+    assert len(executed) == 1
+    assert executed[0]["original_run_id"] == str(original_id)
 
 
-def test_failed_reconciliation_keeps_the_original_result_recoverable(
+def test_failed_reconciliation_propagates_a_safe_domain_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original_id = uuid4()
 
-    def fake_start(metadata, **_kwargs):
-        return PipelineRunHandle(uuid4(), metadata), "2026-09-14T00:00:00+00:00"
+    class Connection:
+        def execute(self, _statement, _payload):
+            raise SQLAlchemyError("private driver detail")
 
-    def fake_finish(handle, *, status, **_kwargs):
-        if handle.id == original_id:
-            raise RuntimeError("audit unavailable")
+    class Engine:
+        @contextmanager
+        def begin(self):
+            yield Connection()
 
-    monkeypatch.setattr("vaaet_persistence.pipeline_runs.start_pipeline_run", fake_start)
-    monkeypatch.setattr("vaaet_persistence.pipeline_runs.finish_pipeline_run", fake_finish)
-
-    outcome = complete_reconciled_pipeline_run(
-        run_id=original_id,
-        output_rows=3,
-        engine=object(),  # type: ignore[arg-type]
-        workflow=PipelineWorkflow.INFERENCE,
-        application_version="0.2.3",
+    monkeypatch.setattr(
+        "vaaet_persistence.pipeline_runs.require_database_revision", lambda _connection: None
     )
-
-    assert outcome.work_succeeded
-    assert not outcome.audit_complete
-    assert outcome.audit_error_category == "RuntimeError"
+    with pytest.raises(Exception, match="pipeline lineage") as captured:
+        complete_reconciled_pipeline_run(
+            run_id=original_id,
+            output_rows=3,
+            engine=Engine(),  # type: ignore[arg-type]
+            workflow=PipelineWorkflow.INFERENCE,
+            application_version="0.3.0",
+            operation="classified-telemetry",
+            content_fingerprint="b" * 64,
+            model_revision="c" * 64,
+        )
+    assert "private driver detail" not in str(captured.value)

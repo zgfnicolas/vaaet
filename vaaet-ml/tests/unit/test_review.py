@@ -10,6 +10,7 @@ import pytest
 from vaaet_ml.data.ingestion import load_dataset_package
 from vaaet_ml.data.review import (
     HumanValidation,
+    OfflineReviewExportContext,
     export_offline_review_package,
     select_review_queue,
 )
@@ -95,8 +96,12 @@ def test_offline_review_exports_importable_contract(tmp_path) -> None:
     row.update(
         prediction_id=1,
         clip_id="clip-a",
+        continuity_id="clip-a:continuity-0001",
         record_time="2026-08-04T12:00:00Z",
-        model_version="mlp-v2.0",
+        feature_schema_version="traffic-features-v3",
+        telemetry_schema_version="traffic-telemetry-v3",
+        model_version="mlp-v3.0",
+        model_revision="a" * 64,
         traffic_state=1,
     )
     decision = HumanValidation(1, 1, "reviewer")
@@ -104,7 +109,66 @@ def test_offline_review_exports_importable_contract(tmp_path) -> None:
         tmp_path / "feedback.zip",
         classified=pd.DataFrame([row]),
         validations=[decision],
+        context=OfflineReviewExportContext(
+            pipeline_run_id="00000000-0000-0000-0000-000000000123",
+            model_version="mlp-v3.0",
+            git_commit="abc1234",
+            application_version="4.9.0",
+        ),
     )
     frames = load_dataset_package(package)
     assert set(frames) == {"features", "predictions", "validations"}
     assert frames["validations"].iloc[0]["validated_state"] == 1
+    assert pd.Timestamp(frames["validations"].iloc[0]["reviewed_at"]) == pd.Timestamp(
+        decision.reviewed_at
+    )
+
+    repeated = export_offline_review_package(
+        package,
+        classified=pd.DataFrame([row]),
+        validations=[decision],
+        context=OfflineReviewExportContext(
+            pipeline_run_id="00000000-0000-0000-0000-000000000123",
+            model_version="mlp-v3.0",
+            git_commit="abc1234",
+            application_version="4.9.0",
+        ),
+    )
+    assert repeated == package
+
+    with pytest.raises(ValueError, match="different immutable content"):
+        export_offline_review_package(
+            package,
+            classified=pd.DataFrame([row]),
+            validations=[HumanValidation(1, 2, "reviewer")],
+            context=OfflineReviewExportContext(
+                pipeline_run_id="00000000-0000-0000-0000-000000000123",
+                model_version="mlp-v3.0",
+                git_commit="abc1234",
+                application_version="4.9.0",
+            ),
+        )
+
+
+def test_offline_review_export_rejects_missing_operational_context(tmp_path) -> None:
+    row = {column: 1.0 for column in FEATURE_COLS}
+    row.update(
+        prediction_id=1,
+        clip_id="clip-a",
+        continuity_id="clip-a:continuity-0001",
+        record_time="2026-08-04T12:00:00Z",
+        feature_schema_version="traffic-features-v3",
+        telemetry_schema_version="traffic-telemetry-v3",
+        model_version="mlp-v3.0",
+        model_revision="a" * 64,
+        traffic_state=1,
+    )
+
+    with pytest.raises(ValueError, match="OfflineReviewExportContext"):
+        export_offline_review_package(
+            tmp_path / "feedback.zip",
+            classified=pd.DataFrame([row]),
+            validations=[HumanValidation(1, 1, "reviewer")],
+        )
+
+    assert not (tmp_path / "feedback.zip").exists()

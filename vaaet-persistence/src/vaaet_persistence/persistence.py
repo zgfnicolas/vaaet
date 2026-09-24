@@ -47,6 +47,14 @@ from vaaet_persistence.pipeline_runs import (
     complete_reconciled_pipeline_run,
     pipeline_run,
 )
+from vaaet_persistence.receipts import (
+    PersistenceReceipt,
+    PipelineRunAuditState,
+    build_persistence_receipt,
+    read_pipeline_run_audit_state,
+    receipts_match,
+    record_persistence_receipt,
+)
 from vaaet_persistence.settings import DatabaseSettings
 
 logger = get_logger(__name__)
@@ -70,6 +78,7 @@ class PersistResult:
     inserted_classification_rows: int = 0
     audit_complete: bool = True
     audit_error_category: str | None = None
+    receipt: PersistenceReceipt | None = None
 
 
 def _log_write_metrics(
@@ -692,6 +701,88 @@ def _prediction_payload(
     }
 
 
+def _raw_receipt_observations(frame: pd.DataFrame, run_id: str) -> list[dict[str, object]]:
+    """Proyecta el contenido solicitado sin depender de IDs generados por PostgreSQL."""
+
+    return [_raw_payload(row, run_id) for _, row in frame.iterrows()]
+
+
+def _classified_receipt_observations(
+    frame: pd.DataFrame,
+    *,
+    run_id: str,
+    model_version: str,
+    model_revision: str,
+) -> list[dict[str, object]]:
+    """Une features y predicciones por su clave contractual portable."""
+
+    observations: list[dict[str, object]] = []
+    for _, row in frame.iterrows():
+        feature = _feature_payload(row, run_id)
+        prediction = _prediction_payload(
+            row,
+            feature_id=0,
+            pipeline_run_id=run_id,
+            model_version=model_version,
+            model_revision=model_revision,
+        )
+        prediction.pop("telemetry_feature_id")
+        observations.append(
+            {
+                "feature": feature,
+                "prediction": {
+                    **prediction,
+                    "feature_key": {
+                        "pipeline_run_id": run_id,
+                        "clip_id": feature["clip_id"],
+                        "record_time": feature["record_time"],
+                        "feature_schema_version": feature["feature_schema_version"],
+                    },
+                },
+            }
+        )
+    return observations
+
+
+def _assert_reconciliation_state(
+    state: PipelineRunAuditState,
+    expected_receipt: PersistenceReceipt,
+    *,
+    workflow: PipelineWorkflow,
+    frame: pd.DataFrame,
+) -> None:
+    """Rechaza evidencia parcial o perteneciente a otra corrida operacional."""
+
+    clip_ids = frame["clip_id"].dropna().astype(str).unique()
+    expected_clip = str(clip_ids[0]) if len(clip_ids) == 1 else None
+    differences: list[str] = []
+    if state.workflow != workflow.value:
+        differences.append("workflow")
+    if state.status not in {"running", "succeeded"}:
+        differences.append("status")
+    if state.input_rows != len(frame):
+        differences.append("input_rows")
+    if state.clip_id != expected_clip:
+        differences.append("clip_id")
+    if state.telemetry_schema_version != expected_receipt.telemetry_schema_version:
+        differences.append("telemetry_schema_version")
+    if state.feature_schema_version != expected_receipt.feature_schema_version:
+        differences.append("feature_schema_version")
+    if state.model_revision != expected_receipt.model_revision:
+        differences.append("model_revision")
+    if state.receipt is None or not receipts_match(
+        state.receipt,
+        expected_receipt,
+        include_inserted_counts=False,
+    ):
+        differences.append("persistence_receipt")
+    if differences:
+        raise PersistenceConflictError(
+            "Pipeline reconciliation evidence differs in: "
+            f"{sorted(set(differences))}"
+        )
+
+
 def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en un borde público.
     df: pd.DataFrame,
     *,
@@ -770,6 +861,17 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
         with active_engine.begin() as connection:
             require_database_revision(connection)
             inserted, query_count = _persist_raw_rows(connection, normalized, run_id)
+            record_persistence_receipt(
+                connection,
+                build_persistence_receipt(
+                    pipeline_run_id=run_id,
+                    operation="raw-telemetry",
+                    observations=_raw_receipt_observations(normalized, run_id),
+                    processed_counts={"raw_telemetry": len(normalized)},
+                    inserted_counts={"raw_telemetry": inserted},
+                    telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+                ),
+            )
     except ProgrammingError as exc:
         raise _require_migrated_schema(exc) from None
     except SQLAlchemyError as exc:
@@ -864,6 +966,21 @@ def reconcile_raw_telemetry(
     try:
         with active_engine.begin() as connection:
             require_database_revision(connection)
+            state = read_pipeline_run_audit_state(connection, run_id)
+            expected_receipt = build_persistence_receipt(
+                pipeline_run_id=run_id,
+                operation="raw-telemetry",
+                observations=payloads,
+                processed_counts={"raw_telemetry": len(normalized)},
+                inserted_counts={"raw_telemetry": 0},
+                telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+            )
+            _assert_reconciliation_state(
+                state,
+                expected_receipt,
+                workflow=PipelineWorkflow.COLLECTION,
+                frame=normalized,
+            )
             for batch in _batches(payloads):
                 stored = _select_batch(
                     connection,
@@ -878,13 +995,17 @@ def reconcile_raw_telemetry(
                     key_fields=("clip_id", "record_time"),
                     ignored_fields={"pipeline_run_id"},
                 )
-        return complete_reconciled_pipeline_run(
-            run_id=run_id,
-            output_rows=len(normalized),
-            engine=active_engine,
-            workflow=PipelineWorkflow.COLLECTION,
-            application_version="0.2.3",
-        )
+            outcome = complete_reconciled_pipeline_run(
+                run_id=run_id,
+                output_rows=len(normalized),
+                engine=active_engine,
+                connection=connection,
+                workflow=PipelineWorkflow.COLLECTION,
+                application_version="0.3.0",
+                operation=expected_receipt.operation,
+                content_fingerprint=expected_receipt.content_fingerprint,
+            )
+        return outcome
     except PersistenceConflictError:
         raise
     except SQLAlchemyError as exc:
@@ -989,6 +1110,30 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
             ) = _persist_classified_rows(
                 connection, normalized, run_id, model_version, resolved_revision
             )
+            receipt = record_persistence_receipt(
+                connection,
+                build_persistence_receipt(
+                    pipeline_run_id=run_id,
+                    operation="classified-telemetry",
+                    observations=_classified_receipt_observations(
+                        normalized,
+                        run_id=run_id,
+                        model_version=model_version,
+                        model_revision=resolved_revision,
+                    ),
+                    processed_counts={
+                        "telemetry_features": telemetry_rows,
+                        "traffic_predictions": prediction_rows,
+                    },
+                    inserted_counts={
+                        "telemetry_features": inserted_telemetry_rows,
+                        "traffic_predictions": inserted_prediction_rows,
+                    },
+                    telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+                    feature_schema_version=FEATURE_SCHEMA_VERSION,
+                    model_revision=resolved_revision,
+                ),
+            )
     except ProgrammingError as exc:
         raise _require_migrated_schema(exc) from None
     except SQLAlchemyError as exc:
@@ -1016,6 +1161,7 @@ def persist_classified_telemetry(  # noqa: C901 - valida y registra lineage opci
         run_id,
         inserted_telemetry_rows,
         inserted_prediction_rows,
+        receipt=receipt,
     )
 
 
@@ -1041,6 +1187,31 @@ def reconcile_classified_telemetry(
     try:
         with active_engine.begin() as connection:
             require_database_revision(connection)
+            state = read_pipeline_run_audit_state(connection, run_id)
+            expected_receipt = build_persistence_receipt(
+                pipeline_run_id=run_id,
+                operation="classified-telemetry",
+                observations=_classified_receipt_observations(
+                    normalized,
+                    run_id=run_id,
+                    model_version=model_version,
+                    model_revision=resolved_revision,
+                ),
+                processed_counts={
+                    "telemetry_features": len(normalized),
+                    "traffic_predictions": len(normalized),
+                },
+                inserted_counts={"telemetry_features": 0, "traffic_predictions": 0},
+                telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
+                feature_schema_version=FEATURE_SCHEMA_VERSION,
+                model_revision=resolved_revision,
+            )
+            _assert_reconciliation_state(
+                state,
+                expected_receipt,
+                workflow=PipelineWorkflow.INFERENCE,
+                frame=normalized,
+            )
             for batch_rows in _batches(list(normalized.iterrows())):
                 feature_payloads = [_feature_payload(row, run_id) for _, row in batch_rows]
                 stored_features = _select_batch(
@@ -1105,14 +1276,18 @@ def reconcile_classified_telemetry(
                     kind="prediction reconciliation",
                     key_fields=("telemetry_feature_id", "model_revision"),
                 )
-        return complete_reconciled_pipeline_run(
-            run_id=run_id,
-            output_rows=len(normalized),
-            model_revision=resolved_revision,
-            engine=active_engine,
-            workflow=PipelineWorkflow.INFERENCE,
-            application_version="0.2.3",
-        )
+            outcome = complete_reconciled_pipeline_run(
+                run_id=run_id,
+                output_rows=len(normalized),
+                model_revision=resolved_revision,
+                engine=active_engine,
+                connection=connection,
+                workflow=PipelineWorkflow.INFERENCE,
+                application_version="0.3.0",
+                operation=expected_receipt.operation,
+                content_fingerprint=expected_receipt.content_fingerprint,
+            )
+        return outcome
     except PersistenceConflictError:
         raise
     except SQLAlchemyError as exc:

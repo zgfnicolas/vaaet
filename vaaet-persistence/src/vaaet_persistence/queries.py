@@ -11,12 +11,16 @@ from typing import NoReturn
 
 import pandas as pd
 from sqlalchemy import bindparam, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
 from vaaet_persistence.connection import dispose_engine, get_engine
-from vaaet_persistence.exceptions import DatabaseOperationError, safe_sqlstate
+from vaaet_persistence.exceptions import (
+    DatabaseOperationError,
+    PersistenceConflictError,
+    safe_sqlstate,
+)
 from vaaet_persistence.settings import DatabaseSettings
 
 RAW_TABLE = "vaaet_raw.traffic_data"
@@ -116,6 +120,12 @@ JOIN vaaet_ml.traffic_predictions p ON p.id = hv.prediction_id
 JOIN vaaet_ml.telemetry_features f ON f.id = p.telemetry_feature_id
 WHERE (:feature_schema_version IS NULL OR f.feature_schema_version = :feature_schema_version)
 ORDER BY hv.reviewed_at, hv.id
+"""
+
+PENDING_HUMAN_AUDITS_QUERY = """
+SELECT validation_id, pipeline_run_id
+FROM vaaet_feedback.list_pending_validation_audits(:feature_schema_version)
+ORDER BY validation_id
 """
 
 _LEGACY_MISSING_COLUMNS = (
@@ -257,11 +267,20 @@ def load_human_ground_truth(
     active_engine, owns_engine = _active_engine(settings, engine)
     try:
         try:
-            return pd.read_sql(
-                text(HUMAN_GROUND_TRUTH_QUERY),
-                active_engine,
-                params={"feature_schema_version": feature_schema_version},
-            )
+            with active_engine.connect().execution_options(
+                isolation_level="REPEATABLE READ"
+            ) as connection:
+                with connection.begin():
+                    connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                    _raise_for_pending_human_audits(
+                        connection,
+                        feature_schema_version=feature_schema_version,
+                    )
+                    return pd.read_sql(
+                        text(HUMAN_GROUND_TRUTH_QUERY),
+                        connection,
+                        params={"feature_schema_version": feature_schema_version},
+                    )
         except SQLAlchemyError as exc:
             _raise_read_error(exc, operation="load-human-ground-truth")
     finally:
@@ -286,6 +305,10 @@ def load_human_feedback_components(
             ) as connection:
                 with connection.begin():
                     connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                    _raise_for_pending_human_audits(
+                        connection,
+                        feature_schema_version=feature_schema_version,
+                    )
                     return {
                         "features": pd.read_sql(
                             text(HUMAN_FEATURES_QUERY), connection, params=params
@@ -313,12 +336,31 @@ def _raise_read_error(exc: SQLAlchemyError, *, operation: str) -> NoReturn:
     ) from None
 
 
+def _raise_for_pending_human_audits(
+    connectable: Connection,
+    *,
+    feature_schema_version: str | None,
+) -> None:
+    pending = pd.read_sql(
+        text(PENDING_HUMAN_AUDITS_QUERY),
+        connectable,
+        params={"feature_schema_version": feature_schema_version},
+    )
+    if not pending.empty:
+        identifiers = pending["validation_id"].astype(str).head(10).tolist()
+        raise PersistenceConflictError(
+            "Human feedback contains decisions with incomplete PostgreSQL audit; "
+            f"reconcile them before training: {identifiers}"
+        )
+
+
 __all__ = [
     "EFFECTIVE_LABELS_VIEW",
     "HUMAN_GROUND_TRUTH_QUERY",
     "HUMAN_FEATURES_QUERY",
     "HUMAN_PREDICTIONS_QUERY",
     "HUMAN_VALIDATIONS_QUERY",
+    "PENDING_HUMAN_AUDITS_QUERY",
     "LEGACY_TELEMETRY_QUERY",
     "RAW_TABLE",
     "TELEMETRY_QUERY",

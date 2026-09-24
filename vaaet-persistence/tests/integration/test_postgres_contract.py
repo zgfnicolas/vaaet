@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -15,7 +16,10 @@ from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
 import vaaet_persistence.pipeline_runs as pipeline_run_module
 from vaaet_persistence.connection import database_engine, inspect_database
-from vaaet_persistence.exceptions import PipelineAuditIncompleteError
+from vaaet_persistence.exceptions import (
+    PersistenceConflictError,
+    PipelineAuditIncompleteError,
+)
 from vaaet_persistence.persistence import (
     persist_classified_telemetry,
     persist_raw_telemetry,
@@ -38,6 +42,8 @@ def _settings(profile: DatabaseProfile = DatabaseProfile.COLLECTION):
             application_version="0.1.0",
         )
     except RuntimeError:
+        if os.environ.get("VAAET_REQUIRE_POSTGRES_INTEGRATION") == "1":
+            pytest.fail("Required PostgreSQL integration profile is not configured")
         pytest.skip("PostgreSQL integration profile is not configured")
 
 
@@ -195,7 +201,25 @@ def test_confirmed_write_is_reconciled_without_reinserting_rows(
         )
 
     assert captured.value.confirmed_result == 1
+    with database_engine(settings) as engine, engine.connect() as connection:
+        receipt_before = connection.execute(
+            text(
+                "SELECT operation, processed_counts, inserted_counts "
+                "FROM vaaet_ops.persistence_receipts "
+                "WHERE pipeline_run_id=CAST(:run_id AS UUID)"
+            ),
+            {"run_id": captured.value.run_id},
+        ).one()
+    assert receipt_before.operation == "raw-telemetry"
+    assert receipt_before.processed_counts == {"raw_telemetry": 1}
+    assert receipt_before.inserted_counts == {"raw_telemetry": 1}
     monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", original_finish)
+    with pytest.raises(PersistenceConflictError):
+        reconcile_raw_telemetry(
+            frame.assign(clip_id="different-clip"),
+            pipeline_run_id=captured.value.run_id,
+            settings=settings,
+        )
     outcome = reconcile_raw_telemetry(
         frame,
         pipeline_run_id=captured.value.run_id,
@@ -205,6 +229,13 @@ def test_confirmed_write_is_reconciled_without_reinserting_rows(
     assert outcome.work_succeeded
     assert outcome.audit_complete
     assert outcome.reconciliation_run_id is not None
+    repeated_outcome = reconcile_raw_telemetry(
+        frame,
+        pipeline_run_id=captured.value.run_id,
+        settings=settings,
+    )
+    assert repeated_outcome.audit_complete
+    assert repeated_outcome.reconciliation_run_id == outcome.reconciliation_run_id
     assert persist_raw_telemetry(
         frame,
         settings=settings,
@@ -247,6 +278,8 @@ def test_independent_consumer_preserves_feature_and_probability_float64() -> Non
     assert result.classification_rows == 1
     assert result.inserted_telemetry_rows in {0, 1}
     assert result.inserted_classification_rows in {0, 1}
+    assert result.receipt is not None
+    assert result.receipt.operation == "classified-telemetry"
 
     with database_engine(settings) as engine, engine.connect() as connection:
         stored = connection.execute(
@@ -325,6 +358,10 @@ def test_reviewer_can_append_and_correct_without_update_privilege() -> None:
     repeated = persist_human_validation_record(correction, settings=review_settings)
 
     assert repeated == corrected
+    assert first.audit_complete
+    assert first.receipt is not None
+    assert corrected.audit_complete
+    assert corrected.receipt is not None
     assert corrected.pipeline_run_id == repeated.pipeline_run_id
     with database_engine(review_settings) as engine, engine.connect() as connection:
         assert connection.execute(

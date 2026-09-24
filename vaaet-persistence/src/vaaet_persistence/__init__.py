@@ -50,9 +50,16 @@ from vaaet_persistence.queries import (
     load_telemetry,
     load_telemetry_window,
 )
+from vaaet_persistence.receipts import (
+    PERSISTENCE_RECEIPT_ALGORITHM,
+    PersistenceReceipt,
+    PipelineRunAuditState,
+    calculate_persistence_fingerprint,
+)
 from vaaet_persistence.review_domain import HumanValidation, InferenceReviewSession
 from vaaet_persistence.review_persistence import (
     PersistedHumanValidation,
+    load_human_validation_record,
     load_review_queue,
     persist_human_validation,
     persist_human_validation_record,
@@ -71,7 +78,7 @@ from vaaet_persistence.settings import (
     load_reviewer_id,
 )
 
-__version__ = "0.2.3"
+__version__ = "0.3.0"
 
 __all__ = [
     "DATABASE_SCHEMAS",
@@ -91,14 +98,18 @@ __all__ = [
     "InferenceReviewSession",
     "PersistResult",
     "PersistedHumanValidation",
+    "PersistenceReceipt",
     "PersistenceConflictError",
     "PersistenceValidationError",
     "PipelineRunHandle",
+    "PipelineRunAuditState",
     "PipelineRunMetadata",
     "PipelineRunOutcome",
     "PipelineWorkflow",
     "PipelineAuditIncompleteError",
     "TelemetryReadMode",
+    "PERSISTENCE_RECEIPT_ALGORITHM",
+    "calculate_persistence_fingerprint",
     "create_admin_engine",
     "complete_reconciled_pipeline_run",
     "database_engine",
@@ -113,6 +124,7 @@ __all__ = [
     "load_database_settings",
     "load_human_feedback_components",
     "load_human_ground_truth",
+    "load_human_validation_record",
     "load_reviewer_id",
     "load_review_queue",
     "load_telemetry",

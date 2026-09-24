@@ -137,6 +137,9 @@ antes de deserializar un bundle.
   reconciliación sin reinserciones y la validación compartida de probabilidades
   están gobernados por
   [ADR-0032](docs/architecture/decisions/0032-complete-cycle-integrity.md).
+- Los comprobantes transaccionales, la recuperación verificable y el bloqueo
+  uniforme de auditorías HITL pendientes están gobernados por
+  [ADR-0033](docs/architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

@@ -203,7 +203,7 @@ def test_connection_diagnostic_returns_false_on_pool_timeout() -> None:
 
 @pytest.mark.parametrize(
     ("revision", "accepted"),
-    [("20260911_0005", True), ("20260909_0004", False), (None, False)],
+    [("20260920_0006", True), ("20260911_0005", False), (None, False)],
 )
 def test_database_revision_guard_requires_exact_head(revision: object, accepted: bool) -> None:
     class RevisionConnection:

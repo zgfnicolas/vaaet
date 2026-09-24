@@ -13,10 +13,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.logging import get_logger
@@ -43,6 +43,14 @@ SELECT vaaet_ops.start_pipeline_run(
 _FINISH_RUN_SQL = """
 SELECT vaaet_ops.finish_pipeline_run(
     CAST(:id AS UUID), :status, :output_rows, :error_category, :model_revision
+)
+"""
+
+_COMPLETE_RECONCILIATION_SQL = """
+SELECT vaaet_ops.complete_verified_reconciliation(
+    CAST(:original_run_id AS UUID), CAST(:reconciliation_run_id AS UUID),
+    :application_version, :operation, :content_fingerprint,
+    :output_rows, :model_revision
 )
 """
 
@@ -388,74 +396,59 @@ def complete_reconciled_pipeline_run(
     engine: Engine,
     workflow: PipelineWorkflow,
     application_version: str,
+    operation: str,
+    content_fingerprint: str,
     model_revision: str | None = None,
+    connection: Connection | None = None,
 ) -> PipelineRunOutcome:
-    """Completa una corrida verificada y registra el intento de reconciliación."""
+    """Completa una corrida sólo mediante su comprobante transaccional exacto."""
 
-    original = PipelineRunHandle(
-        UUID(str(run_id)),
-        PipelineRunMetadata(
-            workflow=workflow,
-            application_name="vaaet-persistence-reconciliation",
-            application_version=application_version,
-            model_revision=model_revision,
-        ),
+    original_id = UUID(str(run_id))
+    if workflow.value not in {"collection", "inference", "review"}:
+        raise ValueError("Only data-writing workflows may reconcile persistence receipts.")
+    if len(content_fingerprint) != 64:
+        raise ValueError("Reconciliation requires an exact receipt fingerprint.")
+    reconciliation_id = uuid5(
+        NAMESPACE_URL,
+        f"vaaet:persistence-reconciliation:{original_id}:{content_fingerprint}",
+    )
+    payload = {
+        "original_run_id": str(original_id),
+        "reconciliation_run_id": str(reconciliation_id),
+        "application_version": application_version,
+        "operation": operation,
+        "content_fingerprint": content_fingerprint,
+        "output_rows": output_rows,
+        "model_revision": model_revision,
+    }
+    resolved: object = original_id
+    try:
+        if connection is not None:
+            require_database_revision(connection)
+            resolved = connection.execute(text(_COMPLETE_RECONCILIATION_SQL), payload).scalar_one()
+        else:
+            with engine.begin() as owned_connection:
+                require_database_revision(owned_connection)
+                resolved = owned_connection.execute(
+                    text(_COMPLETE_RECONCILIATION_SQL), payload
+                ).scalar_one()
+    except SQLAlchemyError as error:
+        _raise_pipeline_database_error(
+            error,
+            operation="complete-verified-reconciliation",
+            run_id=original_id,
+        )
+    resolved_id = UUID(str(resolved))
+    return PipelineRunOutcome(
+        run_id=original_id,
+        work_succeeded=True,
+        audit_complete=True,
         output_rows=output_rows,
         model_revision=model_revision,
+        reconciliation_run_id=(
+            None if resolved_id == original_id else resolved_id
+        ),
     )
-    try:
-        metadata = PipelineRunMetadata(
-            workflow=workflow,
-            application_name="vaaet-persistence-reconciliation",
-            application_version=application_version,
-            source_kind="audit-reconciliation",
-            input_rows=output_rows,
-            model_revision=model_revision,
-        )
-        with pipeline_run(metadata, engine=engine) as reconciliation:
-            finish_pipeline_run(
-                original,
-                status="succeeded",
-                started_at=_utc_now(),
-                engine=engine,
-            )
-            reconciliation.set_output_rows(output_rows)
-        reconciliation_outcome = reconciliation.outcome
-        audit_complete = bool(
-            reconciliation_outcome is not None and reconciliation_outcome.audit_complete
-        )
-        original.outcome = PipelineRunOutcome(
-            run_id=original.id,
-            work_succeeded=True,
-            audit_complete=audit_complete,
-            output_rows=output_rows,
-            model_revision=model_revision,
-            audit_error_category=(
-                None
-                if audit_complete
-                else (
-                    reconciliation_outcome.audit_error_category
-                    if reconciliation_outcome is not None
-                    else "MissingReconciliationOutcome"
-                )
-            ),
-            reconciliation_run_id=reconciliation.id,
-        )
-    except Exception as audit_error:
-        original.outcome = PipelineRunOutcome(
-            run_id=original.id,
-            work_succeeded=True,
-            audit_complete=False,
-            output_rows=output_rows,
-            model_revision=model_revision,
-            audit_error_category=type(audit_error).__name__,
-        )
-        logger.warning(
-            "Reconciled pipeline run audit remains incomplete: %s",
-            type(audit_error).__name__,
-        )
-    assert original.outcome is not None
-    return original.outcome
 
 
 def _raise_pipeline_database_error(

@@ -2,4 +2,4 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Laboratorio VAAET: entrenamiento, evaluación, datos y notebooks."""
 
-__version__ = "4.8.3"
+__version__ = "4.9.0"

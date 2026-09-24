@@ -78,3 +78,11 @@ Finalizar una revisión crea primero un ZIP local `pending-sync`. Publicarlo en
 Drive requiere el publicador coordinado del catálogo. Un fallo remoto conserva
 los mismos bytes para reintentar; no reconstruye la sesión ni inventa otra
 identidad.
+
+Si PostgreSQL confirma una decisión pero no puede cerrar su auditoría, el
+formulario muestra «Guardado; auditoría pendiente», conserva el mismo UUID y no
+avanza. Repetir el botón reconcilia esa decisión sin otro `INSERT`. Después de
+reiniciar el runtime, `recover_pending_validation("<validation-id>")` recupera
+la decisión autoritativa y completa únicamente su auditoría. Mientras esté
+pendiente, `finalize_current_review()` y la ingestión de entrenamiento quedan
+bloqueados.

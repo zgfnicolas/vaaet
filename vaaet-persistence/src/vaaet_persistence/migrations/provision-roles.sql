@@ -40,6 +40,14 @@ GRANT EXECUTE ON FUNCTION vaaet_ops.start_pipeline_run(UUID, TEXT, TEXT, TEXT, T
   TO vaaet_collection_role, vaaet_inference_role, vaaet_training_role, vaaet_reviewer_role;
 GRANT EXECUTE ON FUNCTION vaaet_ops.finish_pipeline_run(UUID, TEXT, BIGINT, TEXT, TEXT)
   TO vaaet_collection_role, vaaet_inference_role, vaaet_training_role, vaaet_reviewer_role;
+GRANT EXECUTE ON FUNCTION vaaet_ops.record_persistence_receipt(UUID, TEXT, TEXT, TEXT, JSONB, JSONB, TEXT, TEXT, TEXT)
+  TO vaaet_collection_role, vaaet_inference_role, vaaet_training_role, vaaet_reviewer_role;
+GRANT EXECUTE ON FUNCTION vaaet_ops.read_pipeline_run_audit_state(UUID)
+  TO vaaet_collection_role, vaaet_inference_role, vaaet_training_role, vaaet_reviewer_role;
+GRANT EXECUTE ON FUNCTION vaaet_ops.complete_verified_reconciliation(UUID, UUID, TEXT, TEXT, TEXT, BIGINT, TEXT)
+  TO vaaet_collection_role, vaaet_inference_role, vaaet_training_role, vaaet_reviewer_role;
+GRANT EXECUTE ON FUNCTION vaaet_feedback.list_pending_validation_audits(TEXT)
+  TO vaaet_training_role, vaaet_reviewer_role;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA vaaet_raw, vaaet_ml, vaaet_feedback, vaaet_ops
   REVOKE ALL ON TABLES FROM PUBLIC;

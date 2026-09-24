@@ -1,18 +1,42 @@
 # SPDX-FileCopyrightText: 2026 VAAET Contributors
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Exportación portable de feedback humano sin widgets ni PostgreSQL."""
+"""Fachada 4.x para sellar feedback portable mediante el contrato canónico."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import asdict
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from uuid import uuid4
+from typing import cast
+from uuid import UUID
 
 import pandas as pd
 
-from vaaet_ml.data.package_codec import create_dataset_package
 from vaaet_ml.data.review_domain import HumanValidation
+from vaaet_ml.data.review_finalization import seal_review_package
+
+_CONTEXT_ATTR = "vaaet_review_export_context"
+
+
+@dataclass(frozen=True)
+class OfflineReviewExportContext:
+    """Identifica la corrida y el software que originaron una revisión portable."""
+
+    pipeline_run_id: str
+    model_version: str
+    git_commit: str
+    application_version: str
+
+    def __post_init__(self) -> None:
+        try:
+            UUID(str(self.pipeline_run_id))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("pipeline_run_id must be a UUID.") from None
+        if not self.model_version.strip() or not self.application_version.strip():
+            raise ValueError("Review export model and application versions are required.")
+        if re.fullmatch(r"[0-9a-fA-F]{7,40}", self.git_commit) is None:
+            raise ValueError("Review export git_commit must be a 7-40 character revision.")
 
 
 def export_offline_review_package(
@@ -20,57 +44,43 @@ def export_offline_review_package(
     *,
     classified: pd.DataFrame,
     validations: pd.DataFrame | Sequence[HumanValidation],
+    context: OfflineReviewExportContext | None = None,
 ) -> Path:
-    """Crea un paquete portable sólo cuando existe al menos una decisión humana."""
+    """Conserva la fachada histórica sin mantener otro formato de exportación."""
 
-    features = classified.copy()
-    if "id" not in features:
-        features["id"] = range(1, len(features) + 1)
-    prediction_ids = (
-        features["prediction_id"].tolist()
-        if "prediction_id" in features
-        else list(range(1, len(features) + 1))
-    )
-    predictions = pd.DataFrame(
-        {
-            "id": prediction_ids,
-            "telemetry_feature_id": features["id"],
-            "model_version": features.get("model_version", "unknown"),
-        }
-    )
-    features = features.drop(columns=["prediction_id"], errors="ignore")
-    validation_frame = _validation_frame(validations)
-    if validation_frame.empty:
+    if (isinstance(validations, pd.DataFrame) and validations.empty) or (
+        not isinstance(validations, pd.DataFrame) and not validations
+    ):
         raise ValueError("Complete at least one human validation before exporting feedback.")
-    validation_frame["id"] = _validation_ids(validation_frame)
-    validation_frame["validated_state"] = validation_frame.pop("validated_state")
-    exported_at = pd.Timestamp.now(tz="UTC")
-    validation_frame["reviewed_at"] = [
-        exported_at + pd.Timedelta(microseconds=index)
-        for index in range(len(validation_frame))
-    ]
-    return create_dataset_package(
+    resolved = context or _context_from_frame(classified)
+    return seal_review_package(
         output_path,
-        features=features,
-        predictions=predictions,
-        validations=validation_frame,
-        provenance={"origin": "inference-colab-human-review"},
+        classified=classified,
+        validations=validations,
+        pipeline_run_id=resolved.pipeline_run_id,
+        model_version=resolved.model_version,
+        git_commit=resolved.git_commit,
+        vaaet_version=resolved.application_version,
     )
 
 
-def _validation_frame(
-    validations: pd.DataFrame | Sequence[HumanValidation],
-) -> pd.DataFrame:
-    if isinstance(validations, pd.DataFrame):
-        return validations.copy()
-    frame = pd.DataFrame([asdict(decision) for decision in validations])
-    return frame.rename(columns={"validation_id": "id"})
+def _context_from_frame(classified: pd.DataFrame) -> OfflineReviewExportContext:
+    value = classified.attrs.get(_CONTEXT_ATTR)
+    if not isinstance(value, Mapping):
+        raise ValueError(
+            "Legacy review export requires OfflineReviewExportContext or the "
+            f"DataFrame attribute {_CONTEXT_ATTR!r}; no identities are inferred."
+        )
+    context = cast(Mapping[str, object], value)
+    required = {"pipeline_run_id", "model_version", "git_commit", "application_version"}
+    if missing := sorted(required - set(context)):
+        raise ValueError(f"Review export context is missing fields: {missing}")
+    return OfflineReviewExportContext(
+        pipeline_run_id=str(context["pipeline_run_id"]),
+        model_version=str(context["model_version"]),
+        git_commit=str(context["git_commit"]),
+        application_version=str(context["application_version"]),
+    )
 
 
-def _validation_ids(frame: pd.DataFrame) -> list[str]:
-    if "id" not in frame:
-        return [str(uuid4()) for _ in range(len(frame))]
-    return [str(uuid4() if value is None or pd.isna(value) else value) for value in frame["id"]]
-
-
-__all__ = ["export_offline_review_package"]
+__all__ = ["OfflineReviewExportContext", "export_offline_review_package"]

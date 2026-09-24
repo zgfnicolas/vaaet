@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import pandas as pd
@@ -28,6 +28,13 @@ from vaaet_persistence.pipeline_runs import (
     PipelineWorkflow,
     complete_reconciled_pipeline_run,
     pipeline_run,
+)
+from vaaet_persistence.receipts import (
+    PersistenceReceipt,
+    build_persistence_receipt,
+    read_pipeline_run_audit_state,
+    receipts_match,
+    record_persistence_receipt,
 )
 from vaaet_persistence.review_domain import HumanValidation, select_review_queue
 from vaaet_persistence.settings import DatabaseSettings
@@ -89,6 +96,7 @@ class PersistedHumanValidation:
     pipeline_run_id: UUID
     audit_complete: bool = True
     audit_error_category: str | None = None
+    receipt: PersistenceReceipt | None = None
 
     @property
     def validation_id(self) -> UUID:
@@ -198,6 +206,45 @@ def persist_human_validation(
     return persisted.validation_id
 
 
+def load_human_validation_record(
+    validation_id: UUID | str,
+    *,
+    settings: DatabaseSettings | None = None,
+    engine: Engine | None = None,
+) -> PersistedHumanValidation:
+    """Recupera una decisión y su auditoría real para reanudar un runtime."""
+
+    try:
+        identifier = UUID(str(validation_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("validation_id must be a UUID.") from None
+    owns_engine = engine is None
+    if engine is not None:
+        active_engine = engine
+    elif settings is not None:
+        active_engine = get_engine(settings)
+    else:
+        raise ValueError("PostgreSQL reads require explicit settings or an engine.")
+    try:
+        existing = _load_existing_validation(active_engine, identifier)
+        if existing is None:
+            raise PersistenceConflictError("The human validation does not exist.")
+        run_id = UUID(str(existing["pipeline_run_id"]))
+        state = _load_audit_state(active_engine, run_id)
+        return PersistedHumanValidation(
+            decision=_stored_decision(existing),
+            pipeline_run_id=run_id,
+            audit_complete=state.audit_complete,
+            audit_error_category=(
+                None if state.audit_complete else "PipelineAuditIncomplete"
+            ),
+            receipt=state.receipt,
+        )
+    finally:
+        if owns_engine:
+            dispose_engine(active_engine)
+
+
 def reconcile_human_validation(
     decision: HumanValidation,
     *,
@@ -219,24 +266,58 @@ def reconcile_human_validation(
     else:
         raise ValueError("PostgreSQL reconciliation requires explicit settings or an engine.")
     try:
-        existing = _load_existing_validation(active_engine, decision.validation_id)
-        if existing is None:
-            raise PersistenceConflictError(
-                "The human validation cannot be reconciled because it is not stored."
+        with active_engine.begin() as connection:
+            require_database_revision(connection)
+            existing = (
+                connection.execute(
+                    text(SELECT_VALIDATION_QUERY), {"id": str(decision.validation_id)}
+                )
+                .mappings()
+                .one_or_none()
             )
-        _assert_same_validation(existing, _validation_payload(decision, run_uuid))
-        outcome = complete_reconciled_pipeline_run(
-            run_id=run_uuid,
-            output_rows=1,
-            engine=active_engine,
-            workflow=PipelineWorkflow.REVIEW,
-            application_version="0.2.3",
-        )
+            if existing is None:
+                raise PersistenceConflictError(
+                    "The human validation cannot be reconciled because it is not stored."
+                )
+            payload = _validation_payload(decision, run_uuid)
+            _assert_same_validation(existing, payload)
+            state = read_pipeline_run_audit_state(connection, run_uuid)
+            expected_receipt = build_persistence_receipt(
+                pipeline_run_id=run_uuid,
+                operation="human-validation",
+                observations=[payload],
+                processed_counts={"human_validations": 1},
+                inserted_counts={"human_validations": 0},
+            )
+            if (
+                state.workflow != PipelineWorkflow.REVIEW.value
+                or state.input_rows != 1
+                or state.receipt is None
+                or not receipts_match(
+                    state.receipt,
+                    expected_receipt,
+                    include_inserted_counts=False,
+                )
+            ):
+                raise PersistenceConflictError(
+                    "The human validation does not match its immutable persistence receipt."
+                )
+            outcome = complete_reconciled_pipeline_run(
+                run_id=run_uuid,
+                output_rows=1,
+                engine=active_engine,
+                connection=connection,
+                workflow=PipelineWorkflow.REVIEW,
+                application_version="0.3.0",
+                operation=expected_receipt.operation,
+                content_fingerprint=expected_receipt.content_fingerprint,
+            )
         return PersistedHumanValidation(
             decision=_stored_decision(existing),
             pipeline_run_id=run_uuid,
             audit_complete=outcome.audit_complete,
             audit_error_category=outcome.audit_error_category,
+            receipt=state.receipt,
         )
     finally:
         if owns_engine:
@@ -280,9 +361,15 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
                     existing,
                     _validation_payload(decision, original_run),
                 )
+                audit_state = _load_audit_state(active_engine, original_run)
                 return PersistedHumanValidation(
                     decision=_stored_decision(existing),
                     pipeline_run_id=original_run,
+                    audit_complete=audit_state.audit_complete,
+                    audit_error_category=(
+                        None if audit_state.audit_complete else "PipelineAuditIncomplete"
+                    ),
+                    receipt=audit_state.receipt,
                 )
             metadata = PipelineRunMetadata(
                 workflow=PipelineWorkflow.REVIEW,
@@ -315,6 +402,7 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
                 pipeline_run_id=persisted.pipeline_run_id,
                 audit_complete=outcome.audit_complete,
                 audit_error_category=outcome.audit_error_category,
+                receipt=persisted.receipt,
             )
         finally:
             if owns_engine:
@@ -340,6 +428,17 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
                 .one()
             )
             _assert_same_validation(existing, payload)
+            receipt = record_persistence_receipt(
+                connection,
+                build_persistence_receipt(
+                    pipeline_run_id=run_uuid,
+                    operation="human-validation",
+                    observations=[payload],
+                    processed_counts={"human_validations": 1},
+                    inserted_counts={"human_validations": 1 if inserted is not None else 0},
+                ),
+            )
+            audit_state = read_pipeline_run_audit_state(connection, run_uuid)
     except PersistenceError:
         raise
     except Exception as exc:
@@ -357,7 +456,15 @@ def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL i
     finally:
         if owns_engine:
             dispose_engine(active_engine)
-    return PersistedHumanValidation(decision=_stored_decision(existing), pipeline_run_id=run_uuid)
+    return PersistedHumanValidation(
+        decision=_stored_decision(existing),
+        pipeline_run_id=run_uuid,
+        audit_complete=audit_state.audit_complete,
+        audit_error_category=(
+            None if audit_state.audit_complete else "PipelineAuditIncomplete"
+        ),
+        receipt=receipt,
+    )
 
 
 def _validation_payload(decision: HumanValidation, run_uuid: UUID) -> dict[str, object]:
@@ -380,7 +487,7 @@ def _validation_payload(decision: HumanValidation, run_uuid: UUID) -> dict[str, 
 def _load_existing_validation(
     engine: Engine,
     validation_id: UUID,
-) -> Mapping[str, object] | None:
+) -> Mapping[Any, Any] | None:
     """Busca una decisión antes de fabricar una corrida operacional nueva."""
 
     try:
@@ -402,7 +509,25 @@ def _load_existing_validation(
         ) from None
 
 
-def _stored_decision(row: Mapping[str, object]) -> HumanValidation:
+def _load_audit_state(engine: Engine, run_id: UUID):
+    """Consulta la conclusión autoritativa sin inferirla desde la validación."""
+
+    try:
+        with engine.begin() as connection:
+            require_database_revision(connection)
+            return read_pipeline_run_audit_state(connection, run_id)
+    except PersistenceError:
+        raise
+    except Exception as exc:
+        raise DatabaseOperationError(
+            "PostgreSQL review audit lookup failed.",
+            operation="load-review-audit-state",
+            sqlstate=safe_sqlstate(exc),
+            run_id=str(run_id),
+        ) from None
+
+
+def _stored_decision(row: Mapping[Any, Any]) -> HumanValidation:
     """Reconstruye la decisión autoritativa sin alterar identidad ni fecha."""
 
     supersedes = row.get("supersedes_validation_id")
@@ -419,7 +544,7 @@ def _stored_decision(row: Mapping[str, object]) -> HumanValidation:
     )
 
 
-def _assert_same_validation(existing: Mapping[str, object], payload: Mapping[str, object]) -> None:
+def _assert_same_validation(existing: Mapping[Any, Any], payload: Mapping[str, object]) -> None:
     fields = (
         "prediction_id",
         "validated_state",
@@ -453,6 +578,7 @@ __all__ = [
     "DEFAULT_REVIEW_PAGE_SIZE",
     "PersistedHumanValidation",
     "load_review_queue",
+    "load_human_validation_record",
     "persist_human_validation",
     "persist_human_validation_record",
     "reconcile_human_validation",

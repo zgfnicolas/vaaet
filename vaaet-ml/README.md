@@ -1,4 +1,4 @@
-# VAAET ML 4.8.3
+# VAAET ML 4.9.0
 
 PostgreSQL se organiza en `vaaet_raw`, `vaaet_ml`, `vaaet_feedback` y
 `vaaet_ops`. La implementación y Alembic pertenecen a `vaaet-persistence`; ML
@@ -152,6 +152,9 @@ fallo remoto conserva el ZIP como `pending-sync`. Sólo `human_validations`
 efectivas ingresan como etiquetas;
 predicciones sin revisar nunca se convierten en ground truth. Cada entrenamiento
 escribe un `vaaet-training-input-lock-v1` con los fingerprints exactos utilizados.
+Una decisión PostgreSQL con auditoría pendiente conserva UUID y fecha, pero no
+avanza el formulario, no se exporta y bloquea su fuente para entrenamiento hasta
+ser reconciliada contra el comprobante transaccional de la corrida.
 Consultá [ADR-0015](../docs/architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md),
 [ADR-0016](../docs/architecture/decisions/0016-postgresql-hardening-and-pipeline-runs.md) y
 [ADR-0019](../docs/architecture/decisions/0019-immutable-seed-and-hitl-datasets.md).
@@ -164,5 +167,7 @@ por [ADR-0031](../docs/architecture/decisions/0031-hitl-integrity-and-coordinate
 El orden determinista, los modos PostgreSQL explícitos y la reconciliación sin
 reinserciones se rigen por
 [ADR-0032](../docs/architecture/decisions/0032-complete-cycle-integrity.md).
+Los comprobantes y la recuperación verificable se rigen por
+[ADR-0033](../docs/architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
 El provisionamiento, backup, rotación y recuperación están en la
 [guía PostgreSQL](../docs/operations/postgresql-guide.md).

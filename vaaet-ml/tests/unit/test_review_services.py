@@ -12,8 +12,12 @@ import pandas as pd
 import pytest
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 
-from vaaet_ml.data.review_domain import HumanValidation
-from vaaet_ml.data.review_orchestration import prepare_review_session
+from vaaet_ml.data.review_domain import HumanValidation, InferenceReviewSession
+from vaaet_ml.data.review_orchestration import (
+    ReviewSubmissionStatus,
+    prepare_review_session,
+    recover_pending_review_validation,
+)
 from vaaet_ml.settings import FEATURE_COLS
 
 
@@ -113,7 +117,12 @@ def test_database_review_service_links_predictions_and_persists_decisions(
         "vaaet_ml.data.review_orchestration.persist_human_validation_record",
         lambda decision, **_kwargs: (
             persisted.append(decision)
-            or SimpleNamespace(decision=decision, pipeline_run_id=review_run_id)
+            or SimpleNamespace(
+                decision=decision,
+                pipeline_run_id=review_run_id,
+                audit_complete=True,
+                audit_error_category=None,
+            )
         ),
     )
 
@@ -135,6 +144,76 @@ def test_database_review_service_links_predictions_and_persists_decisions(
     assert prepared.session.validations[0]["pipeline_run_id"] == str(review_run_id)
 
 
+def test_database_review_keeps_same_decision_pending_until_reconciled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = pd.DataFrame(
+        [
+            {
+                "prediction_id": 9,
+                "clip_id": "clip-a",
+                "record_time": "2026-08-29T12:00:00Z",
+                "traffic_state": 1,
+                "confidence": 0.5,
+                "probability_margin": 0.1,
+            }
+        ]
+    )
+    review_run_id = uuid.uuid4()
+    submitted: list[HumanValidation] = []
+    reconciled: list[HumanValidation] = []
+    monkeypatch.setattr(
+        "vaaet_ml.data.review_orchestration.load_review_queue",
+        lambda **_kwargs: queue,
+    )
+
+    def pending(decision: HumanValidation, **_kwargs: object) -> SimpleNamespace:
+        submitted.append(decision)
+        return SimpleNamespace(
+            decision=decision,
+            pipeline_run_id=review_run_id,
+            audit_complete=False,
+            audit_error_category="PipelineAuditIncomplete",
+        )
+
+    def reconcile(decision: HumanValidation, **_kwargs: object) -> SimpleNamespace:
+        reconciled.append(decision)
+        return SimpleNamespace(
+            decision=decision,
+            pipeline_run_id=review_run_id,
+            audit_complete=True,
+            audit_error_category=None,
+        )
+
+    monkeypatch.setattr(
+        "vaaet_ml.data.review_orchestration.persist_human_validation_record", pending
+    )
+    monkeypatch.setattr(
+        "vaaet_ml.data.review_orchestration.reconcile_human_validation", reconcile
+    )
+    prepared = prepare_review_session(
+        enabled=True,
+        classified=_classified_frame(),
+        inference_pipeline_run_id="run",
+        reviewer_id="reviewer",
+        settings={"host": "unused"},
+        mode="priority",
+    )
+    decision = HumanValidation(9, 1, "reviewer")
+
+    first = prepared.submit(decision)
+    assert first.status is ReviewSubmissionStatus.AUDIT_PENDING
+    assert prepared.session.validations == []
+    assert len(prepared.session.pending_validations) == 1
+
+    second = prepared.submit(decision)
+    assert second.status is ReviewSubmissionStatus.CONFIRMED
+    assert submitted == [decision]
+    assert reconciled == [decision]
+    assert prepared.session.pending_validations == []
+    assert prepared.session.validations[0]["validation_id"] == decision.validation_id
+
+
 def test_database_review_requires_classified_rows() -> None:
     with pytest.raises(ValueError, match="Classified telemetry"):
         prepare_review_session(
@@ -145,3 +224,52 @@ def test_database_review_requires_classified_rows() -> None:
             settings={"host": "unused"},
             mode="priority",
         )
+
+
+def test_explicit_recovery_moves_original_decision_from_pending_to_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decision = HumanValidation(9, 1, "reviewer")
+    run_id = uuid.uuid4()
+    pending = SimpleNamespace(
+        decision=decision,
+        pipeline_run_id=run_id,
+        audit_complete=False,
+        audit_error_category="PipelineAuditIncomplete",
+    )
+    confirmed = SimpleNamespace(
+        decision=decision,
+        pipeline_run_id=run_id,
+        audit_complete=True,
+        audit_error_category=None,
+    )
+    session = InferenceReviewSession(
+        export_frame=_classified_frame(),
+        validations=[],
+        pending_validations=[
+            {
+                "validation_id": decision.validation_id,
+                "pipeline_run_id": str(run_id),
+                "audit_complete": False,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "vaaet_ml.data.review_orchestration.load_human_validation_record",
+        lambda *_args, **_kwargs: pending,
+    )
+    monkeypatch.setattr(
+        "vaaet_ml.data.review_orchestration.reconcile_human_validation",
+        lambda *_args, **_kwargs: confirmed,
+    )
+
+    result = recover_pending_review_validation(
+        session,
+        decision.validation_id,
+        settings={"host": "unused"},
+    )
+
+    assert result.confirmed
+    assert session.pending_validations == []
+    assert session.validations[0]["validation_id"] == decision.validation_id
+    assert session.validations[0]["pipeline_run_id"] == str(run_id)

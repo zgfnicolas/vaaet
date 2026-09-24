@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.2.3
+# Operación PostgreSQL compartida — VAAET Persistence 0.3.0
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -19,6 +19,9 @@ se definen en
 El orden determinista, la lectura legacy explícita y la reconciliación sin
 reinserciones se definen en
 [ADR-0032](../architecture/decisions/0032-complete-cycle-integrity.md).
+Los comprobantes transaccionales y el bloqueo uniforme de auditorías HITL
+pendientes se definen en
+[ADR-0033](../architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
 
 ## Configuración
 
@@ -111,12 +114,13 @@ cd vaaet-persistence
 alembic -c alembic.ini upgrade head
 ```
 
-Las revisiones `0001`, `0002` y `0003` se conservan byte a byte. La revisión
+Las revisiones `0001` a `0005` se conservan byte a byte. La revisión
 `0004` migra medidas continuas a `DOUBLE PRECISION`, registra su procedencia,
 añade identidad de aplicación y fortalece cadenas HITL. Una base en `0003`
 requiere ensayo sobre una restauración y una ventana administrativa para subir
-a `0005`; `public.alembic_version` conserva la revisión exacta. `0005` corrige
-la serialización append-only del reviewer sin exigir privilegio `UPDATE`.
+a `0006`; `public.alembic_version` conserva la revisión exacta. `0005` corrige
+la serialización append-only del reviewer sin exigir privilegio `UPDATE` y
+`0006` agrega comprobantes inmutables y reconciliaciones enlazadas.
 La configuración histórica de ML delega temporalmente con advertencia.
 Los cuatro roles de workflow reciben sólo `SELECT` sobre esa tabla de control:
 es el permiso mínimo necesario para bloquear escrituras cuando la revisión no
@@ -196,6 +200,17 @@ no rollback. Conservá el resultado y el `pipeline_run_id`; las operaciones
 completan únicamente la auditoría. Nunca reinsertan filas. Mientras la
 reconciliación no termine, los pasos que exigen trazabilidad completa permanecen
 bloqueados.
+
+Cada escritura de datos crea en su misma transacción un registro de
+`vaaet_ops.persistence_receipts`. Su fingerprint incluye el contenido
+contractual tipado, timestamps UTC, schemas y revisión exacta; no depende de IDs
+autogenerados por PostgreSQL. Un reintento idéntico recupera el recibo original
+y un contenido distinto bajo la misma corrida se rechaza. Las corridas
+históricas sin comprobante no se cierran automáticamente.
+
+En revisión humana, una decisión pendiente conserva su UUID y fecha. No avanza
+el formulario, no entra al ZIP y el entrenamiento detiene la fuente hasta que
+`reconcile_human_validation()` verifique el comprobante y el contenido original.
 
 ## Backup y recuperación
 

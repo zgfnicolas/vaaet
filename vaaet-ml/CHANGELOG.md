@@ -15,6 +15,35 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.9.0] - 2026-09-23
+
+### Añadido
+
+- VAAET Persistence 0.3.0, Alembic `0006`, ADR-0033 y comprobantes
+  transaccionales inmutables para telemetría, inferencias y validaciones.
+- Reconciliación enlazada mediante `reconciles_run_id`, con verificación exacta
+  de corrida, fingerprint, soporte y filas antes de completar la auditoría.
+- Recuperación explícita de decisiones humanas pendientes conservando UUID,
+  fecha y contenido originales, sin repetir la escritura.
+
+### Cambiado
+
+- La revisión PostgreSQL separa decisiones confirmadas de decisiones guardadas
+  con auditoría pendiente; estas últimas no avanzan, no se exportan y no son
+  targets de entrenamiento.
+- La consolidación resuelve aliases en orden feature → prediction → validation
+  antes de comparar referencias históricas equivalentes.
+- `export_offline_review_package()` delega en el sellador canónico, exige
+  contexto operacional y preserva íntegramente la decisión humana.
+
+### Corregido
+
+- Una corrida ya escrita no puede reconciliarse con contenido, clip, revisión o
+  soporte de otra corrida.
+- Repetir una validación existente ya no supone que su auditoría está completa.
+- El entrenamiento detiene fuentes PostgreSQL que contienen decisiones
+  relevantes con auditoría pendiente, en lugar de usar un subconjunto oculto.
+
 ## [4.8.3] - 2026-09-16
 
 ### Añadido

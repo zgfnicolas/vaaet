@@ -1,4 +1,4 @@
-# Linaje de datos — VAAET ML 4.8.3
+# Linaje de datos — VAAET ML 4.9.0
 
 ## Flujo operacional
 
@@ -11,6 +11,10 @@ flowchart LR
     I --> P[("vaaet_ml.traffic_predictions")]
     P --> Q["Explicit HITL review"]
     Q --> H[("vaaet_feedback.human_validations")]
+    R --> PR[("vaaet_ops.persistence_receipts")]
+    F --> PR
+    P --> PR
+    H --> PR
     Q --> HP["Immutable HITL session package"]
     HP --> HC["Active HITL catalog"]
     R --> S["Seed bootstrap"]
@@ -40,6 +44,10 @@ límite.
 Desde 4.2.0 el UUID referencia `vaaet_ops.pipeline_runs`, que registra workflow,
 estado, commit, contratos y conteos sin secretos. Cuando PostgreSQL es opcional,
 el mismo contrato se conserva como JSON bajo `vaaet-ml/data/processed/pipeline-runs/`.
+Las escrituras PostgreSQL nuevas registran además un comprobante inmutable en
+la misma transacción que los datos. Si falla sólo el cierre de la corrida, la
+reconciliación compara esa prueba y las filas exactas antes de cerrar la
+auditoría; nunca repite el `INSERT`.
 
 ## Adquisición
 
@@ -60,6 +68,9 @@ un paquete inmutable `vaaet-training-dataset-v1.zip` por sesión. El sellado loc
 produce `pending-sync`; un único runtime publicador lo registra después en
 `vaaet-dataset-catalog-v1`. Los registros omitidos permanecen como no supervisados
 y nunca son targets.
+Una validación guardada cuya corrida no terminó queda en una lista separada de
+auditorías pendientes: conserva UUID y fecha, no avanza el formulario, no entra
+al paquete y bloquea la fuente PostgreSQL para entrenamiento hasta reconciliarse.
 Cada predicción conserva `model_version` como etiqueta y `model_revision` como
 SHA-256 del bundle exacto. Una reinferencia crea otra feature y predicción por
 ejecución; no modifica la fila a la que apunta una validación humana.

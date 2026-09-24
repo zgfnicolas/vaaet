@@ -152,6 +152,13 @@ del mismo host, no runtimes Colab independientes: debe existir un solo publicado
 operacional. Sólo validaciones humanas ingresan como etiquetas; Accident se
 reserva para evaluar el detector.
 
+Si una validación queda con auditoría PostgreSQL pendiente, no cierres la sesión
+ni crees otra decisión. Repetí `Save validation` para reconciliar el mismo UUID.
+Si el runtime se reinició, volvé a configurar el perfil `review` y ejecutá
+`recover_pending_validation("<validation-id>")`; la función consulta la decisión
+original y verifica su comprobante sin repetir la escritura. El entrenamiento
+rechaza una fuente con auditorías pendientes relevantes.
+
 En entrenamiento, seleccioná explícitamente `TrainingMode.SEED_BOOTSTRAP` o
 `TrainingMode.HITL_RETRAINING`. El primer modo declara `RAW_SOURCES`, calcula las
 features una vez y resuelve la semilla mediante `VersionedSeedStore`. La primera

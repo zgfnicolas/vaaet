@@ -314,6 +314,7 @@ def test_each_remote_availability_failure_preserves_exact_pending_package(
         vaaet_version="4.8.2",
         local_root=tmp_path / "local",
     )
+
     original_bytes = pending.local_path.read_bytes()
     review_root = tmp_path / "drive"
     catalog = HitlReviewCatalog(review_root / "catalog.json")
@@ -349,6 +350,24 @@ def test_each_remote_availability_failure_preserves_exact_pending_package(
     assert result.sync_status == "pending-sync"
     assert result.canonical_path is None
     assert pending.local_path.read_bytes() == original_bytes
+
+
+def test_review_finalization_blocks_pending_postgresql_audits(tmp_path: Path) -> None:
+    decision = HumanValidation(1, 0, "facundo")
+
+    with pytest.raises(RuntimeError, match="pending audit"):
+        finalize_review_session(
+            classified=_classified_frame(),
+            validations=[],
+            pending_validations=[decision],
+            pipeline_run_id=str(uuid.uuid4()),
+            model_version="mlp-v3.0",
+            git_commit="abc1234",
+            vaaet_version="4.9.0",
+            local_root=tmp_path / "local",
+        )
+
+    assert not (tmp_path / "local").exists()
 
 
 def test_pending_package_without_algorithm_uses_historical_fingerprint(tmp_path: Path) -> None:

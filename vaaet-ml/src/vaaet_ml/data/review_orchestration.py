@@ -32,6 +32,7 @@ class ReviewSubmissionStatus(str, Enum):
 
     CONFIRMED = "confirmed"
     AUDIT_PENDING = "audit-pending"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,44 @@ class ReviewSubmissionResult:
     @property
     def confirmed(self) -> bool:
         return self.status is ReviewSubmissionStatus.CONFIRMED
+
+
+@dataclass
+class ReviewSubmissionController:
+    """Retiene identidad y contenido aun cuando se pierde la respuesta del envío."""
+
+    decision: HumanValidation | None = None
+    status: ReviewSubmissionStatus | None = None
+
+    def prepare(self, factory: Callable[[], HumanValidation]) -> HumanValidation:
+        if self.decision is None:
+            self.decision = factory()
+        return self.decision
+
+    def submit(
+        self, submitter: Callable[[HumanValidation], ReviewSubmissionResult | None]
+    ) -> ReviewSubmissionResult | None:
+        if self.decision is None:
+            raise RuntimeError("Prepare the review decision before submitting it.")
+        try:
+            result = submitter(self.decision)
+        except Exception:
+            self.status = ReviewSubmissionStatus.UNKNOWN
+            raise
+        if result is not None and result.decision.validation_id != self.decision.validation_id:
+            raise ValueError("Review submission changed the prepared decision identity.")
+        self.status = (
+            ReviewSubmissionStatus.CONFIRMED
+            if result is None or result.confirmed
+            else ReviewSubmissionStatus.AUDIT_PENDING
+        )
+        return result
+
+    def reset(self) -> None:
+        if self.decision is not None and self.status is not ReviewSubmissionStatus.CONFIRMED:
+            raise RuntimeError("Resolve the current review decision before advancing.")
+        self.decision = None
+        self.status = None
 
 
 ReviewSubmitter = Callable[[HumanValidation], ReviewSubmissionResult]
@@ -256,6 +295,10 @@ def _persisted_validation_entry(persisted: PersistedHumanValidation) -> dict[str
         **asdict(persisted.decision),
         "pipeline_run_id": str(persisted.pipeline_run_id),
         "audit_complete": persisted.audit_complete,
+        "review_audit_origin": "postgresql",
+        "persistence_receipt_fingerprint": (
+            persisted.receipt.content_fingerprint if persisted.receipt is not None else None
+        ),
     }
 
 
@@ -278,6 +321,7 @@ __all__ = [
     "PreparedReview",
     "ReviewGuard",
     "ReviewSubmissionResult",
+    "ReviewSubmissionController",
     "ReviewSubmissionStatus",
     "ReviewSubmitter",
     "prepare_review_session",

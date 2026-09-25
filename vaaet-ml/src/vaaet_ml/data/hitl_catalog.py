@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 import pandas as pd
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
@@ -34,6 +35,7 @@ from vaaet_ml.data.artifact_serialization import (
     valid_uuid,
 )
 from vaaet_ml.data.package_codec import load_dataset_package
+from vaaet_ml.data.review_audit import validate_review_audit, validate_review_audit_manifest
 
 HITL_CATALOG_CONTRACT = "vaaet-dataset-catalog-v1"
 HITL_CATALOG_FILE = "catalog.json"
@@ -159,6 +161,8 @@ class HitlReviewCatalog:
             "entries": [*entries, dict(entry)],
         }
         self._validate(updated)
+        if entry.get("status") == "active":
+            _verified_catalog_package(self, entry)
         try:
             atomic_json_write(self.path, updated)
         except OSError:
@@ -201,6 +205,8 @@ class HitlReviewCatalog:
             raise KeyError(f"HITL catalog package not found: {normalized_id}")
         if matches[0]["status"] == status:
             return document
+        if status == "active":
+            _verified_catalog_package(self, cast(Mapping[str, object], matches[0]))
         updated = {
             **document,
             "revision": int(document["revision"]) + 1,
@@ -471,21 +477,38 @@ def _load_catalog_frames(
         "validations": [],
     }
     for entry in entries:
-        package_path = catalog.package_path(entry)
-        if not package_path.is_file():
-            raise FileNotFoundError(f"Cataloged HITL package not found: {package_path}")
-        if sha256_file(package_path) != entry["sha256"]:
-            raise ValueError(f"Cataloged HITL package checksum mismatch: {entry['package_id']}")
-        package_frames = load_dataset_package(package_path)
-        metadata = read_package_manifest(package_path).get("package_metadata", {})
-        if not isinstance(metadata, Mapping) or metadata.get("fingerprint") != entry["fingerprint"]:
-            raise ValueError(f"Cataloged HITL package fingerprint mismatch: {entry['package_id']}")
+        package_frames = _verified_catalog_package(catalog, entry)
         for kind in frames_by_kind:
             frame = package_frames.get(kind, pd.DataFrame()).copy()
             if not frame.empty:
                 frame["_catalog_package_id"] = entry["package_id"]
                 frames_by_kind[kind].append(frame)
     return frames_by_kind
+
+
+def _verified_catalog_package(
+    catalog: HitlReviewCatalog, entry: Mapping[str, object]
+) -> dict[str, pd.DataFrame]:
+    """Comprueba integridad y admisibilidad antes de activar un paquete HITL."""
+
+    package_path = catalog.package_path(entry)
+    if not package_path.is_file():
+        raise FileNotFoundError(f"Cataloged HITL package not found: {package_path}")
+    if sha256_file(package_path) != entry["sha256"]:
+        raise ValueError(f"Cataloged HITL package checksum mismatch: {entry['package_id']}")
+    package_frames = load_dataset_package(package_path)
+    package_frames["validations"] = validate_review_audit(
+        package_frames.get("validations", pd.DataFrame()),
+        predictions=package_frames.get("predictions", pd.DataFrame()),
+    )
+    metadata = read_package_manifest(package_path).get("package_metadata", {})
+    if not isinstance(metadata, Mapping):
+        raise ValueError(f"Cataloged HITL package fingerprint mismatch: {entry['package_id']}")
+    audited_metadata = cast(Mapping[str, object], metadata)
+    if audited_metadata.get("fingerprint") != entry["fingerprint"]:
+        raise ValueError(f"Cataloged HITL package fingerprint mismatch: {entry['package_id']}")
+    validate_review_audit_manifest(package_frames["validations"], audited_metadata)
+    return package_frames
 
 
 def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL completo.

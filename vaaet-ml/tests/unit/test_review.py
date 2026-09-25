@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import uuid
+from dataclasses import asdict
+
 import pandas as pd
 import pytest
 
@@ -148,6 +151,41 @@ def test_offline_review_exports_importable_contract(tmp_path) -> None:
                 application_version="4.9.0",
             ),
         )
+
+
+def test_offline_review_rejects_pending_postgres_audit(tmp_path) -> None:
+    row = {column: 1.0 for column in FEATURE_COLS}
+    row.update(
+        prediction_id=1,
+        clip_id="clip-pending",
+        continuity_id="clip-pending:continuity-0001",
+        record_time="2026-08-04T12:00:00Z",
+        feature_schema_version="traffic-features-v3",
+        telemetry_schema_version="traffic-telemetry-v3",
+        model_version="mlp-v3.0",
+        model_revision="a" * 64,
+        traffic_state=1,
+    )
+    decision = HumanValidation(1, 1, "reviewer")
+    pending = {
+        **asdict(decision),
+        "pipeline_run_id": str(uuid.uuid4()),
+        "audit_complete": False,
+    }
+    destination = tmp_path / "pending.zip"
+    with pytest.raises(ValueError, match="audit"):
+        export_offline_review_package(
+            destination,
+            classified=pd.DataFrame([row]),
+            validations=pd.DataFrame([pending]),
+            context=OfflineReviewExportContext(
+                pipeline_run_id=str(uuid.uuid4()),
+                model_version="mlp-v3.0",
+                git_commit="abc1234",
+                application_version="4.9.1",
+            ),
+        )
+    assert not destination.exists()
 
 
 def test_offline_review_export_rejects_missing_operational_context(tmp_path) -> None:

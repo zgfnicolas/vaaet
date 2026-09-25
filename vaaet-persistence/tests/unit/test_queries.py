@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 from sqlalchemy.exc import ProgrammingError
@@ -116,6 +118,7 @@ def test_read_only_queries_dispose_owned_engine(monkeypatch: pytest.MonkeyPatch)
         lambda statement, *_args, **_kwargs: (
             pd.DataFrame()
             if "list_pending_validation_audits" in str(statement)
+            or "FROM vaaet_feedback.human_validations hv" in str(statement)
             else pd.DataFrame({"clip_id": ["clip-a"]})
         ),
     )
@@ -135,9 +138,21 @@ def test_human_history_queries_are_explicit_and_load_every_component(
             return pd.DataFrame(columns=["validation_id", "pipeline_run_id"])
         statements.append(str(statement))
         assert params == {"feature_schema_version": "traffic-features-v3"}
-        return pd.DataFrame({"id": [len(statements)]})
+        return pd.DataFrame(
+            {"id": [len(statements)], "pipeline_run_id": ["review-run"]}
+        )
 
     monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
+    monkeypatch.setattr(
+        "vaaet_persistence.queries.read_pipeline_run_audit_state",
+        lambda *_args: SimpleNamespace(
+            audit_complete=True,
+            workflow="review",
+            receipt=SimpleNamespace(
+                operation="human-validation", content_fingerprint="a" * 64
+            ),
+        ),
+    )
     components = load_human_feedback_components(engine=engine)
 
     assert set(components) == {"features", "predictions", "validations"}
@@ -174,6 +189,22 @@ def test_human_feedback_blocks_pending_audits_instead_of_training_a_subset(
 
     with pytest.raises(PersistenceConflictError, match=validation_id):
         load_human_feedback_components(engine=_DisposableEngine())
+
+
+def test_ground_truth_facade_rejects_unknown_review_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_read_sql(statement: object, _engine: object, *, params: object) -> pd.DataFrame:
+        assert params == {"feature_schema_version": "traffic-features-v3"}
+        if "list_pending_validation_audits" in str(statement):
+            return pd.DataFrame(columns=["validation_id", "pipeline_run_id"])
+        if "FROM vaaet_feedback.human_validations hv" in str(statement):
+            return pd.DataFrame({"id": ["decision"], "pipeline_run_id": [None]})
+        pytest.fail("Ground truth must not be returned without review lineage")
+
+    monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
+    with pytest.raises(PersistenceConflictError, match="no verifiable review run"):
+        load_human_ground_truth(engine=_DisposableEngine())
 
 
 @pytest.mark.parametrize("filters", [{"pipeline_run_ids": ("",)}, {"clip_ids": ("",)}])

@@ -831,6 +831,7 @@ def persist_raw_telemetry(  # noqa: C901 - valida y registra lineage opcional en
                 source_kind="dataframe",
                 clip_id=str(clip_ids[0]) if len(clip_ids) == 1 else None,
                 input_rows=len(normalized),
+                telemetry_schema_version=TELEMETRY_SCHEMA_VERSION,
                 model_version=None,
                 feature_schema_version=None,
             )
@@ -1001,7 +1002,7 @@ def reconcile_raw_telemetry(
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.COLLECTION,
-                application_version="0.3.0",
+                application_version="0.3.1",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )
@@ -1283,7 +1284,7 @@ def reconcile_classified_telemetry(
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.INFERENCE,
-                application_version="0.3.0",
+                application_version="0.3.1",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )

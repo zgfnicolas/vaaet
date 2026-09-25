@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import Enum
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import pandas as pd
 from sqlalchemy import bindparam, text
@@ -21,6 +21,7 @@ from vaaet_persistence.exceptions import (
     PersistenceConflictError,
     safe_sqlstate,
 )
+from vaaet_persistence.receipts import read_pipeline_run_audit_state
 from vaaet_persistence.settings import DatabaseSettings
 
 RAW_TABLE = "vaaet_raw.traffic_data"
@@ -276,6 +277,13 @@ def load_human_ground_truth(
                         connection,
                         feature_schema_version=feature_schema_version,
                     )
+                    read_frame = cast(Callable[..., pd.DataFrame], pd.read_sql)
+                    validations = read_frame(
+                        text(HUMAN_VALIDATIONS_QUERY),
+                        connection,
+                        params={"feature_schema_version": feature_schema_version},
+                    )
+                    _verified_review_fingerprints(connection, validations)
                     return pd.read_sql(
                         text(HUMAN_GROUND_TRUTH_QUERY),
                         connection,
@@ -309,7 +317,7 @@ def load_human_feedback_components(
                         connection,
                         feature_schema_version=feature_schema_version,
                     )
-                    return {
+                    components = {
                         "features": pd.read_sql(
                             text(HUMAN_FEATURES_QUERY), connection, params=params
                         ),
@@ -320,6 +328,15 @@ def load_human_feedback_components(
                             text(HUMAN_VALIDATIONS_QUERY), connection, params=params
                         ),
                     }
+                    validations = components["validations"]
+                    fingerprints = _verified_review_fingerprints(connection, validations)
+                    if not validations.empty:
+                        validations["review_audit_origin"] = "postgresql"
+                        validations["audit_complete"] = True
+                        validations["persistence_receipt_fingerprint"] = validations[
+                            "pipeline_run_id"
+                        ].astype(str).map(fingerprints)
+                    return components
         except SQLAlchemyError as exc:
             _raise_read_error(exc, operation="load-human-feedback-components")
     finally:
@@ -334,6 +351,33 @@ def _raise_read_error(exc: SQLAlchemyError, *, operation: str) -> NoReturn:
         operation=operation,
         sqlstate=sqlstate,
     ) from None
+
+
+def _verified_review_fingerprints(
+    connection: Connection, validations: pd.DataFrame
+) -> dict[str, str]:
+    """Exige una corrida confirmada para cada decisión del conjunto leído."""
+
+    if validations.empty:
+        return {}
+    if "pipeline_run_id" not in validations.columns or validations[
+        "pipeline_run_id"
+    ].isna().any():
+        raise PersistenceConflictError("Human feedback has no verifiable review run identity.")
+    fingerprints: dict[str, str] = {}
+    for run_id in validations["pipeline_run_id"].astype(str).unique():
+        state = read_pipeline_run_audit_state(connection, run_id)
+        if (
+            not state.audit_complete
+            or state.workflow != "review"
+            or state.receipt is None
+            or state.receipt.operation != "human-validation"
+        ):
+            raise PersistenceConflictError(
+                "Human feedback contains incomplete PostgreSQL review audit."
+            )
+        fingerprints[run_id] = state.receipt.content_fingerprint
+    return fingerprints
 
 
 def _raise_for_pending_human_audits(

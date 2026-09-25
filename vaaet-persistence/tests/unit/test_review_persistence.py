@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -12,12 +13,15 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
+from sqlalchemy.exc import OperationalError
 
+from vaaet_persistence.exceptions import DatabaseOperationError
 from vaaet_persistence.review_domain import HumanValidation
 from vaaet_persistence.review_persistence import (
     load_human_validation_record,
     load_review_queue,
     persist_human_validation,
+    reconcile_human_validation,
 )
 from vaaet_persistence.settings import DatabaseProfile, DatabaseSettings
 
@@ -280,3 +284,24 @@ def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -
         persist_human_validation(HumanValidation(1, 1, "reviewer"), settings=_settings())
 
     assert not created
+
+
+def test_reconciliation_hides_external_driver_parameters() -> None:
+    marker = "FICTIONAL_SECRET_REDACTION_TEST"
+
+    class FailedEngine:
+        def begin(self):
+            raise OperationalError("SELECT secret", {"token": marker}, RuntimeError(marker))
+
+    try:
+        reconcile_human_validation(
+            HumanValidation(1, 1, "reviewer"),
+            pipeline_run_id=uuid4(),
+            engine=FailedEngine(),
+        )
+    except DatabaseOperationError as exc:
+        rendered = "".join(traceback.format_exception(exc))
+        assert marker not in rendered
+        assert exc.operation == "reconcile-human-validation"
+    else:
+        pytest.fail("External driver failures must become safe domain errors.")

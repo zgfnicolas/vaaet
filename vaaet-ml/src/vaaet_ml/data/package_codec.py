@@ -27,6 +27,7 @@ PACKAGE_FILES: dict[str, str] = {
 }
 _BOOLEAN_COLUMNS = {
     "is_human_validated",
+    "audit_complete",
     "incident_context_reviewed",
     "decision_abstained",
     "measurement_reliable",

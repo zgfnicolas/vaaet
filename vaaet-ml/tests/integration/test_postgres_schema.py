@@ -5,27 +5,43 @@
 from __future__ import annotations
 
 import os
+import subprocess
+from dataclasses import asdict
 from pathlib import Path
+from uuid import uuid4
 
 import pandas as pd
 import pytest
+import vaaet_persistence.pipeline_runs as pipeline_run_module
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
+from vaaet.features.engineering import engineer_features
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
+from vaaet_persistence import (
+    DatabaseProfile,
+    load_review_queue,
+    persist_human_validation_record,
+    persist_raw_telemetry,
+    reconcile_human_validation,
+)
 
 from vaaet_ml.data.database_connection import create_admin_engine, dispose_engine
 from vaaet_ml.data.database_settings import (
     cleanup_temporary_root_certificate,
     load_database_admin_settings,
+    load_database_settings,
 )
 from vaaet_ml.data.ingestion import (
+    DatasetPackageSource,
     PostgresBackupSource,
+    PostgresSource,
     TrainingIngestionPlan,
     load_training_inputs,
 )
 from vaaet_ml.data.persistence import persist_classified_telemetry
 from vaaet_ml.data.review import HumanValidation, persist_human_validation
+from vaaet_ml.data.review_finalization import seal_review_package
 from vaaet_ml.training.lifecycle import TrainingMode
 
 pytestmark = pytest.mark.postgres
@@ -449,3 +465,198 @@ def test_reinference_preserves_append_only_human_validation(engine) -> None:
         ).one()
     assert count == 2
     assert effective == 0
+
+
+def test_pg17_review_receipt_zip_and_backup_training_cycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recorre los cuatro perfiles sin convertir auditorías pendientes en targets."""
+
+    try:
+        collection = load_database_settings(DatabaseProfile.COLLECTION, allow_legacy=False)
+        inference = load_database_settings(DatabaseProfile.INFERENCE, allow_legacy=False)
+        reviewer = load_database_settings(DatabaseProfile.REVIEW, allow_legacy=False)
+        training = load_database_settings(DatabaseProfile.TRAINING, allow_legacy=False)
+    except RuntimeError:
+        if os.getenv("VAAET_REQUIRE_POSTGRES_INTEGRATION") == "1":
+            pytest.fail("Required PostgreSQL 17 workflow profiles are not configured")
+        pytest.skip("PostgreSQL 17 workflow profiles are not configured locally")
+    clip_id = f"audit-cycle-{uuid4()}"
+    raw = pd.DataFrame(
+        [
+            {
+                "clip_id": clip_id,
+                "record_time": pd.Timestamp("2026-09-24T12:00:00Z")
+                + pd.Timedelta(minutes=minute),
+                "avg_speed": 15.25 - minute,
+                "total_vehicles": 3,
+                "count_car": 3,
+                "count_truck": 0,
+                "count_bus": 0,
+                "count_motorcycle": 0,
+                "count_bicycle": 0,
+                "speed_sample_count": 3,
+                "rejected_speed_count": 0,
+                "near_zero_motion_count": 0,
+                "stationary_confirmed_count": 0,
+                "telemetry_schema_version": TELEMETRY_SCHEMA_VERSION,
+            }
+            for minute in range(2)
+        ]
+    )
+    assert persist_raw_telemetry(
+        raw,
+        settings=collection,
+        application_name="vaaet-ml-integration",
+        application_version="4.9.1",
+    ) == 2
+    classified = engineer_features(raw)
+    assert len(classified) == 1
+    classified["telemetry_schema_version"] = TELEMETRY_SCHEMA_VERSION
+    classified["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+    classified["traffic_state"] = 1
+    classified["state_label"] = "Reduced"
+    classified["confidence"] = 0.8
+    classified["model_confidence"] = 0.8
+    classified["probability_margin"] = 0.4
+    classified["measurement_reliable"] = True
+    classified["model_version"] = "mlp-v3.0-audit-integration"
+    classified["model_revision"] = "f" * 64
+    persisted = persist_classified_telemetry(
+        classified,
+        settings=inference,
+        model_version="mlp-v3.0-audit-integration",
+        model_revision="f" * 64,
+        application_name="vaaet-ml-integration",
+        application_version="4.9.1",
+    )
+    classified["pipeline_run_id"] = persisted.pipeline_run_id
+    queue = load_review_queue(
+        settings=reviewer, pipeline_run_id=persisted.pipeline_run_id, mode="all"
+    )
+    prediction_id = int(queue.loc[queue["clip_id"].eq(clip_id), "prediction_id"].item())
+    classified["prediction_id"] = prediction_id
+    decision = HumanValidation(prediction_id, 1, "integration-reviewer")
+    original_finish = pipeline_run_module.finish_pipeline_run
+
+    def fail_close(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated close failure")
+
+    monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", fail_close)
+    pending = persist_human_validation_record(
+        decision,
+        settings=reviewer,
+        application_name="vaaet-ml-integration",
+        application_version="4.9.1",
+    )
+    assert not pending.audit_complete
+    assert pending.receipt is not None
+    with pytest.raises(ValueError, match="incomplete"):
+        seal_review_package(
+            tmp_path / "blocked.zip",
+            classified=classified,
+            validations=[
+                {
+                    **asdict(decision),
+                    "pipeline_run_id": str(pending.pipeline_run_id),
+                    "review_audit_origin": "postgresql",
+                    "audit_complete": False,
+                    "persistence_receipt_fingerprint": pending.receipt.content_fingerprint,
+                }
+            ],
+            pipeline_run_id=persisted.pipeline_run_id,
+            model_version="mlp-v3.0-audit-integration",
+            git_commit="integration",
+            vaaet_version="4.9.1",
+        )
+    assert not (tmp_path / "blocked.zip").exists()
+    monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", original_finish)
+    recovered = reconcile_human_validation(
+        decision,
+        pipeline_run_id=pending.pipeline_run_id,
+        settings=reviewer,
+    )
+    assert recovered.audit_complete
+    assert recovered.pipeline_run_id == pending.pipeline_run_id
+    assert recovered.receipt == pending.receipt
+    validation = {
+        **asdict(decision),
+        "pipeline_run_id": str(recovered.pipeline_run_id),
+        "review_audit_origin": "postgresql",
+        "audit_complete": True,
+        "persistence_receipt_fingerprint": recovered.receipt.content_fingerprint,
+    }
+    package = seal_review_package(
+        tmp_path / "review.zip",
+        classified=classified,
+        validations=[validation],
+        pipeline_run_id=persisted.pipeline_run_id,
+        model_version="mlp-v3.0-audit-integration",
+        git_commit="integration",
+        vaaet_version="4.9.1",
+    )
+    feedback_sources = (
+        (DatasetPackageSource(package),)
+        if os.getenv("VAAET_EXPECT_LEGACY_FIXTURE") == "1"
+        else (PostgresSource(training), DatasetPackageSource(package))
+    )
+    combined = load_training_inputs(
+        TrainingIngestionPlan(
+            mode=TrainingMode.HITL_RETRAINING,
+            feedback_sources=feedback_sources,
+        )
+    )
+    target = combined.validated_feedback.loc[
+        combined.validated_feedback["clip_id"].eq(clip_id)
+    ]
+    assert len(target) == 1
+    assert int(target.iloc[0]["traffic_state"]) == 1
+
+    pg_restore_value = os.getenv("VAAET_PG_RESTORE_PATH")
+    if not pg_restore_value:
+        pytest.fail("Required PostgreSQL 17 pg_restore path is missing")
+    dump_path = tmp_path / "hitl.backup"
+    pg_restore_binary = Path(pg_restore_value)
+    pg_dump = str(pg_restore_binary.with_name(f"pg_dump{pg_restore_binary.suffix}"))
+    subprocess.run(
+        [
+            pg_dump,
+            "--dbname",
+            os.environ["VAAET_DB_NAME"],
+            "--format=custom",
+            "--data-only",
+            "--file",
+            str(dump_path),
+            "--table=vaaet_ml.telemetry_features",
+            "--table=vaaet_ml.traffic_predictions",
+            "--table=vaaet_feedback.human_validations",
+            "--table=vaaet_ops.pipeline_runs",
+            "--table=vaaet_ops.persistence_receipts",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    if os.getenv("VAAET_EXPECT_LEGACY_FIXTURE") == "1":
+        with pytest.raises(ValueError, match="inspection only"):
+            load_training_inputs(
+                TrainingIngestionPlan(
+                    mode=TrainingMode.HITL_RETRAINING,
+                    feedback_sources=(PostgresBackupSource(dump_path, Path(pg_restore_value)),),
+                )
+            )
+    else:
+        complete = load_training_inputs(
+            TrainingIngestionPlan(
+                mode=TrainingMode.HITL_RETRAINING,
+                feedback_sources=(
+                    PostgresSource(training),
+                    DatasetPackageSource(package),
+                    PostgresBackupSource(dump_path, Path(pg_restore_value)),
+                ),
+            )
+        )
+        assert len(
+            complete.validated_feedback.loc[
+                complete.validated_feedback["clip_id"].eq(clip_id)
+            ]
+        ) == 1

@@ -176,20 +176,18 @@ def test_legacy_hitl_package_is_imported_explicitly(tmp_path: Path) -> None:
     review_root = tmp_path / "reviews"
     catalog = HitlReviewCatalog(review_root / "catalog.json")
     with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
-        result = import_legacy_hitl_package(
-            legacy,
-            pipeline_run_id=str(uuid.uuid4()),
-            git_commit="legacy",
-            vaaet_version="4.5.0",
-            local_root=tmp_path / "local",
-            canonical_root=review_root,
-            publisher=publisher,
-        )
-
-    feedback, _ = load_hitl_catalog_feedback(HitlCatalogSource(review_root / "catalog.json"))
-    assert result.sync_status == "synced"
-    assert len(feedback) == 1
-    assert feedback.iloc[0]["traffic_state"] == 0
+        with pytest.raises(ValueError, match="audit provenance is unknown"):
+            import_legacy_hitl_package(
+                legacy,
+                pipeline_run_id=str(uuid.uuid4()),
+                git_commit="legacy",
+                vaaet_version="4.5.0",
+                local_root=tmp_path / "local",
+                canonical_root=review_root,
+                publisher=publisher,
+            )
+    assert legacy.is_file()
+    assert catalog.load()["entries"] == []
 
 
 def test_legacy_hitl_import_does_not_invent_model_revision(tmp_path: Path) -> None:
@@ -370,7 +368,7 @@ def test_review_finalization_blocks_pending_postgresql_audits(tmp_path: Path) ->
     assert not (tmp_path / "local").exists()
 
 
-def test_pending_package_without_algorithm_uses_historical_fingerprint(tmp_path: Path) -> None:
+def test_pending_package_without_audit_manifest_is_inspection_only(tmp_path: Path) -> None:
     run_id = str(uuid.uuid4())
     finalized_at = datetime(2026, 8, 10, 20, tzinfo=timezone.utc)
     frames = normalize_review_frames(
@@ -403,12 +401,13 @@ def test_pending_package_without_algorithm_uses_historical_fingerprint(tmp_path:
     review_root = tmp_path / "reviews"
     catalog = HitlReviewCatalog(review_root / "catalog.json")
     with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
-        synced = sync_finalized_review_session(
-            local_package, canonical_root=review_root, publisher=publisher
-        )
+        with pytest.raises(ValueError, match="audit evidence manifest"):
+            sync_finalized_review_session(
+                local_package, canonical_root=review_root, publisher=publisher
+            )
 
-    assert synced.sync_status == "synced"
-    assert synced.package_id == package_id
+    assert local_package.is_file()
+    assert catalog.load()["entries"] == []
 
 
 def test_review_export_rejects_duplicate_source_prediction_identity() -> None:

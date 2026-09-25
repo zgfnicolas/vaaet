@@ -1,8 +1,8 @@
 # Documentación de VAAET
 
 VAAET es un monorepo con `vaaet-core` (`vaaet`, 0.2.2),
-`vaaet-persistence` (`vaaet_persistence`, 0.3.0), `vaaet-ml` (`vaaet_ml`,
-4.9.0) y `vaaet-app` reservado. La topología está definida por
+`vaaet-persistence` (`vaaet_persistence`, 0.3.1), `vaaet-ml` (`vaaet_ml`,
+4.9.1) y `vaaet-app` reservado. La topología está definida por
 [ADR-0021](architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
 y [ADR-0028](architecture/decisions/0028-shared-postgresql-persistence-layer.md),
 con integridad operacional actualizada por
@@ -10,7 +10,8 @@ con integridad operacional actualizada por
 y [ADR-0030](architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
 y [ADR-0031](architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md)
 y [ADR-0032](architecture/decisions/0032-complete-cycle-integrity.md) y
-[ADR-0033](architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
+[ADR-0033](architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md) y
+[ADR-0034](architecture/decisions/0034-uniform-review-audit-evidence.md).
 
 ## Estado y precedencia documental
 
@@ -19,7 +20,7 @@ y [ADR-0032](architecture/decisions/0032-complete-cycle-integrity.md) y
 - **Hipótesis futura**: Canvas, SOW y personas conservan ideas de producto sin
   prometer API, Web App, costos, plazos ni servicios disponibles.
 - **Histórico**: changelog y planes fechados registran su momento; los ADRs
-  conservan sus decisiones originales. ADR-0021 a ADR-0033
+  conservan sus decisiones originales. ADR-0021 a ADR-0034
   prevalecen para la topología, serving con YOLO, registro DVC, operación
   PostgreSQL y segmentos de video calibrados actuales.
 
@@ -49,6 +50,7 @@ y el [checklist AGPL](governance/agpl-demo-release-checklist.md).
 - [ADR-0031: integridad HITL y publicación coordinada del catálogo](architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md)
 - [ADR-0032: integridad determinista del ciclo completo](architecture/decisions/0032-complete-cycle-integrity.md)
 - [ADR-0033: recuperación verificable y auditoría HITL completa](architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md)
+- [ADR-0034: evidencia uniforme de auditoría para feedback humano](architecture/decisions/0034-uniform-review-audit-evidence.md)
 - [Contrato del bundle](ml/model-artifact-contract.md)
 - [Guía del registro DVC](ml/dvc-guide.md)
 - [ADR de inicio semilla y HITL](architecture/decisions/0017-seed-bootstrap-and-hitl-retraining.md)

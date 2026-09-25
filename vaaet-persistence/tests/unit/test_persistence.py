@@ -292,9 +292,11 @@ def test_raw_scalar_facade_exposes_confirmed_result_when_audit_is_incomplete(
         ),
         set_output_rows=lambda _rows: None,
     )
+    captured_metadata: list[object] = []
 
     @contextmanager
-    def fake_pipeline_run(*_args: object, **_kwargs: object):
+    def fake_pipeline_run(metadata: object, **_kwargs: object):
+        captured_metadata.append(metadata)
         yield run
 
     monkeypatch.setattr("vaaet_persistence.persistence.pipeline_run", fake_pipeline_run)
@@ -313,6 +315,7 @@ def test_raw_scalar_facade_exposes_confirmed_result_when_audit_is_incomplete(
 
     assert captured.value.confirmed_result == 1
     assert captured.value.run_id == str(run_id)
+    assert captured_metadata[0].telemetry_schema_version == TELEMETRY_SCHEMA_VERSION
 
 
 def test_classified_persistence_requires_declared_telemetry_schema() -> None:

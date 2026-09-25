@@ -78,3 +78,25 @@ def test_widget_returns_none_for_empty_queue(monkeypatch) -> None:
     _install_fake_widgets(monkeypatch)
 
     assert build_review_widget(pd.DataFrame(), reviewer_id="reviewer", on_submit=lambda _: None) is None
+
+
+def test_widget_keeps_identity_after_uncertain_submission(monkeypatch) -> None:
+    _install_fake_widgets(monkeypatch)
+    decisions: list[object] = []
+
+    def interrupted(decision: object) -> None:
+        decisions.append(decision)
+        raise RuntimeError("simulated lost response")
+
+    queue = pd.DataFrame(
+        [{"prediction_id": 1, "traffic_state": 1, "state_label": "Reduced", "clip_id": "clip"}]
+    )
+    widget = build_review_widget(queue, reviewer_id="reviewer", on_submit=interrupted)
+    assert widget is not None
+    submit, skip = widget.children[4].children
+    submit.callbacks[0](None)
+    submit.callbacks[0](None)
+    assert len(decisions) == 2
+    assert decisions[0].validation_id == decisions[1].validation_id
+    assert decisions[0].reviewed_at == decisions[1].reviewed_at
+    assert skip.disabled

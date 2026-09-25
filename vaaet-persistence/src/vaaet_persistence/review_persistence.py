@@ -14,6 +14,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
+from vaaet.logging import get_logger
 
 from vaaet_persistence.connection import dispose_engine, get_engine, require_database_revision
 from vaaet_persistence.exceptions import (
@@ -38,6 +39,8 @@ from vaaet_persistence.receipts import (
 )
 from vaaet_persistence.review_domain import HumanValidation, select_review_queue
 from vaaet_persistence.settings import DatabaseSettings
+
+logger = get_logger(__name__)
 
 REVIEW_QUEUE_QUERY = """
 SELECT prediction_id, pipeline_run_id, clip_id, continuity_id, record_time, traffic_state,
@@ -245,7 +248,7 @@ def load_human_validation_record(
             dispose_engine(active_engine)
 
 
-def reconcile_human_validation(
+def reconcile_human_validation(  # noqa: C901 - protege verificación y recursos del borde público.
     decision: HumanValidation,
     *,
     pipeline_run_id: UUID | str,
@@ -259,12 +262,22 @@ def reconcile_human_validation(
     except (ValueError, TypeError, AttributeError):
         raise ValueError("pipeline_run_id must be a UUID.") from None
     owns_engine = engine is None
-    if engine is not None:
-        active_engine = engine
-    elif settings is not None:
-        active_engine = get_engine(settings)
-    else:
-        raise ValueError("PostgreSQL reconciliation requires explicit settings or an engine.")
+    try:
+        if engine is not None:
+            active_engine = engine
+        elif settings is not None:
+            active_engine = get_engine(settings)
+        else:
+            raise ValueError("PostgreSQL reconciliation requires explicit settings or an engine.")
+    except (PersistenceError, ValueError):
+        raise
+    except Exception as exc:
+        raise DatabaseOperationError(
+            "PostgreSQL human validation reconciliation failed.",
+            operation="reconcile-human-validation",
+            sqlstate=safe_sqlstate(exc),
+            run_id=str(run_uuid),
+        ) from None
     try:
         with active_engine.begin() as connection:
             require_database_revision(connection)
@@ -308,7 +321,7 @@ def reconcile_human_validation(
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.REVIEW,
-                application_version="0.3.0",
+                application_version="0.3.1",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )
@@ -319,9 +332,21 @@ def reconcile_human_validation(
             audit_error_category=outcome.audit_error_category,
             receipt=state.receipt,
         )
+    except PersistenceError:
+        raise
+    except Exception as exc:
+        raise DatabaseOperationError(
+            "PostgreSQL human validation reconciliation failed.",
+            operation="reconcile-human-validation",
+            sqlstate=safe_sqlstate(exc),
+            run_id=str(run_uuid),
+        ) from None
     finally:
         if owns_engine:
-            dispose_engine(active_engine)
+            try:
+                dispose_engine(active_engine)
+            except Exception:
+                logger.warning("PostgreSQL reconciliation resource cleanup failed.")
 
 
 def persist_human_validation_record(  # noqa: C901 - protege la escritura HITL idempotente.

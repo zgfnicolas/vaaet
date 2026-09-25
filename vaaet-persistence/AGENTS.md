@@ -29,6 +29,8 @@ DVC, Google Drive, Colab ni la futura aplicación.
   reconciliá auditorías sólo después de verificar contenido, conforme a
   [`ADR-0032`](../docs/architecture/decisions/0032-complete-cycle-integrity.md)
   y [`ADR-0033`](../docs/architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
+- Exigí evidencia de auditoría antes del uso supervisado de una decisión,
+  conforme a [`ADR-0034`](../docs/architecture/decisions/0034-uniform-review-audit-evidence.md).
 - Registrá el comprobante de cada escritura de datos dentro de su misma
   transacción. Una reconciliación sólo puede cerrar la corrida original si
   coinciden propietario, metadata, fingerprint, soporte y filas almacenadas.

@@ -65,6 +65,7 @@ from vaaet_persistence.review_persistence import (
     persist_human_validation_record,
     reconcile_human_validation,
 )
+from vaaet_persistence.run_preparation import prepare_persistence_run_metadata
 from vaaet_persistence.settings import (
     DatabaseAdminSettings,
     DatabaseEndpointSettings,
@@ -78,7 +79,7 @@ from vaaet_persistence.settings import (
     load_reviewer_id,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "DATABASE_SCHEMAS",
@@ -104,6 +105,7 @@ __all__ = [
     "PipelineRunHandle",
     "PipelineRunAuditState",
     "PipelineRunMetadata",
+    "prepare_persistence_run_metadata",
     "PipelineRunOutcome",
     "PipelineWorkflow",
     "PipelineAuditIncompleteError",

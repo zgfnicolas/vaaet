@@ -124,7 +124,7 @@ jobs:
       - name: Verificar independencia, tipado y pruebas
         run: |
           python -m pip check
-          python -c "import vaaet, vaaet_persistence; assert vaaet.__version__ == '0.2.2'; assert vaaet_persistence.__version__ == '0.3.0'"
+          python -c "import vaaet, vaaet_persistence; assert vaaet.__version__ == '0.2.2'; assert vaaet_persistence.__version__ == '0.3.1'"
           ruff check src tests
           pyright src
           python -m compileall -q src tests
@@ -214,7 +214,7 @@ jobs:
       - name: Verificar contratos de importación y DVC de raíz
         run: |
           python -m pip check
-          python -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.2'; assert vaaet_persistence.__version__ == '0.3.0'; assert vaaet_ml.__version__ == '4.9.0'"
+          python -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.2'; assert vaaet_persistence.__version__ == '0.3.1'; assert vaaet_ml.__version__ == '4.9.1'"
           test -d .dvc
           test -d vaaet-ml/artifacts/traffic-state
 
@@ -238,7 +238,7 @@ jobs:
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip install ./vaaet-core
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip install ./vaaet-persistence
           "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -m pip check
-          "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -c "import vaaet_persistence; assert vaaet_persistence.__version__ == '0.3.0'"
+          "$RUNNER_TEMP/vaaet-persistence-base/bin/python" -c "import vaaet_persistence; assert vaaet_persistence.__version__ == '0.3.1'"
 
           python -m venv "$RUNNER_TEMP/vaaet-workspace-base"
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install --upgrade pip
@@ -246,7 +246,7 @@ jobs:
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install ./vaaet-persistence
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip install ./vaaet-ml
           "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -m pip check
-          "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.2'; assert vaaet_persistence.__version__ == '0.3.0'; assert vaaet_ml.__version__ == '4.9.0'"
+          "$RUNNER_TEMP/vaaet-workspace-base/bin/python" -c "import vaaet, vaaet_persistence, vaaet_ml; assert vaaet.__version__ == '0.2.2'; assert vaaet_persistence.__version__ == '0.3.1'; assert vaaet_ml.__version__ == '4.9.1'"
 
   typing:
     runs-on: ubuntu-latest
@@ -386,7 +386,10 @@ jobs:
           /usr/lib/postgresql/17/bin/pg_dump --format=custom --data-only --table=vaaet_raw.traffic_data --file="$VAAET_MODERN_BACKUP_PATH"
 
       - name: Probar schema, constraints y mínimo privilegio
-        run: pytest ../vaaet-persistence/tests/integration tests/integration -v --tb=short -m postgres
+        run: |
+          pytest tests/integration/test_postgres_schema.py::test_pg17_review_receipt_zip_and_backup_training_cycle -v --tb=short -m postgres --junitxml=/tmp/vaaet-pg-cycle-upgraded.xml --log-cli-level=INFO
+          python -c "import xml.etree.ElementTree as ET; r=ET.parse('/tmp/vaaet-pg-cycle-upgraded.xml').getroot(); cases=[c for c in r.iter('testcase') if c.get('name')=='test_pg17_review_receipt_zip_and_backup_training_cycle']; assert len(cases)==1 and not list(cases[0].iter('skipped')) and not list(cases[0].iter('failure'))"
+          pytest ../vaaet-persistence/tests/integration tests/integration -v --tb=short -m postgres
 
       - name: Auditar PostgreSQL sin mutaciones
         run: |
@@ -398,6 +401,8 @@ jobs:
           PGDATABASE=postgres python -c "import psycopg2; c=psycopg2.connect(); c.autocommit=True; c.cursor().execute('CREATE DATABASE vaaet_fresh'); c.close()"
           VAAET_DB_NAME=vaaet_fresh alembic -c ../vaaet-persistence/alembic.ini upgrade head
           PGDATABASE=vaaet_fresh /usr/lib/postgresql/17/bin/psql -v ON_ERROR_STOP=1 -f ../vaaet-persistence/src/vaaet_persistence/migrations/provision-roles.sql
+          VAAET_EXPECT_LEGACY_FIXTURE=0 VAAET_DB_NAME=vaaet_fresh pytest tests/integration/test_postgres_schema.py::test_pg17_review_receipt_zip_and_backup_training_cycle -v --tb=short -m postgres --junitxml=/tmp/vaaet-pg-cycle-fresh.xml --log-cli-level=INFO
+          python -c "import xml.etree.ElementTree as ET; r=ET.parse('/tmp/vaaet-pg-cycle-fresh.xml').getroot(); cases=[c for c in r.iter('testcase') if c.get('name')=='test_pg17_review_receipt_zip_and_backup_training_cycle']; assert len(cases)==1 and not list(cases[0].iter('skipped')) and not list(cases[0].iter('failure'))"
           VAAET_EXPECT_LEGACY_FIXTURE=0 VAAET_DB_NAME=vaaet_fresh pytest ../vaaet-persistence/tests/integration tests/integration -v --tb=short -m postgres
 
   dvc-check:

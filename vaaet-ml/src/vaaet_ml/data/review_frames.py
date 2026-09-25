@@ -22,6 +22,8 @@ from vaaet_ml.data.artifact_serialization import (
     stable_uuid,
     valid_uuid,
 )
+from vaaet_ml.data.review_audit import ReviewAuditOrigin, validate_review_audit
+from vaaet_ml.data.review_domain import HumanValidation
 
 _REVIEW_SOURCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
@@ -33,6 +35,7 @@ def normalize_review_frames(
     pipeline_run_id: str,
     model_version: str,
     finalized_at: datetime,
+    audit_origin: ReviewAuditOrigin | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Convierte clasificación y decisiones a tablas relacionales verificables."""
 
@@ -49,6 +52,14 @@ def normalize_review_frames(
         prediction_ids=predictions["id"].tolist(),
         run_id=run_id,
         finalized_at=finalized_at,
+    )
+    if audit_origin is None and not isinstance(validations, pd.DataFrame) and all(
+        isinstance(item, HumanValidation) for item in validations
+    ):
+        audit_origin = ReviewAuditOrigin.PORTABLE
+        validation_frame["audit_complete"] = True
+    validation_frame = validate_review_audit(
+        validation_frame, declared_origin=audit_origin, predictions=predictions
     )
     reviewed = set(validation_frame["prediction_id"].astype(str))
     predictions["review_status"] = predictions["id"].map(

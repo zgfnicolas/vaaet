@@ -21,6 +21,7 @@ from vaaet_ml.data.dataset_artifacts import (
 )
 from vaaet_ml.data.ingestion import create_dataset_package
 from vaaet_ml.data.review import HumanValidation
+from vaaet_ml.data.review_audit import build_review_audit_manifest
 from vaaet_ml.settings import FEATURE_COLS
 
 MODEL_REVISION = "a" * 64
@@ -31,6 +32,8 @@ def _review_metadata() -> dict[str, object]:
         "reviewer_id": "reviewer",
         "review_source": "test",
         "incident_context_reviewed": False,
+        "review_audit_origin": "portable",
+        "audit_complete": True,
     }
 
 
@@ -262,7 +265,10 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
         features=features,
         predictions=predictions,
         validations=validations,
-        package_metadata={"fingerprint": fingerprint},
+        package_metadata={
+            "fingerprint": fingerprint,
+            "review_audit_evidence": build_review_audit_manifest(validations),
+        },
     )
 
     entry = {
@@ -361,7 +367,10 @@ def test_catalog_resolves_valid_cross_package_correction_chain(tmp_path: Path) -
                 features=features,
                 predictions=predictions,
                 validations=validations,
-                package_metadata={"fingerprint": fingerprint},
+                package_metadata={
+                    "fingerprint": fingerprint,
+                    "review_audit_evidence": build_review_audit_manifest(validations),
+                },
             )
             catalog.register(
                 {

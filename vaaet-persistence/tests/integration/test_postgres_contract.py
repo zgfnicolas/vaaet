@@ -27,6 +27,7 @@ from vaaet_persistence.persistence import (
 )
 from vaaet_persistence.pipeline_runs import PipelineRunMetadata, PipelineWorkflow, pipeline_run
 from vaaet_persistence.queries import load_telemetry_window
+from vaaet_persistence.receipts import read_pipeline_run_audit_state
 from vaaet_persistence.review_domain import HumanValidation
 from vaaet_persistence.review_persistence import persist_human_validation_record
 from vaaet_persistence.settings import DatabaseProfile, load_database_settings
@@ -202,14 +203,8 @@ def test_confirmed_write_is_reconciled_without_reinserting_rows(
 
     assert captured.value.confirmed_result == 1
     with database_engine(settings) as engine, engine.connect() as connection:
-        receipt_before = connection.execute(
-            text(
-                "SELECT operation, processed_counts, inserted_counts "
-                "FROM vaaet_ops.persistence_receipts "
-                "WHERE pipeline_run_id=CAST(:run_id AS UUID)"
-            ),
-            {"run_id": captured.value.run_id},
-        ).one()
+        receipt_before = read_pipeline_run_audit_state(connection, captured.value.run_id).receipt
+    assert receipt_before is not None
     assert receipt_before.operation == "raw-telemetry"
     assert receipt_before.processed_counts == {"raw_telemetry": 1}
     assert receipt_before.inserted_counts == {"raw_telemetry": 1}
@@ -344,7 +339,12 @@ def test_reviewer_can_append_and_correct_without_update_privilege() -> None:
         reviewed_at=datetime(2026, 9, 11, 12, 5, tzinfo=timezone.utc),
         review_source="postgres-integration",
     )
-    first = persist_human_validation_record(root, settings=review_settings)
+    first = persist_human_validation_record(
+        root,
+        settings=review_settings,
+        application_name="independent-backend-consumer-test",
+        application_version="0.1.0",
+    )
     correction = HumanValidation(
         prediction_id=prediction_id,
         validated_state=0,
@@ -354,8 +354,18 @@ def test_reviewer_can_append_and_correct_without_update_privilege() -> None:
         reviewed_at=datetime(2026, 9, 11, 12, 6, tzinfo=timezone.utc),
         review_source="postgres-integration",
     )
-    corrected = persist_human_validation_record(correction, settings=review_settings)
-    repeated = persist_human_validation_record(correction, settings=review_settings)
+    corrected = persist_human_validation_record(
+        correction,
+        settings=review_settings,
+        application_name="independent-backend-consumer-test",
+        application_version="0.1.0",
+    )
+    repeated = persist_human_validation_record(
+        correction,
+        settings=review_settings,
+        application_name="independent-backend-consumer-test",
+        application_version="0.1.0",
+    )
 
     assert repeated == corrected
     assert first.audit_complete

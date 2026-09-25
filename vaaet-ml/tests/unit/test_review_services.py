@@ -122,6 +122,7 @@ def test_database_review_service_links_predictions_and_persists_decisions(
                 pipeline_run_id=review_run_id,
                 audit_complete=True,
                 audit_error_category=None,
+                receipt=SimpleNamespace(content_fingerprint="a" * 64),
             )
         ),
     )
@@ -174,6 +175,7 @@ def test_database_review_keeps_same_decision_pending_until_reconciled(
             pipeline_run_id=review_run_id,
             audit_complete=False,
             audit_error_category="PipelineAuditIncomplete",
+            receipt=SimpleNamespace(content_fingerprint="a" * 64),
         )
 
     def reconcile(decision: HumanValidation, **_kwargs: object) -> SimpleNamespace:
@@ -183,6 +185,7 @@ def test_database_review_keeps_same_decision_pending_until_reconciled(
             pipeline_run_id=review_run_id,
             audit_complete=True,
             audit_error_category=None,
+            receipt=SimpleNamespace(content_fingerprint="a" * 64),
         )
 
     monkeypatch.setattr(
@@ -236,12 +239,14 @@ def test_explicit_recovery_moves_original_decision_from_pending_to_confirmed(
         pipeline_run_id=run_id,
         audit_complete=False,
         audit_error_category="PipelineAuditIncomplete",
+        receipt=SimpleNamespace(content_fingerprint="a" * 64),
     )
     confirmed = SimpleNamespace(
         decision=decision,
         pipeline_run_id=run_id,
         audit_complete=True,
         audit_error_category=None,
+        receipt=SimpleNamespace(content_fingerprint="a" * 64),
     )
     session = InferenceReviewSession(
         export_frame=_classified_frame(),

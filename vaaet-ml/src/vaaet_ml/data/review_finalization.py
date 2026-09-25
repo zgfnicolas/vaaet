@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 import pandas as pd
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
@@ -36,6 +37,11 @@ from vaaet_ml.data.hitl_catalog import (
     HitlReviewCatalog,
 )
 from vaaet_ml.data.package_codec import create_dataset_package, load_dataset_package
+from vaaet_ml.data.review_audit import (
+    build_review_audit_manifest,
+    validate_review_audit,
+    validate_review_audit_manifest,
+)
 from vaaet_ml.data.review_frames import normalize_review_frames
 
 HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v2"
@@ -95,7 +101,7 @@ def seal_review_package(
         existing = read_package_manifest(destination).get("package_metadata", {})
         if not isinstance(existing, Mapping) or existing.get("fingerprint") != fingerprint:
             raise ValueError("Review package destination contains different immutable content.")
-        load_dataset_package(destination)
+        _verify_review_package(destination)
         return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
     _write_review_package(destination, frames=frames, metadata=metadata)
@@ -196,6 +202,10 @@ def sync_finalized_review_session(
 
     package = Path(local_path)
     frames = load_dataset_package(package)
+    frames["validations"] = validate_review_audit(
+        frames.get("validations", pd.DataFrame()),
+        predictions=frames.get("predictions", pd.DataFrame()),
+    )
     metadata = read_package_manifest(package).get("package_metadata", {})
     required = {
         "package_id",
@@ -210,6 +220,9 @@ def sync_finalized_review_session(
     }
     if not isinstance(metadata, Mapping):
         raise HitlCatalogIntegrityError("Pending HITL package metadata must be an object.")
+    validate_review_audit_manifest(
+        frames["validations"], cast(Mapping[str, object], metadata)
+    )
     missing = sorted(required - metadata.keys())
     if missing:
         raise HitlCatalogIntegrityError(f"Pending HITL package metadata is incomplete: {missing}")
@@ -348,6 +361,7 @@ def _session_metadata(
         "reviewed_rows": int(len(validations)),
         "pending_rows": int(predictions["review_status"].eq("unreviewed").sum()),
         "human_support": _human_support(validations),
+        "review_audit_evidence": build_review_audit_manifest(validations),
     }
 
 
@@ -366,7 +380,7 @@ def _ensure_local_package(
         existing = read_package_manifest(local_path).get("package_metadata", {})
         if not isinstance(existing, Mapping) or existing.get("fingerprint") != fingerprint:
             raise ValueError("Pending HITL package path contains different session content.")
-        load_dataset_package(local_path)
+        _verify_review_package(local_path)
         return local_path, existing
     local_path.parent.mkdir(parents=True, exist_ok=True)
     _write_review_package(local_path, frames=frames, metadata=metadata)
@@ -391,7 +405,21 @@ def _write_review_package(
         overwrite=False,
         include_empty_components=("validations",),
     )
-    load_dataset_package(destination)
+    _verify_review_package(destination)
+
+
+def _verify_review_package(path: Path) -> None:
+    """Valida contenido y evidencia antes de reutilizar un ZIP sellado."""
+
+    frames = load_dataset_package(path)
+    metadata = read_package_manifest(path).get("package_metadata", {})
+    if not isinstance(metadata, Mapping):
+        raise ValueError("Review package audit metadata is malformed.")
+    validations = validate_review_audit(
+        frames.get("validations", pd.DataFrame()),
+        predictions=frames.get("predictions", pd.DataFrame()),
+    )
+    validate_review_audit_manifest(validations, cast(Mapping[str, object], metadata))
 
 
 def _sync_to_catalog(

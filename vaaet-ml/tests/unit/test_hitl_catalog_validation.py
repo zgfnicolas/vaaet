@@ -92,7 +92,7 @@ def test_catalog_rejects_invalid_entry_fields(
 
 def test_catalog_registration_and_status_operations_are_idempotent(tmp_path) -> None:
     catalog = HitlReviewCatalog(tmp_path / "catalog.json")
-    entry = _entry()
+    entry = _entry(status="quarantined")
     with HitlCatalogPublisher(catalog, lock_directory=tmp_path / "locks") as publisher:
         first = catalog.register(entry, publisher=publisher)
 
@@ -105,7 +105,9 @@ def test_catalog_registration_and_status_operations_are_idempotent(tmp_path) -> 
             catalog.set_status(str(entry["package_id"]), "deleted", publisher=publisher)
         with pytest.raises(KeyError, match="not found"):
             catalog.set_status(str(uuid.uuid4()), "active", publisher=publisher)
-        assert catalog.set_status(str(entry["package_id"]), "active", publisher=publisher) == first
+        with pytest.raises(FileNotFoundError, match="Cataloged HITL package not found"):
+            catalog.set_status(str(entry["package_id"]), "active", publisher=publisher)
+        assert catalog.load() == first
 
 
 def test_catalog_mutation_requires_one_active_local_publisher(tmp_path) -> None:
@@ -115,12 +117,12 @@ def test_catalog_mutation_requires_one_active_local_publisher(tmp_path) -> None:
     with pytest.raises(HitlCatalogPublicationError, match="active local publisher"):
         catalog.register(_entry())
     with HitlCatalogPublisher(catalog, lock_directory=lock_directory) as first:
-        first.register(_entry())
+        first.register(_entry(status="quarantined"))
         with pytest.raises(HitlCatalogPublicationError, match="already active"):
             with HitlCatalogPublisher(catalog, lock_directory=lock_directory):
                 pass
     with HitlCatalogPublisher(catalog, lock_directory=lock_directory) as second:
-        second.register(_entry())
+        second.register(_entry(status="quarantined"))
 
     assert len(catalog.load()["entries"]) == 2
 

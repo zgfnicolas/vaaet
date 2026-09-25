@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.3.0
+# Operación PostgreSQL compartida — VAAET Persistence 0.3.1
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -211,6 +211,12 @@ históricas sin comprobante no se cierran automáticamente.
 En revisión humana, una decisión pendiente conserva su UUID y fecha. No avanza
 el formulario, no entra al ZIP y el entrenamiento detiene la fuente hasta que
 `reconcile_human_validation()` verifique el comprobante y el contenido original.
+Una revisión exclusivamente portable declara esa procedencia y no necesita una
+corrida PostgreSQL. Una decisión PostgreSQL sólo es admisible para exportación
+y entrenamiento con corrida terminada y comprobante verificable. Los ZIP
+históricos sin procedencia inequívoca se pueden inspeccionar, pero no usar como
+targets; sus checksums prueban integridad del archivo, no autenticidad del
+productor. Consultá [ADR-0034](../architecture/decisions/0034-uniform-review-audit-evidence.md).
 
 ## Backup y recuperación
 

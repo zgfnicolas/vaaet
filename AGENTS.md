@@ -140,6 +140,8 @@ antes de deserializar un bundle.
 - Los comprobantes transaccionales, la recuperación verificable y el bloqueo
   uniforme de auditorías HITL pendientes están gobernados por
   [ADR-0033](docs/architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
+- La admisión supervisada de decisiones humanas requiere procedencia de auditoría
+  verificable según [ADR-0034](docs/architecture/decisions/0034-uniform-review-audit-evidence.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

@@ -15,6 +15,18 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.9.1] - 2026-09-24
+
+### Corregido
+
+- Evidencia de auditoría uniforme en exportación HITL, catálogo, backups y
+  entrenamiento; históricos ambiguos conservados sólo para inspección.
+- Corridas PostgreSQL de video preparadas con filas, schemas y revisión exactos
+  para permitir reconciliar escrituras confirmadas.
+- Reintentos de revisión con UUID, fecha y contenido estables, y errores de
+  reconciliación PostgreSQL redactados.
+- VAAET Persistence 0.3.1 y [ADR-0034](../docs/architecture/decisions/0034-uniform-review-audit-evidence.md).
+
 ## [4.9.0] - 2026-09-23
 
 ### Añadido

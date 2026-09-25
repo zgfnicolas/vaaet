@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
@@ -21,6 +22,7 @@ from vaaet.timestamps import (
 )
 from vaaet_persistence import TelemetryReadMode
 
+from vaaet_ml.data.artifact_serialization import read_package_manifest
 from vaaet_ml.data.database import (
     DatabaseSettings,
     get_pg_restore_version,
@@ -41,6 +43,11 @@ from vaaet_ml.data.package_codec import (
     SEED_DATASET_PACKAGE_CONTRACT,
     create_dataset_package,
     load_dataset_package,
+)
+from vaaet_ml.data.review_audit import (
+    validate_review_audit,
+    validate_review_audit_manifest,
+    verify_backup_review_audit,
 )
 from vaaet_ml.training.lifecycle import TrainingMode
 
@@ -219,17 +226,31 @@ def _load_feedback_components(
     if isinstance(source, PostgresSource):
         if source.telemetry_read_mode is not TelemetryReadMode.CURRENT:
             raise ValueError("Legacy PostgreSQL mode is supported only for raw telemetry sources.")
-        return (
-            portable_feedback_components(load_human_feedback_components(
+        components = portable_feedback_components(load_human_feedback_components(
                 settings=source.settings,
                 feature_schema_version=source.feature_schema_version,
-            )),
-            {"source_kind": "postgres-history"},
+            ))
+        components["validations"] = validate_review_audit(
+            components["validations"], predictions=components["predictions"]
         )
+        return components, {"source_kind": "postgres-history"}
     if isinstance(source, DatasetPackageSource):
-        return load_dataset_package(source.path), {"source_kind": "dataset-package"}
+        components = load_dataset_package(source.path)
+        components["validations"] = validate_review_audit(
+            components.get("validations", pd.DataFrame()),
+            predictions=components.get("predictions", pd.DataFrame()),
+        )
+        metadata = read_package_manifest(source.path).get("package_metadata", {})
+        if not isinstance(metadata, dict):
+            raise ValueError("Review package audit metadata is malformed.")
+        validate_review_audit_manifest(
+            components["validations"], cast(dict[str, object], metadata)
+        )
+        return components, {"source_kind": "dataset-package"}
     if isinstance(source, PostgresBackupSource):
-        frames = _frames_from_backup(source, components={"features", "predictions", "validations"})
+        frames = _frames_from_backup(
+            source, components={"features", "predictions", "validations", "runs", "receipts"}
+        )
         details = next(
             (
                 item.attrs.get("vaaet_provenance", {})
@@ -243,7 +264,12 @@ def _load_feedback_components(
                 "PostgreSQL backup has no traceable human_validations table; "
                 "legacy review flags are inspection-only and cannot become ground truth."
             )
-        return portable_feedback_components(frames), dict(details)
+        provenance = (
+            dict(cast(Mapping[str, object], details))
+            if isinstance(details, Mapping)
+            else {}
+        )
+        return portable_feedback_components(verify_backup_review_audit(frames)), provenance
     if isinstance(source, HitlCatalogSource):
         return load_hitl_catalog_components(source)
     raise ValueError(f"Source {type(source).__name__} cannot provide validated feedback.")
@@ -262,6 +288,8 @@ def _frames_from_backup(  # noqa: C901 - valida variantes históricas en un úni
         "features": ("vaaet_ml.telemetry_features", "public.telemetry_raw"),
         "predictions": ("vaaet_ml.traffic_predictions", "public.traffic_classifications"),
         "validations": ("vaaet_feedback.human_validations",),
+        "runs": ("vaaet_ops.pipeline_runs",),
+        "receipts": ("vaaet_ops.persistence_receipts",),
     }
     unknown = components - set(aliases)
     if unknown:

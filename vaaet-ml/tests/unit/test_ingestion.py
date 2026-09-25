@@ -33,6 +33,7 @@ from vaaet_ml.data.ingestion import (
     load_training_inputs,
 )
 from vaaet_ml.data.package_codec import _decode_csv_boolean
+from vaaet_ml.data.review_audit import build_review_audit_manifest
 from vaaet_ml.settings import FEATURE_COLS
 from vaaet_ml.training.lifecycle import TrainingMode
 
@@ -75,6 +76,8 @@ def _package_tables(path: Path, state: int = 1) -> Path:
                 "reviewer_id": "fixture-reviewer",
                 "reviewed_at": "2026-08-04T13:00:00Z",
                 "review_source": "unit-test",
+                "review_audit_origin": "portable",
+                "audit_complete": True,
                 "incident_context_reviewed": state == 3,
                 "notes": "Context reviewed" if state == 3 else None,
                 "supersedes_validation_id": pd.NA,
@@ -82,7 +85,13 @@ def _package_tables(path: Path, state: int = 1) -> Path:
         ]
     )
     return create_dataset_package(
-        path, features=features, predictions=predictions, validations=validations
+        path,
+        features=features,
+        predictions=predictions,
+        validations=validations,
+        package_metadata={
+            "review_audit_evidence": build_review_audit_manifest(validations)
+        },
     )
 
 
@@ -403,6 +412,23 @@ def test_feedback_rejects_reordered_feature_contract(tmp_path: Path) -> None:
     features = _features().drop(columns=["traffic_state", "is_human_validated"])
     metadata = [column for column in features if column not in FEATURE_COLS]
     reversed_features = features[[*metadata, *reversed(FEATURE_COLS)]]
+    validations = pd.DataFrame(
+        [
+            {
+                "id": "d266e373-f8ce-405e-8144-2f508a5bdc85",
+                "prediction_id": "22222222-2222-4222-8222-222222222222",
+                "validated_state": 1,
+                "is_human_validated": True,
+                "reviewer_id": "fixture-reviewer",
+                "reviewed_at": "2026-08-04T13:00:00Z",
+                "review_source": "unit-test",
+                "review_audit_origin": "portable",
+                "audit_complete": True,
+                "incident_context_reviewed": False,
+                "supersedes_validation_id": pd.NA,
+            }
+        ]
+    )
     package = create_dataset_package(
         tmp_path / "reordered.zip",
         features=reversed_features,
@@ -417,21 +443,10 @@ def test_feedback_rejects_reordered_feature_contract(tmp_path: Path) -> None:
                 }
             ]
         ),
-        validations=pd.DataFrame(
-            [
-                {
-                    "id": "d266e373-f8ce-405e-8144-2f508a5bdc85",
-                    "prediction_id": "22222222-2222-4222-8222-222222222222",
-                    "validated_state": 1,
-                    "is_human_validated": True,
-                    "reviewer_id": "fixture-reviewer",
-                    "reviewed_at": "2026-08-04T13:00:00Z",
-                    "review_source": "unit-test",
-                    "incident_context_reviewed": False,
-                    "supersedes_validation_id": pd.NA,
-                }
-            ]
-        ),
+        validations=validations,
+        package_metadata={
+            "review_audit_evidence": build_review_audit_manifest(validations)
+        },
     )
     with pytest.raises(ValueError, match="exact 19-feature order"):
         load_training_inputs(

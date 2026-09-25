@@ -5,16 +5,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 from uuid import UUID
 
 import pandas as pd
 from vaaet.settings import STATE_LABELS
 
 from vaaet_ml.data.review_domain import HumanValidation
-from vaaet_ml.data.review_orchestration import ReviewSubmissionResult
+from vaaet_ml.data.review_orchestration import (
+    ReviewSubmissionController,
+    ReviewSubmissionResult,
+    ReviewSubmissionStatus,
+)
 
 
-def build_review_widget(
+def build_review_widget(  # noqa: C901 - adapta el controlador al widget opcional.
     queue: pd.DataFrame,
     *,
     reviewer_id: str,
@@ -39,7 +44,7 @@ def build_review_widget(
     submit = widgets.Button(description="Save validation", button_style="success")
     skip = widgets.Button(description="Skip")
     output = widgets.Output()
-    pending_decision: dict[str, HumanValidation | None] = {"value": None}
+    controller = ReviewSubmissionController()
 
     def render() -> None:
         row = queue.iloc[position["value"]]
@@ -49,7 +54,10 @@ def build_review_widget(
         )
         notes.value = ""
         context.value = False
-        pending_decision["value"] = None
+        controller.reset()
+        for field in (state, notes, context):
+            field.disabled = False
+        skip.disabled = False
         submit.description = "Save validation"
         heading.value = (
             f"<b>{position['value'] + 1}/{len(queue)}</b> — {row.get('clip_id')} "
@@ -59,6 +67,7 @@ def build_review_widget(
         )
 
     def advance() -> None:
+        controller.reset()
         if position["value"] + 1 < len(queue):
             position["value"] += 1
             render()
@@ -69,9 +78,8 @@ def build_review_widget(
 
     def submit_row(_button: object) -> None:
         row = queue.iloc[position["value"]]
-        decision = pending_decision["value"]
-        if decision is None:
-            decision = HumanValidation(
+        decision = controller.prepare(
+            lambda: HumanValidation(
                 prediction_id=int(row["prediction_id"]),
                 validated_state=int(state.value),
                 reviewer_id=reviewer_id,
@@ -83,10 +91,21 @@ def build_review_widget(
                     else None
                 ),
             )
+        )
+        for field in (state, notes, context):
+            field.disabled = True
+        skip.disabled = True
         with output:
-            result = on_submit(decision)
-            if result is not None and not result.confirmed:
-                pending_decision["value"] = result.decision
+            try:
+                result = controller.submit(on_submit)
+            except Exception as exc:
+                submit.description = "Check same decision"
+                print(
+                    "No confirmado. Conservá esta validación y comprobá su UUID antes "
+                    f"de reintentar: {decision.validation_id} ({type(exc).__name__})."
+                )
+                return
+            if controller.status is ReviewSubmissionStatus.AUDIT_PENDING:
                 submit.description = "Complete audit"
                 print(
                     "Guardado; auditoría pendiente. Volvé a pulsar Complete audit "
@@ -100,7 +119,12 @@ def build_review_widget(
         advance()
 
     submit.on_click(submit_row)
-    skip.on_click(lambda _button: advance())
+    def skip_row(_button: object) -> None:
+        if controller.decision is not None:
+            raise RuntimeError("Resolve the current review decision before skipping.")
+        advance()
+
+    cast(Callable[[Callable[[object], None]], None], skip.on_click)(skip_row)
     render()
     widget = widgets.VBox([heading, state, notes, context, widgets.HBox([submit, skip]), output])
     display(widget)

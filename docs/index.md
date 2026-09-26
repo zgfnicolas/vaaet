@@ -1,8 +1,8 @@
 # Documentación de VAAET
 
 VAAET es un monorepo con `vaaet-core` (`vaaet`, 0.2.2),
-`vaaet-persistence` (`vaaet_persistence`, 0.3.1), `vaaet-ml` (`vaaet_ml`,
-4.9.1) y `vaaet-app` reservado. La topología está definida por
+`vaaet-persistence` (`vaaet_persistence`, 0.3.2), `vaaet-ml` (`vaaet_ml`,
+4.9.2) y `vaaet-app` reservado. La topología está definida por
 [ADR-0021](architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
 y [ADR-0028](architecture/decisions/0028-shared-postgresql-persistence-layer.md),
 con integridad operacional actualizada por
@@ -11,7 +11,8 @@ y [ADR-0030](architecture/decisions/0030-operational-idempotency-and-portable-hi
 y [ADR-0031](architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md)
 y [ADR-0032](architecture/decisions/0032-complete-cycle-integrity.md) y
 [ADR-0033](architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md) y
-[ADR-0034](architecture/decisions/0034-uniform-review-audit-evidence.md).
+[ADR-0034](architecture/decisions/0034-uniform-review-audit-evidence.md) y
+[ADR-0035](architecture/decisions/0035-review-recovery-and-lossless-packages.md).
 
 ## Estado y precedencia documental
 
@@ -20,7 +21,7 @@ y [ADR-0032](architecture/decisions/0032-complete-cycle-integrity.md) y
 - **Hipótesis futura**: Canvas, SOW y personas conservan ideas de producto sin
   prometer API, Web App, costos, plazos ni servicios disponibles.
 - **Histórico**: changelog y planes fechados registran su momento; los ADRs
-  conservan sus decisiones originales. ADR-0021 a ADR-0034
+  conservan sus decisiones originales. ADR-0021 a ADR-0035
   prevalecen para la topología, serving con YOLO, registro DVC, operación
   PostgreSQL y segmentos de video calibrados actuales.
 

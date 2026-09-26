@@ -28,13 +28,14 @@ from vaaet_ml.data.artifact_serialization import (
     canonical_timestamp_identity,
     is_sha256,
     read_package_manifest,
+    review_frames_fingerprint,
     safe_relative_path,
     sha256_file,
     stable_uuid,
     utc_now,
     valid_uuid,
 )
-from vaaet_ml.data.package_codec import load_dataset_package
+from vaaet_ml.data.package_codec import load_dataset_package, require_unambiguous_supervised_csv
 from vaaet_ml.data.review_audit import validate_review_audit, validate_review_audit_manifest
 
 HITL_CATALOG_CONTRACT = "vaaet-dataset-catalog-v1"
@@ -43,6 +44,7 @@ HITL_PACKAGE_FILE = "vaaet-training-dataset-v1.zip"
 _HITL_FINGERPRINT_ALGORITHMS = {
     "sha256-contractual-frames-v1",
     "sha256-contractual-frames-v2",
+    "sha256-contractual-frames-v3",
 }
 logger = get_logger(__name__)
 
@@ -497,13 +499,17 @@ def _verified_catalog_package(
     if sha256_file(package_path) != entry["sha256"]:
         raise ValueError(f"Cataloged HITL package checksum mismatch: {entry['package_id']}")
     package_frames = load_dataset_package(package_path)
+    require_unambiguous_supervised_csv(package_path)
+    metadata = read_package_manifest(package_path).get("package_metadata", {})
+    if not isinstance(metadata, Mapping):
+        raise ValueError(f"Cataloged HITL package fingerprint mismatch: {entry['package_id']}")
+    algorithm = str(metadata.get("fingerprint_algorithm", "sha256-contractual-frames-v1"))
+    if review_frames_fingerprint(package_frames, algorithm) != entry["fingerprint"]:
+        raise ValueError(f"Cataloged HITL package content mismatch: {entry['package_id']}")
     package_frames["validations"] = validate_review_audit(
         package_frames.get("validations", pd.DataFrame()),
         predictions=package_frames.get("predictions", pd.DataFrame()),
     )
-    metadata = read_package_manifest(package_path).get("package_metadata", {})
-    if not isinstance(metadata, Mapping):
-        raise ValueError(f"Cataloged HITL package fingerprint mismatch: {entry['package_id']}")
     audited_metadata = cast(Mapping[str, object], metadata)
     if audited_metadata.get("fingerprint") != entry["fingerprint"]:
         raise ValueError(f"Cataloged HITL package fingerprint mismatch: {entry['package_id']}")

@@ -8,6 +8,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import NoReturn, cast
+from uuid import UUID
 
 import pandas as pd
 from sqlalchemy import bindparam, text
@@ -21,7 +22,7 @@ from vaaet_persistence.exceptions import (
     PersistenceConflictError,
     safe_sqlstate,
 )
-from vaaet_persistence.receipts import read_pipeline_run_audit_state
+from vaaet_persistence.receipts import read_pipeline_run_audit_states
 from vaaet_persistence.settings import DatabaseSettings
 
 RAW_TABLE = "vaaet_raw.traffic_data"
@@ -365,8 +366,10 @@ def _verified_review_fingerprints(
     ].isna().any():
         raise PersistenceConflictError("Human feedback has no verifiable review run identity.")
     fingerprints: dict[str, str] = {}
-    for run_id in validations["pipeline_run_id"].astype(str).unique():
-        state = read_pipeline_run_audit_state(connection, run_id)
+    run_ids = validations["pipeline_run_id"].astype(str).unique().tolist()
+    states = read_pipeline_run_audit_states(connection, run_ids)
+    for run_id in run_ids:
+        state = states[UUID(run_id)]
         if (
             not state.audit_complete
             or state.workflow != "review"

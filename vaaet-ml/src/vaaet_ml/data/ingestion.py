@@ -22,7 +22,10 @@ from vaaet.timestamps import (
 )
 from vaaet_persistence import TelemetryReadMode
 
-from vaaet_ml.data.artifact_serialization import read_package_manifest
+from vaaet_ml.data.artifact_serialization import (
+    read_package_manifest,
+    review_frames_fingerprint,
+)
 from vaaet_ml.data.database import (
     DatabaseSettings,
     get_pg_restore_version,
@@ -43,6 +46,7 @@ from vaaet_ml.data.package_codec import (
     SEED_DATASET_PACKAGE_CONTRACT,
     create_dataset_package,
     load_dataset_package,
+    require_unambiguous_supervised_csv,
 )
 from vaaet_ml.data.review_audit import (
     validate_review_audit,
@@ -236,13 +240,19 @@ def _load_feedback_components(
         return components, {"source_kind": "postgres-history"}
     if isinstance(source, DatasetPackageSource):
         components = load_dataset_package(source.path)
+        require_unambiguous_supervised_csv(source.path)
+        metadata = read_package_manifest(source.path).get("package_metadata", {})
+        if not isinstance(metadata, dict):
+            raise ValueError("Review package audit metadata is malformed.")
+        if "fingerprint_algorithm" in metadata and "fingerprint" in metadata:
+            if review_frames_fingerprint(
+                components, str(metadata["fingerprint_algorithm"])
+            ) != metadata["fingerprint"]:
+                raise ValueError("Review package fingerprint does not match its contents.")
         components["validations"] = validate_review_audit(
             components.get("validations", pd.DataFrame()),
             predictions=components.get("predictions", pd.DataFrame()),
         )
-        metadata = read_package_manifest(source.path).get("package_metadata", {})
-        if not isinstance(metadata, dict):
-            raise ValueError("Review package audit metadata is malformed.")
         validate_review_audit_manifest(
             components["validations"], cast(dict[str, object], metadata)
         )

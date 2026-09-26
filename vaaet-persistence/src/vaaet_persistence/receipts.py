@@ -40,10 +40,10 @@ SELECT * FROM vaaet_ops.record_persistence_receipt(
 )
 """
 
-_READ_AUDIT_STATE_SQL = """
-SELECT * FROM vaaet_ops.read_pipeline_run_audit_state(
-    CAST(:pipeline_run_id AS UUID)
-)
+_READ_AUDIT_STATES_SQL = """
+SELECT requested.run_id AS requested_run_id, state.*
+FROM unnest(CAST(:run_ids AS UUID[])) AS requested(run_id)
+CROSS JOIN LATERAL vaaet_ops.read_pipeline_run_audit_state(requested.run_id) AS state
 """
 
 
@@ -219,14 +219,39 @@ def read_pipeline_run_audit_state(
 ) -> PipelineRunAuditState:
     """Lee la corrida y su comprobante mediante una operación controlada."""
 
-    row = (
-        connection.execute(
-            text(_READ_AUDIT_STATE_SQL),
-            {"pipeline_run_id": str(UUID(str(pipeline_run_id)))},
-        )
-        .mappings()
-        .one()
-    )
+    identifier = UUID(str(pipeline_run_id))
+    return read_pipeline_run_audit_states(connection, [identifier])[identifier]
+
+
+def read_pipeline_run_audit_states(
+    connection: Connection, run_ids: Sequence[UUID | str]
+) -> dict[UUID, PipelineRunAuditState]:
+    """Lee estados autorizados en lotes acotados y los relaciona por UUID."""
+
+    try:
+        unique = list(dict.fromkeys(UUID(str(value)) for value in run_ids))
+    except (ValueError, TypeError, AttributeError):
+        raise PersistenceConflictError("Pipeline audit run identity is invalid.") from None
+    states: dict[UUID, PipelineRunAuditState] = {}
+    for start in range(0, len(unique), 500):
+        batch = unique[start : start + 500]
+        rows = connection.execute(
+            text(_READ_AUDIT_STATES_SQL), {"run_ids": [str(value) for value in batch]}
+        ).mappings()
+        for row in rows:
+            requested = UUID(str(row["requested_run_id"]))
+            if requested not in batch or requested in states:
+                raise PersistenceConflictError("Pipeline audit query returned contradictory identities.")
+            state = _audit_state_from_row(row)
+            if state.pipeline_run_id != requested:
+                raise PersistenceConflictError("Pipeline audit query returned a different run.")
+            states[requested] = state
+        if any(value not in states for value in batch):
+            raise PersistenceConflictError("Pipeline audit state is missing or inaccessible.")
+    return states
+
+
+def _audit_state_from_row(row: Mapping[Any, Any]) -> PipelineRunAuditState:
     receipt = None
     if row.get("content_fingerprint") is not None:
         receipt = _receipt_from_row(row)

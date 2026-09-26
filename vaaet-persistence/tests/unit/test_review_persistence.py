@@ -74,9 +74,11 @@ class _Connection:
                 }
             )
         if "read_pipeline_run_audit_state" in str(statement):
+            requested_run_id = payload["run_ids"][0]
             return _Result(
                 {
-                    "pipeline_run_id": payload["pipeline_run_id"],
+                    "requested_run_id": requested_run_id,
+                    "pipeline_run_id": requested_run_id,
                     "workflow": "review",
                     "application_name": "test-review",
                     "application_version": "1.0.0",
@@ -103,6 +105,16 @@ class _Connection:
                     "receipt_database_user": "reviewer",
                 }
             )
+        if "AS operational_feature_id" in str(statement):
+            return _Result({
+                "prediction_id": payload["prediction_id"],
+                "pipeline_run_id": str(uuid4()),
+                "clip_id": "clip-a",
+                "record_time": datetime(2026, 9, 26, tzinfo=timezone.utc),
+                "continuity_id": "continuity-a",
+                "model_revision": "a" * 64,
+                "operational_feature_id": 10,
+            })
         if "SELECT id, prediction_id" in str(statement):
             return _Result(self.validations.get(str(payload["id"])))
         self.payloads.append(payload)
@@ -121,6 +133,10 @@ class _Mappings:
 
     def one(self) -> dict[str, object]:
         return self.payload
+
+    def __iter__(self):
+        if self.payload is not None:
+            yield self.payload
 
 
 class _Result:
@@ -268,6 +284,8 @@ def test_retry_without_run_returns_original_lineage_without_creating_another_run
     assert recovered.pipeline_run_id == original_run
     assert recovered.audit_complete
     assert recovered.receipt is not None
+    assert recovered.prediction_context is not None
+    assert recovered.prediction_context.clip_id == "clip-a"
 
 
 def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:

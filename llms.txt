@@ -5,8 +5,8 @@ el cambio afecta serving con YOLO, ADR-0022. Los ADRs, contratos y reglas de
 seguridad prevalecen sobre este resumen.
 
 Monorepo único: `vaaet-core/` (distribución `vaaet-core==0.2.2`, import
-`vaaet`), `vaaet-persistence/` (distribución `vaaet-persistence==0.3.1`, import
-`vaaet_persistence`), `vaaet-ml/` (distribución `vaaet-ml==4.9.1`,
+`vaaet`), `vaaet-persistence/` (distribución `vaaet-persistence==0.3.2`, import
+`vaaet_persistence`), `vaaet-ml/` (distribución `vaaet-ml==4.9.2`,
 import `vaaet_ml`), `vaaet-app/` (reservado), `docs/`, `.dvc/` y `.github/`. No existe paquete
 instalable en la raíz. Instalar core, persistencia y luego ML; DVC permanece en la raíz y
 versiona `vaaet-ml/artifacts/traffic-state/`. El remoto lógico único es
@@ -54,6 +54,8 @@ comprobantes transaccionales y bloquea auditorías HITL pendientes hasta una
 recuperación verificable.
 ADR-0034 exige procedencia y comprobante verificables antes de exportar o
 entrenar con una revisión humana; los paquetes ambiguos quedan para inspección.
+ADR-0035 fija la recuperación a la sesión de origen y utiliza CSV tipado y
+fingerprints que distinguen texto vacío de nulos en los paquetes nuevos.
 
 Invariantes: las 19 `FEATURE_COLS` contractuales mantienen orden exacto; el MLP aprende
 `Normal`, `Reduced` y `Congested`; `Accident` sólo se publica tras validación

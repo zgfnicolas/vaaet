@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaaet-persistence"
-version = "0.3.1"
+version = "0.3.2"
 description = "Shared PostgreSQL persistence for VAAET workflows and services"
 readme = "README.md"
 license = "AGPL-3.0-only"

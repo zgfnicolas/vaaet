@@ -142,6 +142,9 @@ antes de deserializar un bundle.
   [ADR-0033](docs/architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md).
 - La admisión supervisada de decisiones humanas requiere procedencia de auditoría
   verificable según [ADR-0034](docs/architecture/decisions/0034-uniform-review-audit-evidence.md).
+- La recuperación de revisiones queda ligada a la sesión original y los nuevos
+  ZIP preservan tipos y nulos según
+  [ADR-0035](docs/architecture/decisions/0035-review-recovery-and-lossless-packages.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

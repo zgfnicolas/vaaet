@@ -43,13 +43,15 @@ from vaaet_persistence.settings import DatabaseSettings
 logger = get_logger(__name__)
 
 REVIEW_QUEUE_QUERY = """
-SELECT prediction_id, pipeline_run_id, clip_id, continuity_id, record_time, traffic_state,
+SELECT q.prediction_id, q.pipeline_run_id, q.clip_id, q.continuity_id, q.record_time, q.traffic_state,
        state_label, confidence, model_version, model_revision, probability_margin,
        decision_abstained, measurement_reliable, accident_rule_triggered,
        accident_alert_started, accident_evidence_score, latest_validation_id,
        current_validated_state, current_reviewer_id, current_reviewed_at,
-       validation_conflict
-FROM vaaet_feedback.review_queue
+       validation_conflict,
+       (SELECT c.telemetry_id FROM public.traffic_classifications c
+        WHERE c.id = q.prediction_id) AS operational_feature_id
+FROM vaaet_feedback.review_queue q
 WHERE (:pipeline_run_id IS NULL OR pipeline_run_id = CAST(:pipeline_run_id AS UUID))
   AND (
     :after_record_time IS NULL OR
@@ -86,9 +88,30 @@ FROM vaaet_feedback.human_validations
 WHERE id = CAST(:id AS UUID)
 """
 
+SELECT_PREDICTION_CONTEXT_QUERY = """
+SELECT q.prediction_id, q.pipeline_run_id, q.clip_id, q.continuity_id,
+       q.record_time, q.model_revision, c.telemetry_id AS operational_feature_id
+FROM vaaet_feedback.review_queue q
+JOIN public.traffic_classifications c ON c.id = q.prediction_id
+WHERE q.prediction_id = :prediction_id
+"""
+
 LOCK_VALIDATION_ID_QUERY = """
 SELECT pg_advisory_xact_lock(hashtextextended(CAST(:id AS TEXT), 0))
 """
+
+
+@dataclass(frozen=True)
+class PersistedPredictionContext:
+    """Identifica la observación PostgreSQL de una decisión recuperada."""
+
+    prediction_id: int
+    pipeline_run_id: UUID
+    clip_id: str
+    record_time: datetime
+    continuity_id: str
+    model_revision: str
+    operational_feature_id: int
 
 
 @dataclass(frozen=True)
@@ -100,6 +123,7 @@ class PersistedHumanValidation:
     audit_complete: bool = True
     audit_error_category: str | None = None
     receipt: PersistenceReceipt | None = None
+    prediction_context: PersistedPredictionContext | None = None
 
     @property
     def validation_id(self) -> UUID:
@@ -234,6 +258,9 @@ def load_human_validation_record(
             raise PersistenceConflictError("The human validation does not exist.")
         run_id = UUID(str(existing["pipeline_run_id"]))
         state = _load_audit_state(active_engine, run_id)
+        prediction_context = _load_prediction_context(
+            active_engine, int(existing["prediction_id"])
+        )
         return PersistedHumanValidation(
             decision=_stored_decision(existing),
             pipeline_run_id=run_id,
@@ -242,6 +269,7 @@ def load_human_validation_record(
                 None if state.audit_complete else "PipelineAuditIncomplete"
             ),
             receipt=state.receipt,
+            prediction_context=prediction_context,
         )
     finally:
         if owns_engine:
@@ -321,7 +349,7 @@ def reconcile_human_validation(  # noqa: C901 - protege verificación y recursos
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.REVIEW,
-                application_version="0.3.1",
+                application_version="0.3.2",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )
@@ -534,6 +562,44 @@ def _load_existing_validation(
         ) from None
 
 
+def _load_prediction_context(engine: Engine, prediction_id: int) -> PersistedPredictionContext:
+    """Lee la relación predicción-feature con los permisos vigentes del reviewer."""
+
+    try:
+        with engine.begin() as connection:
+            require_database_revision(connection)
+            row = (
+                connection.execute(
+                    text(SELECT_PREDICTION_CONTEXT_QUERY),
+                    {"prediction_id": prediction_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+    except PersistenceError:
+        raise
+    except Exception as exc:
+        raise DatabaseOperationError(
+            "PostgreSQL prediction context lookup failed.",
+            operation="load-review-prediction-context",
+            sqlstate=safe_sqlstate(exc),
+        ) from None
+    if row is None:
+        raise PersistenceConflictError("The reviewed prediction context is unavailable.")
+    timestamp = pd.Timestamp(row["record_time"])
+    if timestamp.tzinfo is None:
+        raise PersistenceConflictError("The reviewed prediction timestamp is invalid.")
+    return PersistedPredictionContext(
+        prediction_id=int(row["prediction_id"]),
+        pipeline_run_id=UUID(str(row["pipeline_run_id"])),
+        clip_id=str(row["clip_id"]),
+        record_time=timestamp.tz_convert("UTC").to_pydatetime(),
+        continuity_id=str(row["continuity_id"]),
+        model_revision=str(row["model_revision"]),
+        operational_feature_id=int(row["operational_feature_id"]),
+    )
+
+
 def _load_audit_state(engine: Engine, run_id: UUID):
     """Consulta la conclusión autoritativa sin inferirla desde la validación."""
 
@@ -602,6 +668,7 @@ def _assert_same_validation(existing: Mapping[Any, Any], payload: Mapping[str, o
 __all__ = [
     "DEFAULT_REVIEW_PAGE_SIZE",
     "PersistedHumanValidation",
+    "PersistedPredictionContext",
     "load_review_queue",
     "load_human_validation_record",
     "persist_human_validation",

@@ -1,4 +1,4 @@
-# Linaje de datos — VAAET ML 4.9.1
+# Linaje de datos — VAAET ML 4.9.2
 
 ## Flujo operacional
 
@@ -119,9 +119,10 @@ La semilla procesada vive bajo `data/seed-bootstrap/snapshots/` en Drive y
 Toda mutación del catálogo exige un publicador local activo que protege la
 secuencia lectura--validación--reemplazo--verificación. Esa exclusión no coordina
 hosts o runtimes Colab distintos; operacionalmente se designa uno solo.
-Los paquetes nuevos declaran `sha256-contractual-frames-v2` y sellan también la
-fecha humana `reviewed_at`; el lector conserva el algoritmo histórico sólo para
-verificar paquetes anteriores sin reescribirlos.
+Los paquetes nuevos declaran `sha256-contractual-frames-v3`, CSV tipado y
+posiciones de nulos; sellan también la fecha humana `reviewed_at`. El lector
+conserva los algoritmos históricos para verificar paquetes anteriores sin
+reescribirlos. Los textos históricos ambiguos quedan sólo para inspección.
 Antes de exportar el bundle, entrenamiento escribe `vaaet-training-input-lock-v1`
 con el snapshot semilla, revisión exacta del catálogo, fingerprints de cada ZIP y
 holdout utilizado. El lock aporta linaje reproducible; no contiene pesos ni

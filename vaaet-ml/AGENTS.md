@@ -5,7 +5,7 @@
 | Campo | Detalle |
 |---|---|
 | Proyecto | VAAET ML — Video Advanced Analysis of Traffic |
-| Versión | 4.9.1 |
+| Versión | 4.9.2 |
 | Runtime objetivo | Python 3.10–3.13; Google Colab |
 | Responsable | Facundo Nicolás González |
 | Última revisión | 2026-09-16 |
@@ -40,6 +40,7 @@ publicación coordinada del catálogo y la recuperación portable, ADR-0032
 gobierna el orden de consolidación y los resultados con auditoría incompleta, y
 ADR-0033 bloquea validaciones pendientes hasta verificar su comprobante.
 ADR-0034 exige la misma evidencia al sellar, publicar y consumir paquetes HITL.
+ADR-0035 vincula la recuperación a la sesión original y exige CSV tipado sin pérdida.
 
 ## Gobernanza
 

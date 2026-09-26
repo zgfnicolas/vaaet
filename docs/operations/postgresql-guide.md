@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.3.1
+# Operación PostgreSQL compartida — VAAET Persistence 0.3.2
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -217,6 +217,13 @@ y entrenamiento con corrida terminada y comprobante verificable. Los ZIP
 históricos sin procedencia inequívoca se pueden inspeccionar, pero no usar como
 targets; sus checksums prueban integridad del archivo, no autenticidad del
 productor. Consultá [ADR-0034](../architecture/decisions/0034-uniform-review-audit-evidence.md).
+
+La recuperación de una decisión lee también el contexto de su predicción y
+comprueba la corrida y el clip originales antes de reconciliar. La lectura
+supervisada verifica auditorías en lotes de hasta 500 UUID dentro de la misma
+fotografía `REPEATABLE READ`: 1.200 corridas implican tres sentencias cliente,
+no 1.200, aunque la función autorizada sigue verificando cada corrida.
+Consultá [ADR-0035](../architecture/decisions/0035-review-recovery-and-lossless-packages.md).
 
 ## Backup y recuperación
 

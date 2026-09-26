@@ -19,10 +19,9 @@ from vaaet.logging import get_logger
 from vaaet.settings import MODEL_STATE_LABELS
 
 from vaaet_ml.data.artifact_serialization import (
-    frames_fingerprint,
     is_sha256,
-    legacy_frames_fingerprint,
     read_package_manifest,
+    review_frames_fingerprint,
     sha256_file,
     stable_uuid,
     utc_now,
@@ -36,15 +35,21 @@ from vaaet_ml.data.hitl_catalog import (
     HitlCatalogUnavailableError,
     HitlReviewCatalog,
 )
-from vaaet_ml.data.package_codec import create_dataset_package, load_dataset_package
+from vaaet_ml.data.package_codec import (
+    create_dataset_package,
+    load_dataset_package,
+    require_unambiguous_supervised_csv,
+)
 from vaaet_ml.data.review_audit import (
     build_review_audit_manifest,
     validate_review_audit,
     validate_review_audit_manifest,
 )
 from vaaet_ml.data.review_frames import normalize_review_frames
+from vaaet_ml.data.review_orchestration import ManagedReviewSession
 
-HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v2"
+HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v3"
+PREVIOUS_HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v2"
 LEGACY_HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v1"
 logger = get_logger(__name__)
 
@@ -120,9 +125,14 @@ def finalize_review_session(
     canonical_root: str | Path | None = None,
     publisher: HitlCatalogPublisher | None = None,
     pending_validations: Sequence[object] = (),
+    session: ManagedReviewSession | None = None,
 ) -> FinalizedReviewSession:
     """Sella una sesión inmutable y sólo la publica con autoridad explícita."""
 
+    if session is not None:
+        session.require_finalizable()
+        if session.export_frame is not classified or session.validations is not validations:
+            raise ValueError("Finalization does not use the original managed review session.")
     if pending_validations:
         raise RuntimeError(
             "The review session contains PostgreSQL decisions with pending audit; "
@@ -202,6 +212,7 @@ def sync_finalized_review_session(
 
     package = Path(local_path)
     frames = load_dataset_package(package)
+    require_unambiguous_supervised_csv(package)
     frames["validations"] = validate_review_audit(
         frames.get("validations", pd.DataFrame()),
         predictions=frames.get("predictions", pd.DataFrame()),
@@ -395,17 +406,28 @@ def _write_review_package(
 ) -> None:
     """Escribe y vuelve a validar el único formato canónico de sesión HITL."""
 
-    create_dataset_package(
-        destination,
-        features=frames["features"],
-        predictions=frames["predictions"],
-        validations=frames["validations"],
-        provenance={"origin": "inference-human-review-session"},
-        package_metadata=metadata,
-        overwrite=False,
-        include_empty_components=("validations",),
-    )
-    _verify_review_package(destination)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        create_dataset_package(
+            temporary,
+            features=frames["features"],
+            predictions=frames["predictions"],
+            validations=frames["validations"],
+            provenance={"origin": "inference-human-review-session"},
+            package_metadata=metadata,
+            overwrite=False,
+            include_empty_components=("validations",),
+        )
+        _verify_review_package(temporary)
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            _verify_review_package(destination)
+            existing = read_package_manifest(destination).get("package_metadata", {})
+            if not isinstance(existing, Mapping) or existing.get("fingerprint") != metadata["fingerprint"]:
+                raise ValueError("Review package destination contains different immutable content.") from None
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _verify_review_package(path: Path) -> None:
@@ -420,6 +442,9 @@ def _verify_review_package(path: Path) -> None:
         predictions=frames.get("predictions", pd.DataFrame()),
     )
     validate_review_audit_manifest(validations, cast(Mapping[str, object], metadata))
+    algorithm = str(metadata.get("fingerprint_algorithm", LEGACY_HITL_FINGERPRINT_ALGORITHM))
+    if _review_fingerprint(frames, algorithm) != metadata.get("fingerprint"):
+        raise ValueError("Review package content contradicts its fingerprint.")
 
 
 def _sync_to_catalog(
@@ -591,11 +616,7 @@ def _human_support(validations: pd.DataFrame) -> dict[str, int]:
 
 
 def _review_fingerprint(frames: Mapping[str, pd.DataFrame], algorithm: str) -> str:
-    if algorithm == HITL_FINGERPRINT_ALGORITHM:
-        return frames_fingerprint(frames)
-    if algorithm == LEGACY_HITL_FINGERPRINT_ALGORITHM:
-        return legacy_frames_fingerprint(frames)
-    raise ValueError(f"Unsupported HITL fingerprint algorithm: {algorithm}")
+    return review_frames_fingerprint(frames, algorithm)
 
 
 __all__ = [

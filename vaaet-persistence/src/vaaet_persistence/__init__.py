@@ -55,10 +55,12 @@ from vaaet_persistence.receipts import (
     PersistenceReceipt,
     PipelineRunAuditState,
     calculate_persistence_fingerprint,
+    read_pipeline_run_audit_states,
 )
 from vaaet_persistence.review_domain import HumanValidation, InferenceReviewSession
 from vaaet_persistence.review_persistence import (
     PersistedHumanValidation,
+    PersistedPredictionContext,
     load_human_validation_record,
     load_review_queue,
     persist_human_validation,
@@ -79,7 +81,7 @@ from vaaet_persistence.settings import (
     load_reviewer_id,
 )
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 __all__ = [
     "DATABASE_SCHEMAS",
@@ -99,11 +101,13 @@ __all__ = [
     "InferenceReviewSession",
     "PersistResult",
     "PersistedHumanValidation",
+    "PersistedPredictionContext",
     "PersistenceReceipt",
     "PersistenceConflictError",
     "PersistenceValidationError",
     "PipelineRunHandle",
     "PipelineRunAuditState",
+    "read_pipeline_run_audit_states",
     "PipelineRunMetadata",
     "prepare_persistence_run_metadata",
     "PipelineRunOutcome",

@@ -1002,7 +1002,7 @@ def reconcile_raw_telemetry(
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.COLLECTION,
-                application_version="0.3.1",
+                application_version="0.3.2",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )
@@ -1284,7 +1284,7 @@ def reconcile_classified_telemetry(
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.INFERENCE,
-                application_version="0.3.1",
+                application_version="0.3.2",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )

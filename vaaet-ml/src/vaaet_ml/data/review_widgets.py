@@ -13,6 +13,7 @@ from vaaet.settings import STATE_LABELS
 
 from vaaet_ml.data.review_domain import HumanValidation
 from vaaet_ml.data.review_orchestration import (
+    ManagedReviewSession,
     ReviewSubmissionController,
     ReviewSubmissionResult,
     ReviewSubmissionStatus,
@@ -24,6 +25,7 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
     *,
     reviewer_id: str,
     on_submit: Callable[[HumanValidation], ReviewSubmissionResult | None],
+    session: ManagedReviewSession | None = None,
 ) -> object | None:
     """Construye UI diferida; ``print`` queda limitado a la presentación notebook."""
 
@@ -44,7 +46,7 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
     submit = widgets.Button(description="Save validation", button_style="success")
     skip = widgets.Button(description="Skip")
     output = widgets.Output()
-    controller = ReviewSubmissionController()
+    controller = ReviewSubmissionController(session=session)
 
     def render() -> None:
         row = queue.iloc[position["value"]]

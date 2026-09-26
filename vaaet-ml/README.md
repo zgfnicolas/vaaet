@@ -1,4 +1,4 @@
-# VAAET ML 4.9.1
+# VAAET ML 4.9.2
 
 PostgreSQL se organiza en `vaaet_raw`, `vaaet_ml`, `vaaet_feedback` y
 `vaaet_ops`. La implementación y Alembic pertenecen a `vaaet-persistence`; ML

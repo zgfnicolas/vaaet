@@ -15,6 +15,20 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.9.2] - 2026-09-26
+
+### Corregido
+
+- Recuperación de decisiones PostgreSQL ligada al intento, corrida, clip,
+  minuto, continuidad, revisión del modelo y frame de features originales.
+- Los envíos inciertos bloquean la finalización desde el estado compartido de
+  sesión; cambiar de clip invalida los callbacks anteriores.
+- CSV tipado y fingerprint HITL v3 conservan literalmente textos, nulos y
+  `float64`; los ZIP históricos ambiguos quedan sólo para inspección.
+- El ZIP local se valida antes de ocupar el destino y las auditorías de 1.200
+  corridas se consultan en tres lotes de hasta 500.
+- VAAET Persistence 0.3.2 y [ADR-0035](../docs/architecture/decisions/0035-review-recovery-and-lossless-packages.md).
+
 ## [4.9.1] - 2026-09-24
 
 ### Corregido

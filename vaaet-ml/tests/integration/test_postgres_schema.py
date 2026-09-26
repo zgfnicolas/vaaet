@@ -20,6 +20,7 @@ from vaaet.features.engineering import engineer_features
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 from vaaet_persistence import (
     DatabaseProfile,
+    load_human_validation_record,
     load_review_queue,
     persist_human_validation_record,
     persist_raw_telemetry,
@@ -508,7 +509,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         raw,
         settings=collection,
         application_name="vaaet-ml-integration",
-        application_version="4.9.1",
+        application_version="4.9.2",
     ) == 2
     classified = engineer_features(raw)
     assert len(classified) == 1
@@ -528,7 +529,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         model_version="mlp-v3.0-audit-integration",
         model_revision="f" * 64,
         application_name="vaaet-ml-integration",
-        application_version="4.9.1",
+        application_version="4.9.2",
     )
     classified["pipeline_run_id"] = persisted.pipeline_run_id
     queue = load_review_queue(
@@ -547,10 +548,18 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         decision,
         settings=reviewer,
         application_name="vaaet-ml-integration",
-        application_version="4.9.1",
+        application_version="4.9.2",
     )
     assert not pending.audit_complete
     assert pending.receipt is not None
+    loaded = load_human_validation_record(decision.validation_id, settings=reviewer)
+    assert loaded.prediction_context is not None
+    assert loaded.prediction_context.clip_id == clip_id
+    assert loaded.prediction_context.pipeline_run_id == persisted.pipeline_run_id
+    assert loaded.prediction_context.model_revision == "f" * 64
+    assert loaded.prediction_context.operational_feature_id == int(
+        queue.loc[queue["prediction_id"].eq(prediction_id), "operational_feature_id"].item()
+    )
     with pytest.raises(ValueError, match="incomplete"):
         seal_review_package(
             tmp_path / "blocked.zip",
@@ -567,7 +576,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
             pipeline_run_id=persisted.pipeline_run_id,
             model_version="mlp-v3.0-audit-integration",
             git_commit="integration",
-            vaaet_version="4.9.1",
+            vaaet_version="4.9.2",
         )
     assert not (tmp_path / "blocked.zip").exists()
     monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", original_finish)
@@ -593,7 +602,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         pipeline_run_id=persisted.pipeline_run_id,
         model_version="mlp-v3.0-audit-integration",
         git_commit="integration",
-        vaaet_version="4.9.1",
+        vaaet_version="4.9.2",
     )
     feedback_sources = (
         (DatasetPackageSource(package),)

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import uuid
 from collections.abc import Mapping, Sequence
@@ -186,6 +187,53 @@ def frames_fingerprint(frames: Mapping[str, pd.DataFrame]) -> str:
     """Calcula un fingerprint sensible a nombres, filas y contratos de tablas."""
 
     return _frames_fingerprint(frames, ignore_validation_reviewed_at=False)
+
+
+def typed_frames_fingerprint(frames: Mapping[str, pd.DataFrame]) -> str:
+    """Distingue nulos y textos vacíos en nuevos paquetes HITL."""
+
+    digest = hashlib.sha256()
+    for name in sorted(frames):
+        frame = canonical_frame(frames[name])
+        rows = [
+            [_typed_fingerprint_value(value) for value in row]
+            for row in frame.itertuples(index=False, name=None)
+        ]
+        payload = {"name": name, "columns": list(frame.columns), "rows": rows}
+        digest.update(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+    return digest.hexdigest()
+
+
+def review_frames_fingerprint(frames: Mapping[str, pd.DataFrame], algorithm: str) -> str:
+    """Verifica identidades HITL nuevas e históricas sin reinterpretar el formato."""
+
+    if algorithm == "sha256-contractual-frames-v3":
+        return typed_frames_fingerprint(frames)
+    if algorithm == "sha256-contractual-frames-v2":
+        return frames_fingerprint(frames)
+    if algorithm == "sha256-contractual-frames-v1":
+        return legacy_frames_fingerprint(frames)
+    raise ValueError("Unsupported HITL fingerprint algorithm.")
+
+
+def _typed_fingerprint_value(value: object) -> list[str]:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return ["null", ""]
+    if isinstance(value, float) and math.isnan(value):
+        return ["null", ""]
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return ["timestamp", pd.Timestamp(value).isoformat()]
+    if isinstance(value, bool):
+        return ["boolean", "true" if value else "false"]
+    if isinstance(value, str):
+        return ["text", value]
+    if isinstance(value, Integral):
+        return ["integer", str(value)]
+    if isinstance(value, (Real, Decimal)):
+        return ["float64", repr(float(value))]
+    return [type(value).__name__, str(value)]
 
 
 def legacy_frames_fingerprint(frames: Mapping[str, pd.DataFrame]) -> str:

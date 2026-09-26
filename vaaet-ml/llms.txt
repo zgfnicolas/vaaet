@@ -1,9 +1,9 @@
-# VAAET ML 4.9.1 — contexto de laboratorio
+# VAAET ML 4.9.2 — contexto de laboratorio
 
 Leé primero `../AGENTS.md`, `../llms.txt`, `AGENTS.md`, ADR-0021 y los ADRs de
-datos/HITL aplicables. Este componente es `vaaet-ml==4.9.1`, con import
+datos/HITL aplicables. Este componente es `vaaet-ml==4.9.2`, con import
 `vaaet_ml`; depende de `vaaet-core==0.2.2` y
-`vaaet-persistence==0.3.1`. No existe un paquete instalable en la raíz.
+`vaaet-persistence==0.3.2`. No existe un paquete instalable en la raíz.
 
 `src/vaaet_ml/` contiene rutas, adaptadores Colab, datasets, entrenamiento y
 evaluación. `../vaaet-persistence/src/vaaet_persistence/` contiene la única
@@ -44,8 +44,9 @@ Una validación PostgreSQL con auditoría pendiente conserva su UUID y fecha,
 pero no se exporta ni se convierte en target. Se recupera explícitamente contra
 su comprobante transaccional sin repetir la escritura.
 Los ZIP HITL nuevos sellan `reviewed_at` con
-`sha256-contractual-frames-v2`; los anteriores se verifican con su algoritmo
-legado, sin cambiar sus bytes ni fingerprints.
+`sha256-contractual-frames-v3`, CSV tipado y nulos explícitos. Los anteriores
+se verifican con su algoritmo legado; si su texto es ambiguo, sólo pueden
+inspeccionarse. La recuperación PostgreSQL exige la sesión de origen vigente.
 El bundle DVC v3 contiene Keras, scaler, mapping y manifiesto; validar el
 manifiesto antes de deserializar.
 

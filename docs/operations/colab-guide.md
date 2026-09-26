@@ -154,10 +154,17 @@ reserva para evaluar el detector.
 
 Si una validación queda con auditoría PostgreSQL pendiente, no cierres la sesión
 ni crees otra decisión. Repetí `Save validation` para reconciliar el mismo UUID.
-Si el runtime se reinició, volvé a configurar el perfil `review` y ejecutá
-`recover_pending_validation("<validation-id>")`; la función consulta la decisión
-original y verifica su comprobante sin repetir la escritura. El entrenamiento
-rechaza una fuente con auditorías pendientes relevantes.
+Si el resultado es desconocido por timeout, consultá el mismo UUID antes de un
+reintento explícito. `recover_pending_validation("<validation-id>")` sólo sirve
+para la sesión original aún abierta: si cambiaste de clip o reiniciaste Colab,
+reconstruí expresamente esa sesión y su corrida original desde PostgreSQL; no
+intentes recuperar la decisión en el clip nuevo. El notebook no hace esa
+reconstrucción automáticamente: necesitás recuperar el frame original de
+features y predicciones con un perfil read-only autorizado y volver a preparar
+la revisión con el UUID de inferencia original. El entrenamiento rechaza una
+fuente con auditorías pendientes relevantes. Los paquetes nuevos conservan los
+textos y nulos mediante CSV tipado; un paquete histórico ambiguo sólo se
+inspecciona hasta verificarlo y reexportarlo explícitamente.
 
 En entrenamiento, seleccioná explícitamente `TrainingMode.SEED_BOOTSTRAP` o
 `TrainingMode.HITL_RETRAINING`. El primer modo declara `RAW_SOURCES`, calcula las

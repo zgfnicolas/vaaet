@@ -56,7 +56,12 @@ def prepare_inference_review(
         is_current=is_current,
     )
     if enabled and reviewer_id is not None and prepared.session.export_frame is not None:
-        build_review_widget(prepared.queue, reviewer_id=reviewer_id, on_submit=prepared.submit)
+        build_review_widget(
+            prepared.queue,
+            reviewer_id=reviewer_id,
+            on_submit=prepared.submit,
+            session=prepared.session,
+        )
     return prepared.session
 
 

@@ -44,7 +44,7 @@ _BOOLEAN_COLUMNS = {
     "accident_alert_started",
 }
 CSV_CODEC = "typed-csv-v1"
-MINIMUM_TYPED_READER_VERSION = "4.9.2"
+MINIMUM_TYPED_READER_VERSION = "4.9.3"
 
 
 def _sha256(path: Path) -> str:
@@ -187,7 +187,7 @@ def _read_dataset_manifest(root: Path, accepted_contracts: tuple[str, ...]) -> d
         parts = str(minimum_reader).split(".")
         if len(parts) != 3 or not all(part.isdecimal() for part in parts):
             raise DatasetArtifactValidationError("La versión mínima del lector es inválida.")
-        if tuple(map(int, parts)) > (4, 9, 2):
+        if tuple(map(int, parts)) > (4, 9, 3):
             raise DatasetArtifactValidationError("El paquete requiere un lector más reciente.")
     return manifest
 
@@ -323,8 +323,10 @@ def _read_typed_csv(  # noqa: C901 - valida el manifiesto y cada columna contrac
             if kind == "text":
                 frame[column] = values
             elif kind == "integer":
-                frame[column] = values.map(
-                    lambda value: None if value is None else int(cast(str, value))
+                frame[column] = pd.Series(
+                    [None if value is None else int(cast(str, value)) for value in values],
+                    index=frame.index,
+                    dtype=object,
                 )
             elif kind == "float64":
                 numeric = values.map(

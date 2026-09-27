@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.3.2
+# Operación PostgreSQL compartida — VAAET Persistence 0.3.3
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -224,6 +224,12 @@ supervisada verifica auditorías en lotes de hasta 500 UUID dentro de la misma
 fotografía `REPEATABLE READ`: 1.200 corridas implican tres sentencias cliente,
 no 1.200, aunque la función autorizada sigue verificando cada corrida.
 Consultá [ADR-0035](../architecture/decisions/0035-review-recovery-and-lossless-packages.md).
+
+Los reintentos de una validación comparan contenido tipado. `None`, `"None"`,
+`""`, `"NULL"` y `"NA"` no son intercambiables; reutilizar el UUID con una
+nota distinta produce conflicto, también tras una reconciliación. La sesión
+HITL detecta además alteraciones del frame exportable antes de recuperar o
+finalizar, según [ADR-0036](../architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md).
 
 ## Backup y recuperación
 

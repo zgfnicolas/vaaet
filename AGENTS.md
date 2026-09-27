@@ -145,6 +145,9 @@ antes de deserializar un bundle.
 - La recuperación de revisiones queda ligada a la sesión original y los nuevos
   ZIP preservan tipos y nulos según
   [ADR-0035](docs/architecture/decisions/0035-review-recovery-and-lossless-packages.md).
+- La sesión de revisión invalida cualquier alteración del frame exportable,
+  sincroniza recuperación y formulario, y preserva enteros opcionales según
+  [ADR-0036](docs/architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md).
 - Videos, datasets privados, validaciones sensibles, credenciales, DSN,
   certificados, calibraciones reales y binarios ML no se versionan con Git ni
   se exponen en logs o ejemplos.

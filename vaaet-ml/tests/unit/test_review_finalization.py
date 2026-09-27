@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import uuid
 import zipfile
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,7 +48,9 @@ from vaaet_ml.data.review_orchestration import (
     ReviewSubmissionController,
     ReviewSubmissionResult,
     ReviewSubmissionStatus,
+    prepare_review_session,
 )
+from vaaet_ml.exceptions import ReviewSessionIntegrityError
 from vaaet_ml.settings import FEATURE_COLS
 
 
@@ -375,11 +377,11 @@ def test_review_zip_preserves_text_and_nullable_notes(tmp_path: Path, note: str 
         pipeline_run_id=str(uuid.uuid4()),
         model_version="mlp-v3.0",
         git_commit="test",
-        vaaet_version="4.9.2",
+        vaaet_version="4.9.3",
     )
     loaded = load_dataset_package(package)["validations"].iloc[0]
     manifest = read_package_manifest(package)
-    assert manifest["minimum_reader_version"] == "4.9.2"
+    assert manifest["minimum_reader_version"] == "4.9.3"
     assert manifest["files"]["validations"]["csv_codec"] == "typed-csv-v1"
     assert loaded["reviewer_id"] == "007"
     assert loaded["notes"] == note
@@ -403,7 +405,7 @@ def test_failed_review_verification_never_publishes_local_destination(
             pipeline_run_id=str(uuid.uuid4()),
             model_version="mlp-v3.0",
             git_commit="test",
-            vaaet_version="4.9.2",
+            vaaet_version="4.9.3",
         )
     assert not destination.exists()
 
@@ -412,6 +414,183 @@ def test_typed_fingerprint_distinguishes_empty_text_from_null() -> None:
     empty = {"validations": pd.DataFrame({"notes": [""]})}
     missing = {"validations": pd.DataFrame({"notes": [None]})}
     assert typed_frames_fingerprint(empty) != typed_frames_fingerprint(missing)
+
+
+def test_typed_zip_preserves_nullable_and_large_integers(tmp_path: Path) -> None:
+    original = pd.DataFrame({
+        "operational_feature_id": pd.Series([2**53 + 1, None], dtype=object),
+        "signed_bigint": pd.Series([-(2**63), 2**63 - 1], dtype=object),
+        "all_null_integer": pd.Series([pd.NA, pd.NA], dtype="Int64"),
+    })
+    package = tmp_path / "nullable-integers.zip"
+    create_dataset_package(package, features=original)
+
+    restored = load_dataset_package(package)["features"]
+    assert restored["operational_feature_id"].tolist() == [2**53 + 1, None]
+    assert restored["signed_bigint"].tolist() == [-(2**63), 2**63 - 1]
+    assert restored["all_null_integer"].tolist() == [None, None]
+    assert typed_frames_fingerprint({"features": original}) == typed_frames_fingerprint(
+        {"features": restored}
+    )
+
+
+def test_hitl_sealing_preserves_optional_operational_integer_ids(tmp_path: Path) -> None:
+    frame = _classified_frame()
+    frame["operational_feature_id"] = pd.Series([2**53 + 1, None], dtype=object)
+    package = seal_review_package(
+        tmp_path / "nullable-hitl.zip",
+        classified=frame,
+        validations=[HumanValidation(1, 1, "reviewer")],
+        pipeline_run_id=str(uuid.uuid4()),
+        model_version="mlp-v3.0",
+        git_commit="test",
+        vaaet_version="4.9.3",
+    )
+    restored = load_dataset_package(package)["features"]
+    assert restored["operational_feature_id"].tolist() == [2**53 + 1, None]
+
+
+@pytest.mark.parametrize(
+    "column,replacement",
+    [
+        ("clip_id", "other-clip"),
+        ("continuity_id", "other-continuity"),
+        ("record_time", pd.Timestamp("2026-08-10T19:00:00Z")),
+        ("prediction_id", 99),
+        ("model_version", "different-model"),
+        ("model_revision", "b" * 64),
+        ("feature_schema_version", "other-schema"),
+        ("avg_speed", 999.0),
+        ("traffic_state", 2),
+    ],
+)
+def test_managed_session_rejects_mutated_export_before_sealing(
+    tmp_path: Path, column: str, replacement: object
+) -> None:
+    run_id = str(uuid.uuid4())
+    prepared = prepare_review_session(
+        enabled=True,
+        classified=_classified_frame(),
+        inference_pipeline_run_id=run_id,
+        reviewer_id="reviewer",
+        settings=None,
+        mode="all",
+    )
+    session = prepared.session
+    assert session.export_frame is not None
+    decision = HumanValidation(1, 1, "reviewer")
+    assert prepared.submit(decision).confirmed
+    assert len(session.validations) == 1
+    original = session.export_frame.loc[0, column]
+    session.export_frame.loc[0, column] = replacement
+    with pytest.raises(ReviewSessionIntegrityError, match="prepare a new session"):
+        session.require_integrity()
+    session.export_frame.loc[0, column] = original
+    with pytest.raises(ReviewSessionIntegrityError, match="prepare a new session"):
+        finalize_review_session(
+            classified=session.export_frame,
+            validations=session.validations,
+            session=session,
+            pipeline_run_id=run_id,
+            model_version="mlp-v3.0",
+            git_commit="test",
+            vaaet_version="4.9.3",
+            local_root=tmp_path,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_managed_session_accepts_row_reordering_and_same_utc_instant() -> None:
+    prepared = prepare_review_session(
+        enabled=True,
+        classified=_classified_frame(),
+        inference_pipeline_run_id=str(uuid.uuid4()),
+        reviewer_id="reviewer",
+        settings=None,
+        mode="all",
+    )
+    session = prepared.session
+    assert session.export_frame is not None
+    session.export_frame = session.export_frame.iloc[::-1].reset_index(drop=True)
+    session.export_frame.loc[0, "record_time"] = session.export_frame.loc[0, "record_time"].tz_convert(
+        "America/Argentina/Buenos_Aires"
+    )
+    session.require_integrity()
+
+
+def test_managed_session_rejects_new_exportable_column() -> None:
+    prepared = prepare_review_session(
+        enabled=True, classified=_classified_frame(),
+        inference_pipeline_run_id=str(uuid.uuid4()),
+        reviewer_id="reviewer", settings=None, mode="all",
+    )
+    assert prepared.session.export_frame is not None
+    prepared.session.export_frame["unverified_provenance"] = "other-session"
+    with pytest.raises(ReviewSessionIntegrityError, match="prepare a new session"):
+        prepared.session.require_integrity()
+
+
+@pytest.mark.parametrize("field", ["pipeline_run_id", "model_version"])
+def test_managed_finalization_rejects_different_run_or_model(
+    tmp_path: Path, field: str
+) -> None:
+    run_id = str(uuid.uuid4())
+    prepared = prepare_review_session(
+        enabled=True, classified=_classified_frame(),
+        inference_pipeline_run_id=run_id, reviewer_id="reviewer", settings=None,
+        mode="all",
+    )
+    session = prepared.session
+    assert session.export_frame is not None
+    kwargs = {
+        "classified": session.export_frame,
+        "validations": session.validations,
+        "session": session,
+        "pipeline_run_id": run_id,
+        "model_version": "mlp-v3.0",
+        "git_commit": "test",
+        "vaaet_version": "4.9.3",
+        "local_root": tmp_path,
+    }
+    kwargs[field] = str(uuid.uuid4()) if field == "pipeline_run_id" else "different-model"
+    with pytest.raises(ValueError, match="original review session"):
+        finalize_review_session(**kwargs)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_managed_finalization_rejects_unsubmitted_decision(tmp_path: Path) -> None:
+    run_id = str(uuid.uuid4())
+    prepared = prepare_review_session(
+        enabled=True, classified=_classified_frame(),
+        inference_pipeline_run_id=run_id, reviewer_id="reviewer", settings=None,
+        mode="all",
+    )
+    session = prepared.session
+    assert session.export_frame is not None
+    session.validations.append(HumanValidation(1, 1, "reviewer"))
+    with pytest.raises(ReviewSessionIntegrityError, match="review decisions changed"):
+        finalize_review_session(
+            classified=session.export_frame, validations=session.validations,
+            session=session, pipeline_run_id=run_id,
+            model_version="mlp-v3.0", git_commit="test",
+            vaaet_version="4.9.3", local_root=tmp_path,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_managed_finalization_rejects_changed_decision_type() -> None:
+    prepared = prepare_review_session(
+        enabled=True, classified=_classified_frame(),
+        inference_pipeline_run_id=str(uuid.uuid4()),
+        reviewer_id="reviewer", settings=None, mode="all",
+    )
+    decision = HumanValidation(1, 1, "reviewer")
+    assert prepared.submit(decision).confirmed
+    altered = asdict(decision)
+    altered["validated_state"] = 1.0
+    prepared.session.validations[:] = [altered]
+    with pytest.raises(ReviewSessionIntegrityError, match="review decisions changed"):
+        prepared.session.require_finalizable()
 
 
 def test_ambiguous_historical_csv_remains_inspectable_but_not_supervised(
@@ -424,7 +603,7 @@ def test_ambiguous_historical_csv_remains_inspectable_but_not_supervised(
         pipeline_run_id=str(uuid.uuid4()),
         model_version="mlp-v3.0",
         git_commit="test",
-        vaaet_version="4.9.2",
+        vaaet_version="4.9.3",
     )
     historical = tmp_path / "historical.zip"
     with zipfile.ZipFile(current) as source, zipfile.ZipFile(historical, "w") as target:
@@ -463,7 +642,7 @@ def test_unknown_review_submission_blocks_managed_finalization(tmp_path: Path) -
             pipeline_run_id=str(uuid.uuid4()),
             model_version="mlp-v3.0",
             git_commit="test",
-            vaaet_version="4.9.2",
+            vaaet_version="4.9.3",
             local_root=tmp_path,
         )
     assert list(tmp_path.iterdir()) == []
@@ -480,6 +659,25 @@ def test_review_submission_cannot_change_prepared_content() -> None:
                 changed, ReviewSubmissionStatus.CONFIRMED
             )
         )
+    assert decision.validation_id in session.unresolved
+
+
+def test_confirmed_recovery_cannot_resubmit_same_decision() -> None:
+    session = ManagedReviewSession(export_frame=None, validations=[])
+    controller = ReviewSubmissionController(session=session)
+    decision = controller.prepare(lambda: HumanValidation(1, 1, "reviewer"))
+    confirmed = ReviewSubmissionResult(decision, ReviewSubmissionStatus.CONFIRMED)
+    session.record_submission(confirmed)
+    assert controller.status is ReviewSubmissionStatus.CONFIRMED
+    assert controller.submit(lambda _decision: pytest.fail("Confirmed decision must not resend")) == confirmed
+
+
+def test_review_submission_controller_keeps_compatible_constructor() -> None:
+    decision = HumanValidation(1, 1, "reviewer")
+    session = ManagedReviewSession(export_frame=None, validations=[])
+    controller = ReviewSubmissionController(decision, ReviewSubmissionStatus.UNKNOWN, session)
+    assert controller.decision == decision
+    assert controller.status is ReviewSubmissionStatus.UNKNOWN
     assert decision.validation_id in session.unresolved
 
 

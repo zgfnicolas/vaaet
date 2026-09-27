@@ -473,7 +473,7 @@ def test_recovery_rejects_mutated_session_features(
         "vaaet_ml.data.review_orchestration.load_human_validation_record",
         lambda *_args, **_kwargs: pytest.fail("Mutated session must not query a decision"),
     )
-    with pytest.raises(ValueError, match="features contradict"):
+    with pytest.raises(ValueError, match="prepare a new session"):
         recover_pending_review_validation(
             prepared.session, uuid.uuid4(), settings={"host": "unused"}
         )
@@ -562,7 +562,7 @@ def test_recovered_decision_round_trips_through_zip_to_supervised_target(
         pipeline_run_id=str(inference_run),
         model_version="mlp-v3.0",
         git_commit="test",
-        vaaet_version="4.9.2",
+        vaaet_version="4.9.3",
         local_root=tmp_path,
     )
     components, _ = _load_feedback_components(DatasetPackageSource(package.local_path))

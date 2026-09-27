@@ -89,6 +89,13 @@ sesión de la corrida original con sus datos PostgreSQL; nunca se traslada la
 decisión al último clip abierto. Mientras esté pendiente o sea incierta,
 `finalize_current_review()` y la ingestión de entrenamiento quedan bloqueados.
 
+Si se modifica el frame exportable de una sesión ya preparada (clip, instante,
+continuidad, predicción, features o columnas), esa sesión queda invalidada:
+prepará una nueva explícitamente. Volver a poner el valor anterior no la
+reactiva y sus decisiones no pasan automáticamente a otra sesión. Si una
+recuperación confirma una decisión, el formulario avanza solo una vez; no
+pulses nuevamente «Check same decision» ni crees otro UUID.
+
 Los ZIP nuevos usan CSV tipado: `"007"`, `"NA"`, cadena vacía y nulo conservan
 significados distintos. El fingerprint HITL v3 cubre esa distinción. Un ZIP
 histórico ambiguo puede inspeccionarse, pero requiere verificación y

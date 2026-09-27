@@ -166,6 +166,13 @@ fuente con auditorías pendientes relevantes. Los paquetes nuevos conservan los
 textos y nulos mediante CSV tipado; un paquete histórico ambiguo sólo se
 inspecciona hasta verificarlo y reexportarlo explícitamente.
 
+Si alterás `REVIEW_EXPORT_FRAME` luego de preparar la sesión —por ejemplo,
+clip, instante, continuidad, predicción o una feature—, se invalida incluso si
+restaurás el valor. Prepará una sesión nueva; las decisiones anteriores no se
+trasladan solas. Una recuperación confirmada actualiza el formulario y avanza
+una sola vez, sin reenviar esa decisión. Los nuevos ZIP requieren lector ML
+4.9.3 para conservar también enteros opcionales sin pérdida de precisión.
+
 En entrenamiento, seleccioná explícitamente `TrainingMode.SEED_BOOTSTRAP` o
 `TrainingMode.HITL_RETRAINING`. El primer modo declara `RAW_SOURCES`, calcula las
 features una vez y resuelve la semilla mediante `VersionedSeedStore`. La primera

@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from numbers import Integral
 from typing import Any, cast
 from uuid import UUID
 
@@ -349,7 +350,7 @@ def reconcile_human_validation(  # noqa: C901 - protege verificación y recursos
                 engine=active_engine,
                 connection=connection,
                 workflow=PipelineWorkflow.REVIEW,
-                application_version="0.3.2",
+                application_version="0.3.3",
                 operation=expected_receipt.operation,
                 content_fingerprint=expected_receipt.content_fingerprint,
             )
@@ -635,34 +636,53 @@ def _stored_decision(row: Mapping[Any, Any]) -> HumanValidation:
     )
 
 
+def _contractual_validation_value(field: str, value: object) -> object:
+    """Compara cada tipo de decisión sin equiparar nulos con texto literal."""
+
+    if value is None:
+        return None
+    if field in {"prediction_id", "validated_state"}:
+        if type(value) is bool or not isinstance(value, Integral):
+            return (type(value).__name__, value)
+        return int(value)
+    if field == "incident_context_reviewed":
+        return value if type(value) is bool else (type(value).__name__, value)
+    if field in {"supersedes_validation_id", "pipeline_run_id"}:
+        try:
+            return UUID(str(value))
+        except (TypeError, ValueError, AttributeError):
+            return (type(value).__name__, value)
+    return value if isinstance(value, str) else (type(value).__name__, value)
+
+
 def _assert_same_validation(existing: Mapping[Any, Any], payload: Mapping[str, object]) -> None:
     fields = (
-        "prediction_id",
-        "validated_state",
-        "reviewer_id",
-        "notes",
-        "review_source",
-        "incident_context_reviewed",
-        "supersedes_validation_id",
-        "pipeline_run_id",
+        "prediction_id", "validated_state", "reviewer_id", "notes", "review_source",
+        "incident_context_reviewed", "supersedes_validation_id", "pipeline_run_id",
     )
-    different = [field for field in fields if str(existing.get(field)) != str(payload.get(field))]
-    existing_time = pd.Timestamp(existing.get("reviewed_at"))
-    requested_time = pd.Timestamp(payload.get("reviewed_at"))
-    if existing_time.tzinfo is None:
-        existing_time = existing_time.tz_localize("UTC")
-    else:
-        existing_time = existing_time.tz_convert("UTC")
-    if requested_time.tzinfo is None:
-        requested_time = requested_time.tz_localize("UTC")
-    else:
-        requested_time = requested_time.tz_convert("UTC")
-    if existing_time != requested_time:
+    different = [
+        field for field in fields
+        if _contractual_validation_value(field, existing.get(field))
+        != _contractual_validation_value(field, payload.get(field))
+    ]
+    existing_time = _contractual_review_time(existing.get("reviewed_at"))
+    requested_time = _contractual_review_time(payload.get("reviewed_at"))
+    if existing_time is None or requested_time is None or existing_time != requested_time:
         different.append("reviewed_at")
     if different:
         raise PersistenceConflictError(
             f"Immutable human validation idempotency conflict in fields: {different}"
         )
+
+
+def _contractual_review_time(value: object) -> pd.Timestamp | None:
+    if not isinstance(value, (str, datetime, pd.Timestamp)):
+        return None
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return timestamp.tz_localize("UTC") if timestamp.tzinfo is None else timestamp.tz_convert("UTC")
 
 
 __all__ = [

@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from vaaet_persistence.exceptions import DatabaseOperationError
+from vaaet_persistence.exceptions import DatabaseOperationError, PersistenceConflictError
 from vaaet_persistence.review_domain import HumanValidation
 from vaaet_persistence.review_persistence import (
     load_human_validation_record,
@@ -286,6 +286,45 @@ def test_retry_without_run_returns_original_lineage_without_creating_another_run
     assert recovered.receipt is not None
     assert recovered.prediction_context is not None
     assert recovered.prediction_context.clip_id == "clip-a"
+
+
+@pytest.mark.parametrize("original_note,retry_note", [(None, "None"), ("", None), ("NA", "NULL")])
+@pytest.mark.parametrize("operation", ["automatic", "explicit", "reconcile"])
+def test_same_validation_uuid_rejects_different_literal_notes(
+    original_note: str | None, retry_note: str | None, operation: str
+) -> None:
+    from dataclasses import replace
+
+    from vaaet_persistence.review_persistence import persist_human_validation_record
+
+    engine = _Engine()
+    run_id = uuid4()
+    original = HumanValidation(1, 1, "reviewer", notes=original_note)
+    payload = {
+        "id": str(original.validation_id),
+        "prediction_id": original.prediction_id,
+        "validated_state": original.validated_state,
+        "reviewer_id": original.reviewer_id,
+        "reviewed_at": original.reviewed_at,
+        "notes": original.notes,
+        "review_source": original.review_source,
+        "incident_context_reviewed": original.incident_context_reviewed,
+        "supersedes_validation_id": None,
+        "pipeline_run_id": str(run_id),
+    }
+    engine.connection.validations[str(original.validation_id)] = payload
+    retry = replace(original, notes=retry_note)
+
+    with pytest.raises(PersistenceConflictError, match="idempotency conflict"):
+        if operation == "reconcile":
+            reconcile_human_validation(retry, engine=engine, pipeline_run_id=run_id)
+        elif operation == "explicit":
+            persist_human_validation_record(retry, engine=engine, pipeline_run_id=run_id)
+        else:
+            persist_human_validation_record(
+                retry, engine=engine, application_name="test-review", application_version="1.0.0"
+            )
+    assert engine.connection.validations[str(original.validation_id)]["notes"] == original_note
 
 
 def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:

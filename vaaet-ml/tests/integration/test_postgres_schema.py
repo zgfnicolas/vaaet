@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,6 +26,7 @@ from vaaet_persistence import (
     persist_raw_telemetry,
     reconcile_human_validation,
 )
+from vaaet_persistence.exceptions import PersistenceConflictError
 
 from vaaet_ml.data.database_connection import create_admin_engine, dispose_engine
 from vaaet_ml.data.database_settings import (
@@ -509,7 +510,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         raw,
         settings=collection,
         application_name="vaaet-ml-integration",
-        application_version="4.9.2",
+        application_version="4.9.3",
     ) == 2
     classified = engineer_features(raw)
     assert len(classified) == 1
@@ -529,7 +530,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         model_version="mlp-v3.0-audit-integration",
         model_revision="f" * 64,
         application_name="vaaet-ml-integration",
-        application_version="4.9.2",
+        application_version="4.9.3",
     )
     classified["pipeline_run_id"] = persisted.pipeline_run_id
     queue = load_review_queue(
@@ -548,7 +549,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         decision,
         settings=reviewer,
         application_name="vaaet-ml-integration",
-        application_version="4.9.2",
+        application_version="4.9.3",
     )
     assert not pending.audit_complete
     assert pending.receipt is not None
@@ -576,7 +577,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
             pipeline_run_id=persisted.pipeline_run_id,
             model_version="mlp-v3.0-audit-integration",
             git_commit="integration",
-            vaaet_version="4.9.2",
+            vaaet_version="4.9.3",
         )
     assert not (tmp_path / "blocked.zip").exists()
     monkeypatch.setattr(pipeline_run_module, "finish_pipeline_run", original_finish)
@@ -588,6 +589,12 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
     assert recovered.audit_complete
     assert recovered.pipeline_run_id == pending.pipeline_run_id
     assert recovered.receipt == pending.receipt
+    with pytest.raises(PersistenceConflictError, match="idempotency conflict"):
+        persist_human_validation_record(
+            replace(decision, notes="None"),
+            settings=reviewer,
+            pipeline_run_id=recovered.pipeline_run_id,
+        )
     validation = {
         **asdict(decision),
         "pipeline_run_id": str(recovered.pipeline_run_id),
@@ -602,7 +609,7 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
         pipeline_run_id=persisted.pipeline_run_id,
         model_version="mlp-v3.0-audit-integration",
         git_commit="integration",
-        vaaet_version="4.9.2",
+        vaaet_version="4.9.3",
     )
     feedback_sources = (
         (DatasetPackageSource(package),)

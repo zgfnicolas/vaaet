@@ -15,6 +15,19 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 
 ## [Unreleased]
 
+## [4.9.3] - 2026-09-26
+
+### Corregido
+
+- La sesión HITL sella todas las columnas exportables y se invalida ante
+  alteraciones, sin trasladar automáticamente decisiones a otro clip.
+- Recuperación y formulario comparten estado; una confirmación avanza el widget
+  una vez y no vuelve a enviar el mismo UUID.
+- `typed-csv-v1` conserva enteros opcionales y grandes sin conversión a
+  `float64`; los nuevos ZIP exigen lector ML 4.9.3.
+- Persistence 0.3.3 distingue nulos de texto literal en reintentos de
+  validaciones. [ADR-0036](../docs/architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md)
+
 ## [4.9.2] - 2026-09-26
 
 ### Corregido

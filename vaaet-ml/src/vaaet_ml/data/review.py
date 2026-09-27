@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from uuid import UUID
 
 import pandas as pd
 
@@ -43,6 +44,7 @@ def prepare_inference_review(
     settings: DatabaseSettings | Mapping[str, str] | None,
     mode: str,
     is_current: Callable[[], bool] | None = None,
+    attempt_id: UUID | None = None,
 ) -> InferenceReviewSession:
     """Conserva la UI 4.x delegando reglas y persistencia a servicios sin widgets."""
 
@@ -54,6 +56,7 @@ def prepare_inference_review(
         settings=settings,
         mode=mode,
         is_current=is_current,
+        attempt_id=attempt_id,
     )
     if enabled and reviewer_id is not None and prepared.session.export_frame is not None:
         build_review_widget(

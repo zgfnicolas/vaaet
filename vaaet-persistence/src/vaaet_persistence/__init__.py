@@ -81,7 +81,7 @@ from vaaet_persistence.settings import (
     load_reviewer_id,
 )
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 __all__ = [
     "DATABASE_SCHEMAS",

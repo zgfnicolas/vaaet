@@ -24,6 +24,7 @@ from vaaet_ml.data.artifact_serialization import (
     review_frames_fingerprint,
     sha256_file,
     stable_uuid,
+    typed_frames_fingerprint,
     utc_now,
 )
 from vaaet_ml.data.hitl_catalog import (
@@ -47,6 +48,7 @@ from vaaet_ml.data.review_audit import (
 )
 from vaaet_ml.data.review_frames import normalize_review_frames
 from vaaet_ml.data.review_orchestration import ManagedReviewSession
+from vaaet_ml.exceptions import ReviewSessionIntegrityError
 
 HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v3"
 PREVIOUS_HITL_FINGERPRINT_ALGORITHM = "sha256-contractual-frames-v2"
@@ -133,6 +135,32 @@ def finalize_review_session(
         session.require_finalizable()
         if session.export_frame is not classified or session.validations is not validations:
             raise ValueError("Finalization does not use the original managed review session.")
+        if session.context is not None:
+            context = session.context
+            if (
+                context.inference_pipeline_run_id is not None
+                and context.inference_pipeline_run_id != pipeline_run_id
+            ) or (context.model_version is not None and context.model_version != model_version):
+                raise ValueError("Finalization contradicts the original review session.")
+        classified = classified.copy(deep=True)
+        try:
+            copy_matches = (
+                session.context is None
+                or session.context.export_fingerprint is None
+                or typed_frames_fingerprint({"export": classified})
+                == session.context.export_fingerprint
+            )
+        except (TypeError, ValueError, KeyError, OverflowError, AttributeError):
+            copy_matches = False
+        if not copy_matches:
+            session.integrity_invalidated = True
+            raise ReviewSessionIntegrityError(
+                "The review session changed while preparing its export; prepare a new session."
+            )
+        validations = [
+            dict(item) if isinstance(item, Mapping) else item
+            for item in session.validations
+        ]
     if pending_validations:
         raise RuntimeError(
             "The review session contains PostgreSQL decisions with pending audit; "

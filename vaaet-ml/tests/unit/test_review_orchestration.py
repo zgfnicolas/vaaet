@@ -11,9 +11,12 @@ from pytest import LogCaptureFixture
 
 from vaaet_ml.data.review import HumanValidation, prepare_inference_review
 from vaaet_ml.data.review_orchestration import (
+    ManagedReviewSession,
+    _review_context,
     prepare_review_session,
     recover_pending_review_validation,
 )
+from vaaet_ml.exceptions import ReviewSessionIntegrityError
 from vaaet_ml.workflow_state import StaleInferenceExecutionError
 
 
@@ -95,3 +98,40 @@ def test_stale_recovery_rejects_before_read(monkeypatch) -> None:
         recover_pending_review_validation(
             prepared.session, uuid4(), settings={"host": "unused"}
         )
+
+
+def test_altered_session_rejects_submit_before_effects() -> None:
+    frame = pd.DataFrame({
+        "clip_id": ["original-clip"],
+        "record_time": [pd.Timestamp("2026-09-26T12:00:00Z")],
+        "traffic_state": [0],
+    })
+    prepared = prepare_review_session(
+        enabled=True, classified=frame, inference_pipeline_run_id=None,
+        reviewer_id="reviewer", settings=None, mode="all",
+    )
+    assert prepared.session.export_frame is not None
+    prepared.session.export_frame.loc[0, "clip_id"] = "other-clip"
+    with pytest.raises(ReviewSessionIntegrityError, match="prepare a new session"):
+        prepared.submit(HumanValidation(1, 0, "reviewer"))
+    assert prepared.session.validations == []
+
+
+def test_altered_session_rejects_recovery_before_database_read(monkeypatch) -> None:
+    run_id = str(uuid4())
+    frame = pd.DataFrame({
+        "prediction_id": [9],
+        "clip_id": ["original-clip"],
+        "record_time": [pd.Timestamp("2026-09-26T12:00:00Z")],
+        "model_revision": ["a" * 64],
+        "pipeline_run_id": [run_id],
+    })
+    session = ManagedReviewSession(export_frame=frame, validations=[])
+    session.seal_context(_review_context("postgresql", run_id, frame, export_frame=frame))
+    frame.loc[0, "clip_id"] = "other-clip"
+    monkeypatch.setattr(
+        "vaaet_ml.data.review_orchestration.load_human_validation_record",
+        lambda *_args, **_kwargs: pytest.fail("Recovery must stop before PostgreSQL read"),
+    )
+    with pytest.raises(ReviewSessionIntegrityError, match="prepare a new session"):
+        recover_pending_review_validation(session, uuid4(), settings={"host": "unused"})

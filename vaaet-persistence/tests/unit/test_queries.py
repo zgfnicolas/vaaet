@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 
 import pandas as pd
@@ -139,19 +140,22 @@ def test_human_history_queries_are_explicit_and_load_every_component(
         statements.append(str(statement))
         assert params == {"feature_schema_version": "traffic-features-v3"}
         return pd.DataFrame(
-            {"id": [len(statements)], "pipeline_run_id": ["review-run"]}
+            {"id": [len(statements)], "pipeline_run_id": ["00000000-0000-4000-8000-000000000011"]}
         )
 
     monkeypatch.setattr("vaaet_persistence.queries.pd.read_sql", fake_read_sql)
     monkeypatch.setattr(
-        "vaaet_persistence.queries.read_pipeline_run_audit_state",
-        lambda *_args: SimpleNamespace(
-            audit_complete=True,
-            workflow="review",
-            receipt=SimpleNamespace(
-                operation="human-validation", content_fingerprint="a" * 64
-            ),
-        ),
+        "vaaet_persistence.queries.read_pipeline_run_audit_states",
+        lambda _connection, ids: {
+            uuid.UUID(str(run_id)): SimpleNamespace(
+                audit_complete=True,
+                workflow="review",
+                receipt=SimpleNamespace(
+                    operation="human-validation", content_fingerprint="a" * 64
+                ),
+            )
+            for run_id in ids
+        },
     )
     components = load_human_feedback_components(engine=engine)
 

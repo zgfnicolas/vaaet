@@ -303,7 +303,10 @@ def test_inference_invalidates_derived_state_before_each_classification() -> Non
     code = _code(NOTEBOOKS["inference"])
 
     assert "InferenceExecutionState(" in code
-    invalidation = "for _callback in ('finalize_current_review', 'publish_pending_review'):"
+    invalidation = (
+        "for _callback in ('finalize_current_review', 'publish_pending_review', "
+        "'recover_pending_validation'):"
+    )
     assert code.count(invalidation) >= 2
     assert "globals().pop(_callback, None)" in code
     assert "INFERENCE_STATE.publish(" in code

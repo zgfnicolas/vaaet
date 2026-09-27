@@ -267,6 +267,7 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
         validations=validations,
         package_metadata={
             "fingerprint": fingerprint,
+            "fingerprint_algorithm": "sha256-contractual-frames-v2",
             "review_audit_evidence": build_review_audit_manifest(validations),
         },
     )
@@ -278,6 +279,7 @@ def test_catalog_rejects_cross_package_validation_branch(tmp_path: Path) -> None
         "pipeline_run_id": run_id,
         "sha256": _sha256_file(package),
         "fingerprint": fingerprint,
+        "fingerprint_algorithm": "sha256-contractual-frames-v2",
         "clips": 1,
         "rows": {"features": 1, "predictions": 1, "validations": 3, "unreviewed": 0},
         "human_support": {},
@@ -369,6 +371,7 @@ def test_catalog_resolves_valid_cross_package_correction_chain(tmp_path: Path) -
                 validations=validations,
                 package_metadata={
                     "fingerprint": fingerprint,
+                    "fingerprint_algorithm": "sha256-contractual-frames-v2",
                     "review_audit_evidence": build_review_audit_manifest(validations),
                 },
             )
@@ -380,6 +383,7 @@ def test_catalog_resolves_valid_cross_package_correction_chain(tmp_path: Path) -
                     "pipeline_run_id": str(uuid.uuid4()),
                     "sha256": _sha256_file(package),
                     "fingerprint": fingerprint,
+                    "fingerprint_algorithm": "sha256-contractual-frames-v2",
                     "clips": 1,
                     "rows": {"features": 1, "predictions": 1, "validations": 1, "unreviewed": 0},
                     "human_support": {},

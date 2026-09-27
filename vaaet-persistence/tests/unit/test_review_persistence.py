@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from vaaet_persistence.exceptions import DatabaseOperationError
+from vaaet_persistence.exceptions import DatabaseOperationError, PersistenceConflictError
 from vaaet_persistence.review_domain import HumanValidation
 from vaaet_persistence.review_persistence import (
     load_human_validation_record,
@@ -74,9 +74,11 @@ class _Connection:
                 }
             )
         if "read_pipeline_run_audit_state" in str(statement):
+            requested_run_id = payload["run_ids"][0]
             return _Result(
                 {
-                    "pipeline_run_id": payload["pipeline_run_id"],
+                    "requested_run_id": requested_run_id,
+                    "pipeline_run_id": requested_run_id,
                     "workflow": "review",
                     "application_name": "test-review",
                     "application_version": "1.0.0",
@@ -103,6 +105,16 @@ class _Connection:
                     "receipt_database_user": "reviewer",
                 }
             )
+        if "AS operational_feature_id" in str(statement):
+            return _Result({
+                "prediction_id": payload["prediction_id"],
+                "pipeline_run_id": str(uuid4()),
+                "clip_id": "clip-a",
+                "record_time": datetime(2026, 9, 26, tzinfo=timezone.utc),
+                "continuity_id": "continuity-a",
+                "model_revision": "a" * 64,
+                "operational_feature_id": 10,
+            })
         if "SELECT id, prediction_id" in str(statement):
             return _Result(self.validations.get(str(payload["id"])))
         self.payloads.append(payload)
@@ -121,6 +133,10 @@ class _Mappings:
 
     def one(self) -> dict[str, object]:
         return self.payload
+
+    def __iter__(self):
+        if self.payload is not None:
+            yield self.payload
 
 
 class _Result:
@@ -268,6 +284,47 @@ def test_retry_without_run_returns_original_lineage_without_creating_another_run
     assert recovered.pipeline_run_id == original_run
     assert recovered.audit_complete
     assert recovered.receipt is not None
+    assert recovered.prediction_context is not None
+    assert recovered.prediction_context.clip_id == "clip-a"
+
+
+@pytest.mark.parametrize("original_note,retry_note", [(None, "None"), ("", None), ("NA", "NULL")])
+@pytest.mark.parametrize("operation", ["automatic", "explicit", "reconcile"])
+def test_same_validation_uuid_rejects_different_literal_notes(
+    original_note: str | None, retry_note: str | None, operation: str
+) -> None:
+    from dataclasses import replace
+
+    from vaaet_persistence.review_persistence import persist_human_validation_record
+
+    engine = _Engine()
+    run_id = uuid4()
+    original = HumanValidation(1, 1, "reviewer", notes=original_note)
+    payload = {
+        "id": str(original.validation_id),
+        "prediction_id": original.prediction_id,
+        "validated_state": original.validated_state,
+        "reviewer_id": original.reviewer_id,
+        "reviewed_at": original.reviewed_at,
+        "notes": original.notes,
+        "review_source": original.review_source,
+        "incident_context_reviewed": original.incident_context_reviewed,
+        "supersedes_validation_id": None,
+        "pipeline_run_id": str(run_id),
+    }
+    engine.connection.validations[str(original.validation_id)] = payload
+    retry = replace(original, notes=retry_note)
+
+    with pytest.raises(PersistenceConflictError, match="idempotency conflict"):
+        if operation == "reconcile":
+            reconcile_human_validation(retry, engine=engine, pipeline_run_id=run_id)
+        elif operation == "explicit":
+            persist_human_validation_record(retry, engine=engine, pipeline_run_id=run_id)
+        else:
+            persist_human_validation_record(
+                retry, engine=engine, application_name="test-review", application_version="1.0.0"
+            )
+    assert engine.connection.validations[str(original.validation_id)]["notes"] == original_note
 
 
 def test_missing_lineage_identity_fails_before_creating_an_engine(monkeypatch) -> None:

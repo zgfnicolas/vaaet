@@ -9,6 +9,12 @@ from types import ModuleType
 
 import pandas as pd
 
+from vaaet_ml.data.review_domain import HumanValidation
+from vaaet_ml.data.review_orchestration import (
+    ManagedReviewSession,
+    ReviewSubmissionResult,
+    ReviewSubmissionStatus,
+)
 from vaaet_ml.data.review_widgets import build_review_widget
 
 
@@ -100,3 +106,43 @@ def test_widget_keeps_identity_after_uncertain_submission(monkeypatch) -> None:
     assert decisions[0].validation_id == decisions[1].validation_id
     assert decisions[0].reviewed_at == decisions[1].reviewed_at
     assert skip.disabled
+
+
+def test_external_recovery_confirms_widget_once_without_resubmitting(monkeypatch) -> None:
+    _install_fake_widgets(monkeypatch)
+    decisions: list[object] = []
+    session = ManagedReviewSession(export_frame=None, validations=[])
+
+    def interrupted(decision: object) -> None:
+        decisions.append(decision)
+        raise TimeoutError("response lost")
+
+    queue = pd.DataFrame(
+        [{"prediction_id": 1, "traffic_state": 1, "state_label": "Reduced", "clip_id": "clip"}]
+    )
+    widget = build_review_widget(
+        queue, reviewer_id="reviewer", on_submit=interrupted, session=session
+    )
+    assert widget is not None
+    submit, _skip = widget.children[4].children
+    submit.callbacks[0](None)
+    assert submit.description == "Check same decision"
+    assert len(decisions) == 1
+
+    session.record_submission(
+        ReviewSubmissionResult(decisions[0], ReviewSubmissionStatus.CONFIRMED)
+    )
+    assert submit.disabled
+    assert "completed" in widget.children[0].value
+    submit.callbacks[0](None)
+    assert len(decisions) == 1
+
+
+def test_replaced_review_session_detaches_old_widget_observers() -> None:
+    session = ManagedReviewSession(export_frame=None, validations=[])
+    decision = HumanValidation(1, 1, "reviewer")
+    notifications: list[object] = []
+    session.subscribe(notifications.append)
+    session.detach_presentations()
+    session.record_submission(ReviewSubmissionResult(decision, ReviewSubmissionStatus.CONFIRMED))
+    assert notifications == []

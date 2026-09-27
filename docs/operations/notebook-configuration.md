@@ -81,8 +81,22 @@ identidad.
 
 Si PostgreSQL confirma una decisión pero no puede cerrar su auditoría, el
 formulario muestra «Guardado; auditoría pendiente», conserva el mismo UUID y no
-avanza. Repetir el botón reconcilia esa decisión sin otro `INSERT`. Después de
-reiniciar el runtime, `recover_pending_validation("<validation-id>")` recupera
-la decisión autoritativa y completa únicamente su auditoría. Mientras esté
-pendiente, `finalize_current_review()` y la ingestión de entrenamiento quedan
-bloqueados.
+avanza. Un timeout deja «No confirmado» y obliga a consultar ese UUID antes de
+reintentar. `recover_pending_validation("<validation-id>")` sólo opera sobre la
+sesión y el intento originales todavía vigentes; cambiar de clip invalida la
+función anterior. Tras reiniciar Colab hay que reconstruir explícitamente la
+sesión de la corrida original con sus datos PostgreSQL; nunca se traslada la
+decisión al último clip abierto. Mientras esté pendiente o sea incierta,
+`finalize_current_review()` y la ingestión de entrenamiento quedan bloqueados.
+
+Si se modifica el frame exportable de una sesión ya preparada (clip, instante,
+continuidad, predicción, features o columnas), esa sesión queda invalidada:
+prepará una nueva explícitamente. Volver a poner el valor anterior no la
+reactiva y sus decisiones no pasan automáticamente a otra sesión. Si una
+recuperación confirma una decisión, el formulario avanza solo una vez; no
+pulses nuevamente «Check same decision» ni crees otro UUID.
+
+Los ZIP nuevos usan CSV tipado: `"007"`, `"NA"`, cadena vacía y nulo conservan
+significados distintos. El fingerprint HITL v3 cubre esa distinción. Un ZIP
+histórico ambiguo puede inspeccionarse, pero requiere verificación y
+reexportación explícitas antes de entrenar.

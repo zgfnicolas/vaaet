@@ -20,6 +20,10 @@ class DatasetArtifactValidationError(ValueError, LaboratoryError):
     """Indica que un snapshot, catálogo o backup de laboratorio es inválido."""
 
 
+class ReviewSessionIntegrityError(ValueError, LaboratoryError):
+    """Indica que una sesión HITL fue alterada después de su preparación."""
+
+
 class TrainingStabilityError(ValueError, LaboratoryError):
     """Indica que un ajuste Keras no produjo evidencia numérica utilizable."""
 
@@ -45,5 +49,6 @@ __all__ = [
     "DvcRegistryOperationError",
     "LaboratoryError",
     "RuntimeConfigurationError",
+    "ReviewSessionIntegrityError",
     "TrainingStabilityError",
 ]

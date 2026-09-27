@@ -13,6 +13,7 @@ from vaaet.settings import STATE_LABELS
 
 from vaaet_ml.data.review_domain import HumanValidation
 from vaaet_ml.data.review_orchestration import (
+    ManagedReviewSession,
     ReviewSubmissionController,
     ReviewSubmissionResult,
     ReviewSubmissionStatus,
@@ -24,6 +25,7 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
     *,
     reviewer_id: str,
     on_submit: Callable[[HumanValidation], ReviewSubmissionResult | None],
+    session: ManagedReviewSession | None = None,
 ) -> object | None:
     """Construye UI diferida; ``print`` queda limitado a la presentación notebook."""
 
@@ -44,7 +46,10 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
     submit = widgets.Button(description="Save validation", button_style="success")
     skip = widgets.Button(description="Skip")
     output = widgets.Output()
-    controller = ReviewSubmissionController()
+    controller = ReviewSubmissionController(session=session)
+    submitting = {"value": False}
+    completed = {"value": False}
+    unsubscribe: Callable[[], None] | None = None
 
     def render() -> None:
         row = queue.iloc[position["value"]]
@@ -67,16 +72,46 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
         )
 
     def advance() -> None:
+        nonlocal unsubscribe
+        if completed["value"]:
+            return
         controller.reset()
         if position["value"] + 1 < len(queue):
             position["value"] += 1
             render()
             return
         heading.value = "<b>Review queue completed.</b>"
+        completed["value"] = True
         submit.disabled = True
         skip.disabled = True
+        if unsubscribe is not None:
+            unsubscribe()
+            unsubscribe = None
+
+    def on_session_change(result: ReviewSubmissionResult) -> None:
+        if (
+            submitting["value"]
+            or completed["value"]
+            or controller.decision is None
+            or result.decision.validation_id != controller.decision.validation_id
+        ):
+            return
+        if session is not None:
+            session.require_integrity()
+        if result.confirmed:
+            with output:
+                print("Confirmado. La decisión recuperada ya está registrada.")
+            advance()
+        elif result.status is ReviewSubmissionStatus.AUDIT_PENDING:
+            submit.description = "Complete audit"
+        elif result.status is ReviewSubmissionStatus.UNKNOWN:
+            submit.description = "Check same decision"
 
     def submit_row(_button: object) -> None:
+        if completed["value"] or submit.disabled:
+            return
+        if session is not None:
+            session.require_integrity()
         row = queue.iloc[position["value"]]
         decision = controller.prepare(
             lambda: HumanValidation(
@@ -95,6 +130,7 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
         for field in (state, notes, context):
             field.disabled = True
         skip.disabled = True
+        submitting["value"] = True
         with output:
             try:
                 result = controller.submit(on_submit)
@@ -105,6 +141,8 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
                     f"de reintentar: {decision.validation_id} ({type(exc).__name__})."
                 )
                 return
+            finally:
+                submitting["value"] = False
             if controller.status is ReviewSubmissionStatus.AUDIT_PENDING:
                 submit.description = "Complete audit"
                 print(
@@ -120,11 +158,17 @@ def build_review_widget(  # noqa: C901 - adapta el controlador al widget opciona
 
     submit.on_click(submit_row)
     def skip_row(_button: object) -> None:
+        if completed["value"] or skip.disabled:
+            return
+        if session is not None:
+            session.require_integrity()
         if controller.decision is not None:
             raise RuntimeError("Resolve the current review decision before skipping.")
         advance()
 
     cast(Callable[[Callable[[object], None]], None], skip.on_click)(skip_row)
+    if session is not None:
+        unsubscribe = session.subscribe(on_session_change)
     render()
     widget = widgets.VBox([heading, state, notes, context, widgets.HBox([submit, skip]), output])
     display(widget)

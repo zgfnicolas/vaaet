@@ -6,18 +6,93 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pandas as pd
 import pytest
 
+from vaaet_persistence.exceptions import PersistenceConflictError
 from vaaet_persistence.receipts import (
     PERSISTENCE_RECEIPT_ALGORITHM,
     PersistenceReceipt,
     build_persistence_receipt,
     calculate_persistence_fingerprint,
+    read_pipeline_run_audit_states,
     receipts_match,
 )
+
+
+@pytest.mark.parametrize(
+    ("count", "expected_batches"),
+    [(0, []), (1, [1]), (500, [500]), (501, [500, 1]), (1200, [500, 500, 200])],
+)
+def test_audit_states_are_read_in_bounded_batches(
+    count: int, expected_batches: list[int]
+) -> None:
+    runs = [uuid4() for _ in range(count)]
+
+    class FakeResult:
+        def __init__(self, rows: list[dict[str, object]]) -> None:
+            self.rows = rows
+
+        def mappings(self) -> list[dict[str, object]]:
+            return self.rows
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.batches: list[list[str]] = []
+
+        def execute(self, statement: object, params: dict[str, object]) -> FakeResult:
+            assert "read_pipeline_run_audit_state" in str(statement)
+            batch = params["run_ids"]
+            assert isinstance(batch, list)
+            self.batches.append(batch)
+            return FakeResult([
+                {
+                    "requested_run_id": run_id,
+                    "pipeline_run_id": run_id,
+                    "workflow": "review",
+                    "application_name": "test",
+                    "application_version": "4.9.2",
+                    "database_user": "reviewer",
+                    "status": "succeeded",
+                    "content_fingerprint": None,
+                }
+                for run_id in reversed(batch)
+            ])
+
+    connection = FakeConnection()
+    states = read_pipeline_run_audit_states(connection, runs)  # type: ignore[arg-type]
+    assert set(states) == set(runs)
+    assert [len(batch) for batch in connection.batches] == expected_batches
+    assert all(state.pipeline_run_id == UUID(str(identifier)) for identifier, state in states.items())
+
+
+def test_audit_batch_rejects_missing_or_contradictory_identity() -> None:
+    run_id = uuid4()
+
+    class FakeResult:
+        def __init__(self, rows: list[dict[str, object]]) -> None:
+            self.rows = rows
+
+        def mappings(self) -> list[dict[str, object]]:
+            return self.rows
+
+    class FakeConnection:
+        def __init__(self, rows: list[dict[str, object]]) -> None:
+            self.rows = rows
+
+        def execute(self, _statement: object, _params: dict[str, object]) -> FakeResult:
+            return FakeResult(self.rows)
+
+    with pytest.raises(PersistenceConflictError, match="missing"):
+        read_pipeline_run_audit_states(FakeConnection([]), [run_id])  # type: ignore[arg-type]
+    with pytest.raises(PersistenceConflictError, match="contradictory"):
+        read_pipeline_run_audit_states(
+            FakeConnection([{"requested_run_id": str(uuid4())}]), [run_id]
+        )  # type: ignore[arg-type]
+    with pytest.raises(PersistenceConflictError, match="invalid"):
+        read_pipeline_run_audit_states(FakeConnection([]), ["not-a-uuid"])
 
 
 def test_fingerprint_is_stable_for_order_utc_and_float64_equivalents() -> None:

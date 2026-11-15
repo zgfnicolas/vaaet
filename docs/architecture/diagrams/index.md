@@ -5,8 +5,7 @@
 - [Selección adaptativa de YOLO](model-selection.md)
 - [Cálculo de velocidad](speed-calculation.md)
 - [Arquitectura Colab y PostgreSQL](colab-postgresql-architecture.md)
-- [Modelo relacional resumido](erd.md)
-- [Modelo relacional completo](erd-phase2.md)
+- [Modelo relacional `vaaet-db-v3`](../data-model.md)
 
 El diagrama multi-cámara simultánea fue retirado porque describe una capacidad
 no implementada. El soporte actual es un plan offline y secuencial de vistas

@@ -4,6 +4,7 @@
 - Alcance: `vaaet-persistence` 0.2.0 y `vaaet-ml` 4.8.0
 - Decisión: [ADR-0029](../../architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md)
 - Estado: implementado en código; validación externa pendiente
+- PR: [#24](https://github.com/zgfnicolas/vaaet/pull/24)
 
 ## Objetivo
 

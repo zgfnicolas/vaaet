@@ -1,6 +1,3 @@
-<!-- context: VAAET/docs/quality/kpis.md — Métricas de rendimiento y guía de validación.
-Complementa PRD.md (requisitos) y BIAS_AND_LIMITATIONS.md (limitaciones). -->
-
 # Métricas de Rendimiento (KPIs) y Guía de Validación — VAAET
 
 Este documento describe los Indicadores Clave de Rendimiento (KPIs) que definen el éxito del sistema VAAET y provee una guía detallada para validar los objetivos de precisión declarados.

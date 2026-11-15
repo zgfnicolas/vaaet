@@ -4,6 +4,7 @@
 - Alcance: `vaaet-persistence` 0.2.1 y `vaaet-ml` 4.8.1
 - Decisión: [ADR-0030](../../architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
 - Estado: implementado en código; validación externa pendiente
+- PR: [#25](https://github.com/zgfnicolas/vaaet/pull/25)
 
 ## Objetivo
 

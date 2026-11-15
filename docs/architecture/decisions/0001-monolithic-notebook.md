@@ -3,7 +3,7 @@ Referenciado por AGENTS.md y SAD.md. -->
 
 # ADR-001: Notebook Monolítico sobre Módulos Python
 
-**Status:** Superseded by [ADR-0009](0009-modular-three-stage-architecture.md)
+**Estado:** Reemplazada por [ADR-0009](0009-modular-three-stage-architecture.md)
 > Nota de vigencia (2026-08-01): este documento conserva la decisión histórica.
 > La adquisición activa usa módulos compartidos según [ADR-0013](0013-on-demand-data-collection-workflow.md).
 **Fecha:** 2026-03-06  

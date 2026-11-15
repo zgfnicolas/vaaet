@@ -199,11 +199,11 @@ def test_active_sources_do_not_use_legacy_paths_or_import_hacks() -> None:
     ]
     active_files = [
         ML_ROOT / "AGENTS.md",
-        ML_ROOT / "CONTRIBUTING.md",
         ML_ROOT / "README.md",
-        ML_ROOT / "llms.txt",
+        WORKSPACE_ROOT / ".github/pull_request_template.md",
         WORKSPACE_ROOT / "AGENTS.md",
-        WORKSPACE_ROOT / "llms.txt",
+        WORKSPACE_ROOT / "CLAUDE.md",
+        WORKSPACE_ROOT / ".github/copilot-instructions.md",
         WORKSPACE_ROOT / "CONTRIBUTING.md",
         WORKSPACE_ROOT / "README.md",
         WORKSPACE_ROOT / "SECURITY.md",
@@ -386,7 +386,7 @@ def test_monorepo_keeps_single_shared_workspace_roots() -> None:
     assert (WORKSPACE_ROOT / ".dvc").is_dir()
     assert (WORKSPACE_ROOT / "docs").is_dir()
     assert (WORKSPACE_ROOT / "AGENTS.md").is_file()
-    assert (WORKSPACE_ROOT / "llms.txt").is_file()
+    assert (WORKSPACE_ROOT / "CLAUDE.md").is_file()
     assert (WORKSPACE_ROOT / "vaaet-app" / "README.md").is_file()
     assert (WORKSPACE_ROOT / "vaaet-core" / "pyproject.toml").is_file()
     assert (WORKSPACE_ROOT / "vaaet-core" / "AGENTS.md").is_file()
@@ -408,25 +408,40 @@ def test_video_view_plans_remain_portable_and_private_to_the_consumer() -> None:
 
 
 def test_portable_agent_context_describes_the_active_monorepo() -> None:
-    root_context = (WORKSPACE_ROOT / "llms.txt").read_text(encoding="utf-8")
+    """Mantiene AGENTS.md como única fuente de contexto, breve y sin duplicados."""
+
+    root_rules = (WORKSPACE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     core_rules = (WORKSPACE_ROOT / "vaaet-core" / "AGENTS.md").read_text(encoding="utf-8")
-    ml_context = (ML_ROOT / "llms.txt").read_text(encoding="utf-8")
+    persistence_rules = (WORKSPACE_ROOT / "vaaet-persistence" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+    ml_rules = (ML_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     normalized_core_rules = " ".join(core_rules.split())
 
-    assert "vaaet-core==0.2.2" in root_context
-    assert "vaaet-persistence==0.3.3" in root_context
-    assert "vaaet-ml==4.9.3" in root_context
-    assert "import `vaaet_ml`" in root_context
-    assert "cuatro notebooks" in root_context
+    assert len(root_rules.splitlines()) < 150
+    for import_name in ("`vaaet`", "`vaaet_persistence`", "`vaaet_ml`"):
+        assert import_name in root_rules
+    assert "cuatro notebooks" in root_rules
+    assert "ADR-0025" in root_rules
+    assert "business-rules.md" in root_rules
+    assert "decisions/README.md" in root_rules
     assert "No puede importar `vaaet_ml`, PostgreSQL, DVC, Google Drive" in normalized_core_rules
     assert "Pipe-and-Filter síncrono" in core_rules
-    assert "ADR-0025" in root_context
-    assert "`vaaet_ml`" in ml_context
-    assert "`vaaet-persistence==0.3.3`" in ml_context
-    assert "`src/vaaet_ml/`" in ml_context
-    assert "Los cuatro notebooks" in ml_context
-    assert "Tres workflows Colab" not in ml_context
-    assert "paquete: `vaaet`" not in ml_context
+    assert "`vaaet_ml`" in ml_rules
+    assert "`src/vaaet_ml/`" in ml_rules
+    assert "Los cuatro notebooks" in ml_rules
+    assert "Tres workflows Colab" not in ml_rules
+    assert "paquete: `vaaet`" not in ml_rules
+
+    assert not (WORKSPACE_ROOT / "llms.txt").exists()
+    assert not (ML_ROOT / "llms.txt").exists()
+    assert (WORKSPACE_ROOT / "CLAUDE.md").read_text(encoding="utf-8").strip() == "@AGENTS.md"
+    copilot = (WORKSPACE_ROOT / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
+    assert "AGENTS.md" in copilot
+    assert len(copilot.splitlines()) <= 3
+    for rules in (root_rules, core_rules, persistence_rules, ml_rules):
+        assert "llms.txt" not in rules
+        assert re.search(r"vaaet-(core|persistence|ml)==\d", rules) is None
 
 
 def test_normative_documentation_matches_the_active_monorepo() -> None:
@@ -440,12 +455,15 @@ def test_normative_documentation_matches_the_active_monorepo() -> None:
         "docs/ml/bias-and-limitations.md",
         "docs/operations/colab-guide.md",
         "docs/operations/multi-view-calibration-guide.md",
-        "docs/operations/deployment.md",
+        "docs/operations/postgresql-guide.md",
         "docs/operations/user-guide.md",
         "docs/product/product-requirements.md",
-        "docs/product/software-requirements.md",
-        "docs/product/use-cases.md",
-        "docs/quality/risk-matrix.md",
+        "docs/product/roles.md",
+        "docs/product/business-rules.md",
+        "docs/architecture/data-model.md",
+        "docs/architecture/decisions/README.md",
+        "docs/roadmap.md",
+        "CONTRIBUTING.md",
         "SECURITY.md",
         "SUPPORT.md",
     }
@@ -473,10 +491,13 @@ def test_normative_documentation_matches_the_active_monorepo() -> None:
     ):
         assert stale_claim not in combined
 
-    assert "Normativo y vigente" in documents["docs/product/product-requirements.md"]
-    assert "`vaaet-core==0.2.2`" in documents["docs/product/software-requirements.md"]
-    assert "fuera de alcance" in documents["docs/product/software-requirements.md"]
-    assert "Cuatro notebooks" in documents["docs/product/product-requirements.md"]
+    prd = documents["docs/product/product-requirements.md"]
+    assert "Normativo y vigente" in prd
+    assert "se instala `vaaet-core`, luego `vaaet-persistence` y por último `vaaet-ml`" in prd
+    assert "fuera de alcance" in prd
+    assert "Cuatro notebooks" in prd
+    assert not (WORKSPACE_ROOT / "docs/product/software-requirements.md").exists()
+    assert not (WORKSPACE_ROOT / "docs/product/use-cases.md").exists()
     assert "cuarto\nnotebook" in documents["docs/operations/user-guide.md"]
     assert (
         "no se garantiza un modelo de acelerador concreto"
@@ -489,15 +510,72 @@ def test_normative_documentation_matches_the_active_monorepo() -> None:
     assert "No se promete un SLA" in documents["SUPPORT.md"]
 
 
+def test_management_documents_live_in_the_shared_root() -> None:
+    """Ubica changelog, contribución y plantillas de GitHub en un único lugar."""
+
+    assert (WORKSPACE_ROOT / "CHANGELOG.md").is_file()
+    assert (WORKSPACE_ROOT / "CONTRIBUTING.md").is_file()
+    assert not (ML_ROOT / "CHANGELOG.md").exists()
+    assert not (ML_ROOT / "CONTRIBUTING.md").exists()
+    assert "## [Unreleased]" in (WORKSPACE_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    github = WORKSPACE_ROOT / ".github"
+    assert (github / "pull_request_template.md").is_file()
+    assert (github / "ISSUE_TEMPLATE" / "bug_report.md").is_file()
+    assert (github / "ISSUE_TEMPLATE" / "feature_request.md").is_file()
+    assert (WORKSPACE_ROOT / "docs" / "roadmap.md").is_file()
+
+
+def test_current_documents_do_not_stamp_versions_or_context_headers() -> None:
+    """Evita sellos que se desactualizan: la versión vive en pyproject.toml."""
+
+    historical = ("docs/archive/", "docs/governance/plans/", "docs/architecture/decisions/0")
+    current = [
+        path
+        for path in (WORKSPACE_ROOT / "docs").rglob("*.md")
+        if not path.relative_to(WORKSPACE_ROOT).as_posix().startswith(historical)
+    ]
+    current += [WORKSPACE_ROOT / "README.md", *WORKSPACE_ROOT.glob("vaaet-*/README.md")]
+    title_version = re.compile(r"^# .*\b\d+\.\d+\.\d+\s*$", re.MULTILINE)
+    offenders = [
+        path.relative_to(WORKSPACE_ROOT).as_posix()
+        for path in current
+        if "<!-- context:" in (text := path.read_text(encoding="utf-8"))
+        or title_version.search(text)
+        or "Última revisión" in text
+    ]
+    assert offenders == []
+    assert not (WORKSPACE_ROOT / "docs" / "operations" / "deployment.md").exists()
+
+
+def test_adr_index_lists_every_decision_record() -> None:
+    """Mantiene el índice de ADRs como único listado completo de decisiones."""
+
+    decisions_dir = WORKSPACE_ROOT / "docs" / "architecture" / "decisions"
+    index = (decisions_dir / "README.md").read_text(encoding="utf-8")
+    records = sorted(
+        path.name
+        for path in decisions_dir.glob("[0-9][0-9][0-9][0-9]-*.md")
+        if not path.name.startswith("0000-")
+    )
+    assert records
+    assert [name for name in records if f"]({name})" not in index] == []
+    assert (decisions_dir / "0000-template.md").is_file()
+
+
 def test_future_product_documents_are_explicitly_non_normative() -> None:
     future_documents = {
-        "docs/product/business-model-canvas.md": "Hipótesis de producto futura",
-        "docs/governance/statement-of-work.md": "no es una oferta ni un contrato",
-        "docs/product/user-personas.md": "Hipótesis de producto futura",
+        "docs/archive/business-model-canvas.md": "Hipótesis de producto futura",
+        "docs/archive/statement-of-work.md": "no es una oferta ni un contrato",
+        "docs/archive/user-personas.md": "Hipótesis de producto futura",
+        "docs/archive/feasibility.md": "No normativo",
+        "docs/archive/non-disclosure-agreement.md": "No normativo",
+        "docs/archive/risk-matrix.md": "No normativo",
+        "docs/archive/project-plan.md": "No normativo",
     }
     for relative, status in future_documents.items():
         content = (WORKSPACE_ROOT / relative).read_text(encoding="utf-8")
         assert status in content
+        assert "No normativo" in content
         assert "$" not in content
         assert "GPU T4/V100" not in content
 

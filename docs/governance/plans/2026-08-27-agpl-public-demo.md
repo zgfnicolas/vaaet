@@ -2,7 +2,7 @@
 
 - Fecha de inicio: 2026-08-27
 - Estado global: Preparación AGPL completada; fase 4 espera alcance de aplicación
-- Ticket, issue o PR vinculado: N/A
+- Ticket, issue o PR vinculado: [#4](https://github.com/zgfnicolas/vaaet/pull/4)
 
 ## 1. Contexto y restricciones
 

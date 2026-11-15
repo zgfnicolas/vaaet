@@ -4,6 +4,7 @@
 - Alcance: Persistence 0.3.3 y ML 4.9.3; Core permanece en 0.2.2
 - Decisión: [ADR-0036](../../architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md)
 - Estado: implementado; aceptación operacional pendiente
+- PR: [#30](https://github.com/zgfnicolas/vaaet/pull/30)
 
 ## Fases
 

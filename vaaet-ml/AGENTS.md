@@ -1,93 +1,88 @@
-# AGENTS.md — Contexto de ejecución para agentes de IA
+# AGENTS.md — VAAET ML
 
-## Identificación
+Leé primero el [`AGENTS.md`](../AGENTS.md) raíz. Este componente es el
+laboratorio: distribución `vaaet-ml`, import `vaaet_ml`. Consume `vaaet-core`
+(import `vaaet`) y `vaaet-persistence` (import `vaaet_persistence`) por sus APIs
+públicas y nunca se usa para serving. Trabajá con criterio de ML Engineer:
+conservá la compatibilidad con Colab Free y los contratos vigentes.
 
-| Campo | Detalle |
-|---|---|
-| Proyecto | VAAET ML — Video Advanced Analysis of Traffic |
-| Versión | 4.9.3 |
-| Runtime objetivo | Python 3.10–3.13; Google Colab |
-| Responsable | Facundo Nicolás González |
-| Última revisión | 2026-09-16 |
+## Estructura
 
-## Mandato
-
-Actuá como Senior ML Engineer con foco en visión artificial, MLOps y pipelines de datos. Antes de editar, leé `../AGENTS.md`, `../llms.txt`, este archivo y las decisiones aplicables en `../docs/architecture/decisions/`. Conservá la compatibilidad con Colab Free y los contratos vigentes.
-
-VAAET tiene tres workflows operacionales y un cuarto notebook activo de
-evaluación:
+Los cuatro notebooks: tres workflows operacionales y una auditoría read-only.
 
 ```text
-notebooks/data-collection/  adquisición opcional de telemetría y video anotado
-notebooks/training/         preparación de 19 features y entrenamiento batch
-notebooks/inference/        inferencia de video, estado y feedback
-notebooks/evaluation/       auditoría Champion--Challenger read-only
-src/vaaet_ml/               laboratorio instalable: datos, entrenamiento y evaluación
-tests/                      pruebas unitarias, contractuales y de repositorio
+notebooks/data-collection/collect_traffic_telemetry.ipynb   adquisición opcional de telemetría y video anotado
+notebooks/training/train_traffic_state_classifier.ipynb     19 features y entrenamiento batch
+notebooks/inference/analyze_traffic_video.ipynb             inferencia, estado y revisión HITL
+notebooks/evaluation/evaluate_models_and_eda.ipynb          Champion--Challenger read-only
+src/vaaet_ml/                                               laboratorio instalable
+tests/                                                      pruebas unitarias, contractuales y de repositorio
 ```
 
-Adquisición, entrenamiento e inferencia son workflows operacionales. Evaluación
-no crea `pipeline_run` ni persiste datos.
+| Ruta | Responsabilidad |
+|---|---|
+| `src/vaaet_ml/settings.py` | Rutas y configuración del laboratorio. DVC nunca se configura acá. |
+| `src/vaaet_ml/data/` | Datasets, backups, catálogo HITL, input locks, adaptadores Colab y fachadas PostgreSQL. |
+| `src/vaaet_ml/features/` | Ingeniería, etiquetado y generación sintética para entrenamiento. |
+| `src/vaaet_ml/training/` | Modos `SEED_BOOTSTRAP` y `HITL_RETRAINING`, holdout y balanceo. |
+| `src/vaaet_ml/evaluation/` | Comparación, drift y reporting. |
+| `src/vaaet_ml/view_plan.py` | Carga el JSON privado de `VIEW_PLAN_PATH` y entrega al core un contrato validado. |
 
 La lógica operativa reutilizable vive en `../vaaet-core/src/vaaet/` y el acceso
-PostgreSQL en `../vaaet-persistence/src/vaaet_persistence/`; este componente
-consume ambas bibliotecas. La Web App futura sólo consumirá una API cuyo backend
-usará core/persistencia y validará el bundle v3. El MLP aprende tres estados estables;
-Accident es un estado público exclusivamente humano conforme a ADR-0014.
-ADR-0021 gobierna esta frontera junto con los ADRs de datos, HITL y holdouts;
-ADR-0030 completa la idempotencia operacional, ADR-0031 gobierna la
-publicación coordinada del catálogo y la recuperación portable, ADR-0032
-gobierna el orden de consolidación y los resultados con auditoría incompleta, y
-ADR-0033 bloquea validaciones pendientes hasta verificar su comprobante.
-ADR-0034 exige la misma evidencia al sellar, publicar y consumir paquetes HITL.
-ADR-0035 vincula la recuperación a la sesión original y exige CSV tipado sin pérdida.
-ADR-0036 invalida sesiones alteradas y sincroniza el formulario con la recuperación.
+PostgreSQL en `../vaaet-persistence/src/vaaet_persistence/`; no la traslades a
+`src/vaaet_ml/` ni a los notebooks.
 
-## Gobernanza
+## Reglas
+
+- Los notebooks sólo orquestan: instalan core, persistencia y ML en ese orden,
+  importan `vaaet.*`, `vaaet_persistence.*` y `vaaet_ml.*` según responsabilidad
+  y nunca modifican `sys.path`.
+- Adquisición, entrenamiento e inferencia crean un `pipeline_run`; evaluación no
+  crea corridas ni persiste datos, y no promociona modelos.
+- `VIEW_PLAN_PATH = None` conserva la vista única. Los planes reales, perfiles y
+  referencias geométricas no se versionan.
+- Seed, paquetes HITL, input locks y holdouts son inmutables; sólo el runtime
+  designado con un `HitlCatalogPublisher` activo modifica el catálogo.
+- Los perfiles de workflow leen `VAAET_DB_*` y `VAAET_<PROFILE>_DB_*` desde
+  Colab Secrets o el entorno. La identidad administrativa nunca se usa en Colab.
+- DVC se administra desde la raíz con el remoto `vaaet-registry`: instalá `dvc`
+  y sólo el plugin necesario (`dvc-gdrive` o `dvc-s3`).
+- Las revisiones Alembic son historial ejecutable y no se reescriben.
+
+Las reglas de datos y HITL, con su ADR de origen, están en las
+[reglas de negocio](../docs/product/business-rules.md) (RN-13 a RN-19). Los
+ADRs vigentes por tema están en el
+[índice de ADRs](../docs/architecture/decisions/README.md).
+
+## Límites
 
 | Nivel | Acciones |
 |---|---|
-| Always | Leer ADRs aplicables; ejecutar Ruff, tests, compilación y enlaces; mantener notebooks como orquestadores. |
-| Ask | Cambiar las 19 `FEATURE_COLS`, esquema PostgreSQL, dependencias, umbrales, MLP, remotes DVC o una nueva refactorización mayor. |
-| Never | Commitear secretos; eliminar tests; versionar `.pt`, `.keras` o `.joblib` directamente con Git; hardcodear conexiones; romper Colab Free. |
-
-## Capas y reglas
-
-- `../vaaet-core/src/vaaet/`: contratos, umbrales algorítmicos, percepción,
-  features, política de estados e inferencia portable.
-- `settings.py`: rutas y configuración exclusiva del laboratorio. DVC se
-  configura desde la raíz mediante `vaaet-registry` y nunca desde settings.
-- `data/`: datasets, backups, adaptadores Colab y fachadas PostgreSQL 4.x.
-- `../vaaet-persistence/`: configuración, conexiones, SQL, escrituras,
-  auditoría, roles y única cadena Alembic.
-- `features/`: ingeniería, etiquetado y generación sintética de entrenamiento.
-- `evaluation/`: comparación, drift y reporting de laboratorio.
-
-Los notebooks instalan `vaaet-core`, `vaaet-persistence` y luego `vaaet-ml`:
-importan `vaaet.*` para operaciones, `vaaet_persistence.*` para PostgreSQL y
-`vaaet_ml.*` para laboratorio. Nunca modifican
-`sys.path`. El core no puede importar este paquete ni PostgreSQL, DVC o Drive.
+| Always | Leer los ADRs aplicables; ejecutar Ruff, tests, compilación y enlaces; mantener los notebooks como orquestadores. |
+| Ask | Cambiar las 19 `FEATURE_COLS`, el esquema PostgreSQL, dependencias, umbrales, el MLP, remotos DVC o iniciar una refactorización mayor. |
+| Never | Commitear secretos; eliminar tests; versionar `.pt`, `.keras` o `.joblib` con Git; hardcodear conexiones; romper Colab Free. |
 
 ## Comentarios y docstrings
 
-Mantené identificadores y código en inglés. Redactá comentarios y docstrings
-propios en español rioplatense formal; explicá contratos, efectos laterales,
-invariantes y decisiones no evidentes, sin narrar operaciones triviales. Usá
-forma declarativa en contratos y voseo formal sólo en instrucciones operativas.
-Las revisiones Alembic son historial ejecutable y no se reescriben para adaptar
-su estilo documental.
+Identificadores y código en inglés. Comentarios y docstrings propios en español
+rioplatense formal: forma declarativa en contratos y voseo formal sólo en
+instrucciones operativas. Explicá contratos, efectos laterales, invariantes y
+decisiones no evidentes, sin narrar operaciones triviales.
 
 ## Validación
 
-1. Instalar `../vaaet-core`, `../vaaet-persistence` y luego este componente local.
-2. `ruff check src tests scripts`
-3. `pyright --project ../pyrightconfig.json`
-4. `pytest tests/ -v --tb=short`
-5. `python -m compileall -q src tests scripts`
-6. Compilar las celdas de los cuatro notebooks con `ast.parse()`.
-7. Comprobar enlaces Markdown.
-8. Ejecutar `git diff --check`.
+Desde `vaaet-ml/`, con core, persistencia y este componente instalados:
 
-GPU, Drive, PostgreSQL, descarga de YOLO y DVC remoto se validan manualmente en Colab.
+```bash
+ruff check src tests scripts migrations
+pyright --project ../pyrightconfig.json
+pytest tests/ -v --tb=short -m "not postgres"
+python -m compileall -q src tests scripts migrations
+ruff check notebooks --select F821
+python ../.codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py notebooks
+git diff --check
+```
 
-No agregar, quitar ni reordenar las 19 `FEATURE_COLS`; no cambiar los cuatro estados públicos ni el esquema PostgreSQL sin autorización y un ADR. ADR-0021 gobierna el core/laboratorio; ADR-0013 el workflow de adquisición, ADR-0014 la arquitectura jerárquica, ADR-0015 los namespaces/HITL, ADR-0016 el hardening y linaje operacional, ADR-0017 los modos semilla/HITL, ADR-0018 el benchmark humano versionado, ADR-0019 los datasets inmutables, ADR-0024 la configuración PostgreSQL portable, ADR-0028 la capa compartida y ADR-0029 la fidelidad numérica e integridad HITL.
+El CI compila además cada celda de los notebooks con `ast.parse()` y verifica
+los enlaces Markdown. GPU, Drive, PostgreSQL real, descarga de YOLO y DVC remoto
+se validan manualmente en Colab.

@@ -1,37 +1,52 @@
-<!-- context: VAAET/docs/product/product-requirements.md — Requisitos de producto vigentes. -->
+# PRD — VAAET
 
-# Documento de Requisitos del Producto (PRD) — VAAET
+**Normativo y vigente.** Define el producto de laboratorio actual: qué hace,
+para quién y con qué límites. No autoriza una API, frontend ni despliegue web.
+Ante una contradicción prevalecen los [ADRs](../architecture/decisions/), los
+contratos y las [reglas de negocio](business-rules.md).
 
-## Estado documental
+Responsable: Facundo Nicolás González
 
-**Normativo y vigente.** Define el producto de laboratorio actual; no autoriza
-una API, frontend ni despliegue web. Para decisiones de arquitectura prevalecen
-[ADR-0021](../architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
-y [ADR-0022](../architecture/decisions/0022-agpl-public-demo-path.md), la
-persistencia compartida sigue
-[ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md), y para
-cinemática multi-vista
-[ADR-0025](../architecture/decisions/0025-calibrated-multi-view-video-segments.md).
+## 1. Visión
 
-| Campo | Detalle |
-|---|---|
-| Versión del laboratorio | 4.9.3 |
-| Última revisión | 2026-08-30 |
-| Responsable técnico | Facundo Nicolás González |
+Que un video de tránsito se convierta en telemetría por minuto, un estado de
+circulación conservador y evidencia que una persona pueda revisar, con datos y
+modelos reproducibles.
 
-## Producto actual
+## 2. Problema
 
-VAAET analiza videos del Puente General Manuel Belgrano para producir
-telemetría por minuto, video anotado y una clasificación conservadora del
-tráfico. `vaaet-core` aporta percepción, telemetría, 19 features, política de
-estados y bundle portable; `vaaet-persistence` aporta PostgreSQL compartido; y
-`vaaet-ml` aporta notebooks, datasets, entrenamiento y evaluación.
+Analizar un video de tránsito a mano exige mirar cada minuto, contar vehículos y
+estimar velocidades sin un criterio uniforme ni registro reproducible. Un
+clasificador automático, en cambio, puede publicar estados que nadie revisó y
+transferirse a otra cámara sin validación. VAAET resuelve el análisis batch de
+videos finitos del Puente General Manuel Belgrano y deja la confirmación de
+incidentes en manos humanas.
 
-El MLP predice `Normal`, `Reduced` y `Congested`. `Accident` es un estado
-público exclusivamente humano; un candidato de incidente conserva `Congested`
-hasta una revisión explícita.
+## 3. Público objetivo
 
-## Alcance vigente
+| Usuario | Necesidad | Acceso vigente |
+|---|---|---|
+| Operador o analista de video | Analizar un clip autorizado y revisar telemetría, estado y video anotado | Notebook de inferencia |
+| Investigador de tránsito | Reproducibilidad, datasets trazables y evidencia de calidad | Los cuatro notebooks |
+| Revisor | Confirmar o corregir estados, incluido `Accident` | Revisión HITL del notebook de inferencia |
+
+Los permisos de cada uno están en [roles y permisos](roles.md). Un responsable
+vial o institucional que consuma informes es una hipótesis futura sin acceso
+directo; consultá el [archivo](../archive/README.md).
+
+## 4. Propuesta de valor
+
+- Telemetría por minuto completo, con métricas de calidad de la medición en
+  lugar de valores inventados.
+- Un MLP que aprende sólo estados estables y una política temporal que reduce
+  oscilaciones y falsos positivos.
+- Incidentes señalados para revisión, nunca publicados automáticamente.
+- Bundles, datasets, holdouts e input locks reproducibles para un ciclo de
+  mejora con Human-in-the-Loop (HITL).
+
+## 5. Alcance
+
+### Incluido
 
 - Detección YOLO, tracking SORT, velocidad physics-first y estado estacionario
   conservador sobre videos finitos y ordenados.
@@ -43,67 +58,146 @@ hasta una revisión explícita.
 - Cuatro notebooks: adquisición, entrenamiento, inferencia y evaluación
   Champion--Challenger read-only.
 - PostgreSQL e HITL opcionales, con perfiles de mínimo privilegio y persistencia
-  visible sólo si el usuario la habilita.
+  sólo si el usuario la habilita.
 
-Quedan fuera de alcance la API, el frontend, serving web, multi-cámara
-simultánea, detección automática de cambios de vista, lectura de patentes,
-predicción de tráfico futuro, alertas push y cualquier cola o worker de
-aplicación. `vaaet-app/` sigue reservado.
+### Fuera de alcance
 
-## Historias de usuario vigentes
+Quedan fuera de alcance la API, el frontend, el serving web, multi-cámara
+simultánea, detección automática de cambios de vista, ROI de parking, streaming,
+lectura de patentes, predicción de tráfico futuro, alertas push y cualquier
+cola o worker de aplicación. `vaaet-app/` sigue reservado.
 
-### US-001 — Procesar video
+## 6. Historias de usuario
 
-Como operador o investigador, quiero ejecutar adquisición o inferencia sobre un
-video para obtener telemetría observada por minuto y un video anotado opcional.
-La ejecución de visión requiere GPU: el preflight falla antes de una tarea
-costosa si Colab no la asignó.
+| ID | Como... | Quiero... | Para... | Prioridad |
+|---|---|---|---|---|
+| HU-01 | operador o investigador | procesar un video | obtener telemetría por minuto y un video anotado | Alta |
+| HU-02 | operador | clasificar cada minuto con un bundle validado | conocer el estado estable del tránsito | Alta |
+| HU-03 | investigador | persistir resultados en PostgreSQL | conservar raw, features, predicciones y feedback | Media |
+| HU-04 | investigador | entrenar el clasificador | obtener un bundle candidato trazable | Alta |
+| HU-05 | revisor | validar o corregir predicciones | que el entrenamiento use decisiones humanas | Alta |
+| HU-06 | investigador | comparar dos bundles | decidir una promoción con evidencia | Media |
 
-### US-002 — Clasificar tráfico
+### Criterios de aceptación
 
-Como operador, quiero conocer el estado estable de cada minuto completo con un
-bundle validado. El resultado automático es 0–2; `Accident` nunca se publica sin
-validación humana.
+**HU-01 — Procesar video**
 
-### US-003 — Entrenar y evaluar
+- Dado un MP4 y una GPU asignada, cuando se ejecuta adquisición o inferencia,
+  entonces se obtiene telemetría v3 sólo de minutos completos y el tramo final
+  parcial se descarta.
+- Dado que Colab no asignó GPU, cuando se inicia un workflow de visión, entonces
+  el preflight falla antes de la tarea costosa.
+- Dado un nombre libre de video, cuando se procesa, entonces `record_time` usa
+  la hora de procesamiento y se advierte menor trazabilidad.
+- Dado un minuto sin detecciones, cuando se genera la telemetría, entonces se
+  registran sólo valores observados y señales de calidad, sin promedios
+  históricos.
 
-Como investigador, quiero entrenar con un plan tipado de semilla o HITL y
-evaluar candidatos contra un holdout humano inmutable. Un bundle sólo es
-elegible cuando satisface sus gates de procedencia, soporte, calibración y
-calidad; los objetivos aún no son evidencia operacional publicada.
+**HU-02 — Clasificar tráfico**
 
-### US-004 — Persistir resultados de laboratorio
+- Dado un bundle cuyo manifiesto no valida, cuando se intenta cargarlo,
+  entonces se rechaza antes de deserializar binarios.
+- Dado un bundle válido, cuando se clasifica un minuto, entonces el estado
+  automático es `Normal`, `Reduced` o `Congested` (0–2).
+- Dada evidencia fuerte y persistente de incidente, cuando la política la
+  detecta, entonces el estado se mantiene `Congested` y se marca
+  `accident_rule_triggered` para revisión.
+- Dado un bundle semilla `pilot`, cuando se usa en inferencia, entonces se
+  exige autorizarlo explícitamente.
 
-Como investigador, puedo habilitar PostgreSQL con un perfil limitado para
-guardar datos raw, features, predicciones o feedback idempotentemente. Sin
-credenciales o ante un fallo, el workflow informa que no hubo persistencia y
-conserva los outputs locales disponibles.
+**HU-03 — Persistir resultados**
 
-## Objetivos y límites de calidad
+- Dado un perfil de mínimo privilegio configurado, cuando se habilita la
+  persistencia, entonces las escrituras son idempotentes y se informa el
+  resultado.
+- Dada la falta de credenciales o un fallo de conexión, cuando termina el
+  workflow, entonces informa que no hubo persistencia y conserva los outputs
+  locales.
+- Alembic, roles y credenciales administrativas nunca se ejecutan desde Colab.
 
-Los objetivos de detección, velocidad y clasificación se miden sólo cuando haya
-ground truth y holdout humano compatibles; no son resultados ya demostrados.
+**HU-04 — Entrenar clasificador**
 
-| Métrica | Objetivo / invariante |
+- Dado un plan `SEED_BOOTSTRAP` o `HITL_RETRAINING` válido, cuando se entrena,
+  entonces se obtiene un bundle v3 candidato con procedencia, checksums, gates
+  y un training input lock.
+- Dadas predicciones no validadas, cuando se arma el dataset, entonces nunca se
+  usan como etiquetas.
+- Dado un holdout humano congelado, cuando se entrena, entonces todos sus clips
+  quedan excluidos de train.
+
+**HU-05 — Revisar HITL**
+
+- Dada una predicción, cuando el revisor la valida, entonces se agrega una
+  validación append-only y la predicción histórica no cambia.
+- Dado que el revisor elige `Accident`, cuando confirma, entonces debe incluir
+  una nota y confirmar que revisó el contexto temporal.
+- Dada una validación con auditoría pendiente, cuando se finaliza la revisión,
+  entonces no se exporta ni se usa como target hasta recuperarla.
+
+**HU-06 — Evaluar candidatos**
+
+- Dados dos bundles y un holdout compatible, cuando se ejecuta la evaluación,
+  entonces se validan ambos manifiestos y se publican métricas emparejadas.
+- Ejecutar la evaluación no crea `pipeline_run`, no escribe en DVC ni
+  PostgreSQL y no promociona modelos.
+
+## 7. Requisitos funcionales
+
+| ID | Requisito | HU | Prioridad |
+|---|---|---|---|
+| RF-001 | Obtener la procedencia temporal del nombre canónico `bridge_YYYY-MM-DD_HH-MM-SS_to_HH-MM-SS.mp4` y advertir menor trazabilidad para nombres libres. | HU-01 | P0 |
+| RF-002 | Seleccionar una variante YOLO 11 permitida según la duración del clip. | HU-01 | P0 |
+| RF-003 | Detectar `car`, `truck`, `bus`, `motorcycle` y `bicycle` bajo los umbrales centrales del core. | HU-01 | P0 |
+| RF-004 | Mantener tracking SORT con IDs por clip y poda de tracks. | HU-01 | P0 |
+| RF-005 | Estimar velocidad con flujo óptico, compensación de cámara, perspectiva, plausibilidad y agregación robusta. | HU-01 | P0 |
+| RF-006 | Confirmar estacionario con la política conservadora e histéresis vigente. | HU-01 | P1 |
+| RF-007 | Generar telemetría v3 y las 19 features de `vaaet.settings.FEATURE_COLS`. | HU-01, HU-04 | P0 |
+| RF-008 | Clasificar sólo `Normal`, `Reduced` y `Congested`; `Accident` requiere validación humana. | HU-02, HU-05 | P0 |
+| RF-009 | Persistir opt-in mediante `vaaet-persistence`, con operaciones idempotentes y estado visible. | HU-03 | P1 |
+| RF-010 | Generar video anotado con HUD, tracks, tipos y velocidad cuando corresponda. | HU-01 | P1 |
+| RF-011 | Registrar datos sintéticos y entrenamiento HITL conforme a los contratos de procedencia y holdout. | HU-04, HU-05 | P1 |
+| RF-012 | Procesar segmentos offline de vistas declaradas con calibración local, reinicio de estado y descarte de minutos mixtos. | HU-01 | P1 |
+
+## 8. Requisitos no funcionales
+
+| ID | Categoría | Requisito |
+|---|---|---|
+| RNF-01 | Fiabilidad | La sesión de visión preserva el orden de frames y procesa con Pipe-and-Filter síncrono. |
+| RNF-02 | Fiabilidad | Un error de decodificación termina el clip de forma segura y conserva sólo resultados ya materializados. |
+| RNF-03 | Fiabilidad | Un fallo de PostgreSQL no invalida el video ya procesado; la persistencia es una etapa separada. |
+| RNF-04 | Seguridad | Los secretos se leen desde Colab Secrets o variables de entorno; no se usa `getpass` ni se imprimen valores sensibles. |
+| RNF-05 | Seguridad | PostgreSQL usa TLS `verify-full` por defecto y un perfil de mínimo privilegio por workflow. |
+| RNF-06 | Mantenibilidad | El core no depende de PostgreSQL, DVC, Drive, notebooks ni `vaaet_ml`; persistencia depende sólo del core base. |
+| RNF-07 | Mantenibilidad | Los notebooks sólo orquestan módulos probados y no modifican `sys.path`. |
+| RNF-08 | Portabilidad | Python 3.10–3.13; se instala `vaaet-core`, luego `vaaet-persistence` y por último `vaaet-ml`, desde sus `pyproject.toml`. |
+| RNF-09 | Entorno | Adquisición, entrenamiento e inferencia requieren GPU gestionada por Colab; evaluación es read-only y no la exige. |
+
+## 9. Métricas de éxito
+
+Los objetivos se miden sólo con ground truth y holdout humano compatibles;
+todavía no son resultados demostrados.
+
+| Métrica | Objetivo |
 |---|---|
-| F1-macro del clasificador | ≥ 0.88 sobre holdout humano apto |
-| F1 de detección | 0.97, objetivo pendiente de benchmark |
-| MAE de velocidad | < 5 km/h, objetivo pendiente de ground truth |
+| F1-macro del clasificador | ≥ 0,88 sobre holdout humano apto |
+| F1 de detección | 0,97, pendiente de benchmark |
+| MAE de velocidad | < 5 km/h, pendiente de ground truth |
 | Estados `Accident` automáticos | 0 |
 
-La guía de medición está en [KPIs](../quality/kpis.md) y las limitaciones en
+Los gates por clase están en la [model card](../ml/model-card.md), la medición en
+[KPIs](../quality/kpis.md) y las limitaciones en
 [sesgos y limitaciones](../ml/bias-and-limitations.md).
 
-## Restricciones técnicas
+## 10. Supuestos, riesgos y preguntas abiertas
 
-- Python 3.10–3.13; instalar primero `vaaet-core` (import `vaaet`) y después
-  `vaaet-ml` (import `vaaet_ml`).
-- Colección, entrenamiento e inferencia requieren GPU gestionada por Colab;
-  evaluación es read-only y no la exige.
-- Los notebooks son orquestadores. No modifican `sys.path`, no instalan DVC por
-  separado ni manejan secretos en celdas.
-- La demo web futura sólo podrá habilitarse por la vía pública AGPL con activos
-  aprobados o por la vía Enterprise privada/comercial de ADR-0022.
-
-La arquitectura, los contratos y los próximos pasos canónicos están en la
-[documentación de VAAET](../index.md).
+- Los datos provienen de un único puente, período y configuración de cámara; el
+  modelo no se transfiere a otra vía sin validación local.
+- Colab no garantiza GPU, tipo de acelerador, cuotas ni duración de sesión; las
+  validaciones reales siguen siendo manuales.
+- Videos y datos HITL requieren autorización y no se distribuyen por el carácter
+  público del repositorio.
+- Una demo web con YOLO sólo puede seguir la vía pública AGPL con activos
+  aprobados o la vía Enterprise privada de
+  [ADR-0022](../architecture/decisions/0022-agpl-public-demo-path.md).
+- Pregunta abierta: qué alcance, contrato HTTP y activos redistribuibles
+  habilitarán `vaaet-app/`.

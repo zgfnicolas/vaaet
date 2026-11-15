@@ -1,6 +1,6 @@
 # ADR-009: Modular Three-Stage Architecture
 
-**Status:** Accepted  
+**Estado:** Aceptada\
 **Date:** 2026-03-10  
 **Supersedes:** ADR-001 (Monolithic Notebook)  
 **Decisors:** VAAET Team

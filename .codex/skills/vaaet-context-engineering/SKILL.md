@@ -1,6 +1,6 @@
 ---
 name: vaaet-context-engineering
-description: Design, audit, or safely evolve VAAET AI context and repository documentation. Use for AGENTS.md and llms.txt upkeep, documentation hierarchy, ADR and contract discoverability, risk-proportionate HITL planning, context-rot reviews, or repository onboarding improvements.
+description: Design, audit, or safely evolve VAAET AI context and repository documentation. Use for AGENTS.md and tool pointer file upkeep, documentation hierarchy, ADR and contract discoverability, risk-proportionate HITL planning, context-rot reviews, or repository onboarding improvements.
 ---
 
 # VAAET Context Engineering
@@ -15,9 +15,12 @@ than copying their contents into a new summary.
 | --- | --- |
 | Human project entrypoint | `README.md` |
 | Agent operating boundaries | `AGENTS.md` |
-| Dense machine-readable project summary | `llms.txt` |
+| Tool pointer files | `CLAUDE.md` and `.github/copilot-instructions.md` (one line pointing to `AGENTS.md`) |
 | Documentation navigation | `docs/index.md` |
+| Requirements, roles and business rules | `docs/product/` |
+| Decision index | `docs/architecture/decisions/README.md` |
 | Portable Python component | `vaaet-core/` and `vaaet-core/AGENTS.md` |
+| Shared persistence component | `vaaet-persistence/` and `vaaet-persistence/AGENTS.md` |
 | ML laboratory component | `vaaet-ml/` and `vaaet-ml/AGENTS.md` |
 | Reserved application boundary | `vaaet-app/` (no code until approved) |
 | Architecture and ADRs | `docs/architecture/` |
@@ -33,8 +36,9 @@ Before editing component code, read the root context and the owning component's
 `AGENTS.md`. ADR-0021 governs the core--ML--app boundary; read ADR-0022 before
 planning any serving path that uses YOLO.
 
-Do not create a parallel root such as `llm.txt`, `architecture.md`, or
-`instructions.md`. Do not introduce `.ai/`, `agents_custom/`, generic prompt
+Do not create a parallel root such as `llms.txt`, `llms-full.txt`,
+`architecture.md`, or `instructions.md`; `AGENTS.md` is the single agent
+context file and other tools get a one-line pointer to it. Do not introduce `.ai/`, `agents_custom/`, generic prompt
 catalogs, or a second skills hierarchy. Keep context in plain text and Markdown
 so it remains portable across tools while keeping VAAET's `.codex/skills/` as
 the local capability catalogue.
@@ -46,10 +50,12 @@ canonical contract or ADR; after the change, update only the affected source of
 truth, its navigation link when necessary, and any concise summary that became
 factually stale.
 
-Keep `llms.txt` hyper-dense: stable workflows, paths, contracts, invariants, and
-required validation only. Do not turn it into a duplicate README, ADR archive,
-or implementation diary. Keep diagrams and detailed explanations in their
-appropriate `docs/` domain.
+Keep `AGENTS.md` under 150 lines: routing, commands, where things live,
+inviolable rules with links, limits, and closing evidence. Point to files
+instead of copying them; never list ADRs one by one outside the decision index,
+and never hardcode component versions outside `pyproject.toml`, the changelog,
+and CI. Keep diagrams and detailed explanations in their appropriate `docs/`
+domain.
 
 Never place secrets, passwords, API tokens, DSNs, certificates, private paths,
 PII, raw production payloads, or unredacted exceptions in context files, plans,

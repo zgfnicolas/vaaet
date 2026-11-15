@@ -1,5 +1,3 @@
-<!-- context: VAAET/docs/architecture/diagrams/speed-calculation.md — Flujo vigente de velocidad physics-first. -->
-
 # Flujo de cálculo de velocidad physics-first
 
 `vaaet-core/src/vaaet/vision/pipeline.py` coordina el análisis ordenado; la

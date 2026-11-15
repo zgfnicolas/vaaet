@@ -1,6 +1,3 @@
-<!-- context: VAAET/docs/ml/bias-and-limitations.md — Sesgos y limitaciones.
-Complementa KPIs/KPIs.md (métricas) y DATA_LINEAGE.md (linaje). -->
-
 # Sesgos y Limitaciones — VAAET
 
 **Estado documental: normativo y vigente.** Las metas de calidad son hipótesis

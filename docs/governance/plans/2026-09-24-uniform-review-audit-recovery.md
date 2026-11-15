@@ -4,6 +4,7 @@
 - Alcance: Persistence 0.3.1 y ML 4.9.1; Core permanece en 0.2.2
 - Decisión: [ADR-0034](../../architecture/decisions/0034-uniform-review-audit-evidence.md)
 - Estado: implementado; aceptación operacional pendiente de PostgreSQL 17, Colab y Drive
+- PR: [#29](https://github.com/zgfnicolas/vaaet/pull/29)
 
 ## Fases
 

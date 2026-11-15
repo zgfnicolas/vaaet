@@ -2,7 +2,7 @@
 
 - Fecha de inicio: 2026-08-25
 - Estado global: Validación local completada; evidencia manual de Colab pendiente
-- Ticket, issue o PR vinculado: N/A
+- Ticket, issue o PR vinculado: [#1](https://github.com/zgfnicolas/vaaet/pull/1)
 
 ## 1. Contexto y restricciones
 

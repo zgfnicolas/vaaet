@@ -2,6 +2,10 @@
 
 # Estudio de factibilidad de software — VAAET
 
+> **Archivado el 2026-11-15. No normativo.** Se conserva como referencia
+> histórica; los supuestos y riesgos vigentes están en el
+> [PRD](../product/product-requirements.md).
+
 ## Estado documental
 
 **Normativo como evaluación condicionada del laboratorio.** No aprueba una

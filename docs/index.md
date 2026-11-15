@@ -1,96 +1,68 @@
 # Documentación de VAAET
 
-VAAET es un monorepo con `vaaet-core` (`vaaet`, 0.2.2),
-`vaaet-persistence` (`vaaet_persistence`, 0.3.3), `vaaet-ml` (`vaaet_ml`,
-4.9.3) y `vaaet-app` reservado. La topología está definida por
-[ADR-0021](architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
-y [ADR-0028](architecture/decisions/0028-shared-postgresql-persistence-layer.md),
-con integridad operacional actualizada por
-[ADR-0029](architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md)
-y [ADR-0030](architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
-y [ADR-0031](architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md)
-y [ADR-0032](architecture/decisions/0032-complete-cycle-integrity.md) y
-[ADR-0033](architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md) y
-[ADR-0034](architecture/decisions/0034-uniform-review-audit-evidence.md) y
-[ADR-0035](architecture/decisions/0035-review-recovery-and-lossless-packages.md) y
-[ADR-0036](architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md).
+Índice de toda la documentación vigente, agrupada por la pregunta que responde.
+Cada tema tiene un único documento responsable; los demás lo enlazan.
 
-## Estado y precedencia documental
+## Precedencia
 
-- **Normativo y vigente**: contratos, arquitectura, operaciones, requisitos,
-  calidad y seguridad describen el estado implementado.
-- **Hipótesis futura**: Canvas, SOW y personas conservan ideas de producto sin
-  prometer API, Web App, costos, plazos ni servicios disponibles.
-- **Histórico**: changelog y planes fechados registran su momento; los ADRs
-  conservan sus decisiones originales. ADR-0021 a ADR-0036
-  prevalecen para la topología, serving con YOLO, registro DVC, operación
-  PostgreSQL y segmentos de video calibrados actuales.
+1. **Normativo**: ADRs, contratos, reglas de negocio y seguridad. Prevalecen
+   sobre cualquier resumen, README o guía.
+2. **Operativo**: guías que describen cómo usar lo implementado.
+3. **Histórico**: changelog, planes fechados y el [archivo](archive/README.md).
+   Registran su momento y no describen el estado vigente.
 
-## Inicio para agentes de código
+## Información del repositorio — ¿qué es y cómo lo uso?
 
-Antes de editar, leer las [instrucciones de raíz](../AGENTS.md), el
-[resumen portable](../llms.txt), las reglas específicas de
-[`vaaet-core`](../vaaet-core/AGENTS.md) o
-[`vaaet-ml`](../vaaet-ml/AGENTS.md), y el ADR aplicable. Para una futura demo
-web con YOLO, leer además [ADR-0022](architecture/decisions/0022-agpl-public-demo-path.md)
-y el [checklist AGPL](governance/agpl-demo-release-checklist.md).
+- [README](../README.md) · [licencia](../LICENSE) · [cómo contribuir](../CONTRIBUTING.md)
+- [Seguridad](../SECURITY.md) · [soporte](../SUPPORT.md)
 
-## Puntos de entrada
+## Negocio — ¿qué problema resuelve y para quién?
+
+- [Requisitos del producto (PRD)](product/product-requirements.md)
+- [Roles y permisos](product/roles.md)
+- [Reglas de negocio](product/business-rules.md)
+
+## Técnico — ¿cómo está construido y por qué?
 
 - [Arquitectura de software](architecture/software-architecture.md)
-- [ADR-0020: monorepo ML y frontera de aplicación](architecture/decisions/0020-single-git-monorepo-and-application-boundary.md)
-- [ADR-0021: core portable y laboratorio ML](architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md)
-- [ADR-0022: vía AGPL-3.0 para demo web pública](architecture/decisions/0022-agpl-public-demo-path.md)
-- [ADR-0023: registro DVC portable por configuración local](architecture/decisions/0023-provider-neutral-dvc-registry.md)
-- [ADR-0024: PostgreSQL portable y migraciones como código](architecture/decisions/0024-provider-neutral-postgresql-and-schema-as-code.md)
-- [ADR-0025: segmentos multi-vista con calibración explícita](architecture/decisions/0025-calibrated-multi-view-video-segments.md)
-- [ADR-0026: continuidad temporal y revisiones inmutables](architecture/decisions/0026-temporal-continuity-and-immutable-model-revisions.md)
-- [ADR-0027: identidad completa, publicación recuperable e HITL uniforme](architecture/decisions/0027-complete-bundle-identity-and-hitl-integrity.md)
-- [ADR-0028: persistencia PostgreSQL compartida](architecture/decisions/0028-shared-postgresql-persistence-layer.md)
-- [ADR-0029: fidelidad numérica e integridad HITL](architecture/decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md)
-- [ADR-0030: idempotencia operacional y coherencia HITL portable](architecture/decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
-- [ADR-0031: integridad HITL y publicación coordinada del catálogo](architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md)
-- [ADR-0032: integridad determinista del ciclo completo](architecture/decisions/0032-complete-cycle-integrity.md)
-- [ADR-0033: recuperación verificable y auditoría HITL completa](architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md)
-- [ADR-0034: evidencia uniforme de auditoría para feedback humano](architecture/decisions/0034-uniform-review-audit-evidence.md)
-- [ADR-0035: recuperación vinculada a la sesión y paquetes sin pérdida](architecture/decisions/0035-review-recovery-and-lossless-packages.md)
-- [ADR-0036: sesiones HITL coherentes y enteros preservados](architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md)
+- [Modelo de datos PostgreSQL](architecture/data-model.md)
+- [Linaje de datos](architecture/data-lineage.md)
+- [Diagramas de arquitectura](architecture/diagrams/index.md)
+- [Registro de ADRs](architecture/decisions/README.md)
 - [Contrato del bundle](ml/model-artifact-contract.md)
-- [Guía del registro DVC](ml/dvc-guide.md)
-- [ADR de inicio semilla y HITL](architecture/decisions/0017-seed-bootstrap-and-hitl-retraining.md)
-- [ADR de holdout humano congelado](architecture/decisions/0018-versioned-frozen-human-holdouts.md)
-- [ADR de datasets semilla/HITL inmutables](architecture/decisions/0019-immutable-seed-and-hitl-datasets.md)
 - [Model card y gates de promoción](ml/model-card.md)
+- [Sesgos y limitaciones](ml/bias-and-limitations.md)
 - [Observabilidad de entrenamiento y ciclo HITL](ml/training-observability.md)
 - [Protocolo de anotación humana](ml/human-annotation-protocol.md)
+
+## Operación — ¿cómo lo ejecuto?
+
 - [Guía de usuario](operations/user-guide.md)
 - [Guía de Google Colab](operations/colab-guide.md)
 - [Configuración de workflows en notebooks](operations/notebook-configuration.md)
 - [Guía de calibración multi-vista](operations/multi-view-calibration-guide.md)
-- [Notebook de evaluación Champion--Challenger](../vaaet-ml/notebooks/evaluation/evaluate_models_and_eda.ipynb)
 - [Operación PostgreSQL](operations/postgresql-guide.md)
-- [Requisitos de producto](product/product-requirements.md)
+- [Guía del registro DVC](ml/dvc-guide.md)
+- [Runbook de demo temporal AWS](operations/aws-temporary-demo-runbook.md)
+
+## Calidad — ¿cómo sé que funciona?
+
 - [Plan de pruebas](quality/test-plan.md)
+- [KPIs y guía de validación](quality/kpis.md)
+
+## Gestión y gobernanza — ¿cómo se trabaja y hacia dónde va?
+
+- [Roadmap](roadmap.md)
+- [CHANGELOG](../CHANGELOG.md)
 - [Planes de ejecución gobernados](governance/plans/)
-- [Plan de demo pública AGPL](governance/plans/2026-08-27-agpl-public-demo.md)
+- [Política de seguridad y privacidad](governance/security-policy.md)
 - [Registro de licencias de terceros](governance/third-party-licenses.md)
 - [Checklist de demo pública AGPL](governance/agpl-demo-release-checklist.md)
-- [Runbook de demo temporal AWS](operations/aws-temporary-demo-runbook.md)
-- [Modelo PostgreSQL](architecture/data-model.md)
-- [ADR-0015: PostgreSQL seguro e HITL](architecture/decisions/0015-postgresql-namespaces-security-and-hitl.md)
-- [ADR-0016: hardening PostgreSQL y ejecuciones](architecture/decisions/0016-postgresql-hardening-and-pipeline-runs.md)
 
-## Mapa documental
+## Agentes de IA — ¿qué necesita saber un agente?
 
-- `architecture/`: diseño, datos, linaje, diagramas y decisiones.
-- `ml/`: model card, contrato, DVC, sesgos y limitaciones.
-- `product/`: requisitos, usuarios, casos de uso y factibilidad.
-- `operations/`: despliegue y operación.
-- `quality/`: pruebas, KPIs y riesgos.
-- `governance/`: planificación, seguridad y registros legales.
-
-Los cuatro notebooks son adquisición, entrenamiento, inferencia y evaluación.
-Los tres primeros son workflows operacionales; evaluación es un auditor
-read-only posterior al entrenamiento y no crea un `pipeline_run` ni persiste
-datos. Los ADRs y contratos prevalecen sobre resúmenes, README y guías
-operacionales.
+- [AGENTS.md](../AGENTS.md): única fuente de instrucciones. `CLAUDE.md` y
+  `.github/copilot-instructions.md` sólo apuntan a ella.
+- `AGENTS.md` de cada componente: [core](../vaaet-core/AGENTS.md),
+  [persistencia](../vaaet-persistence/AGENTS.md) y [ML](../vaaet-ml/AGENTS.md).
+- `.codex/skills/`: guías especializadas para Codex.

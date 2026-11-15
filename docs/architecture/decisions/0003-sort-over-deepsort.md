@@ -3,7 +3,7 @@ Referenciado por AGENTS.md, SAD.md §2.1. -->
 
 # ADR-003: SORT sobre DeepSORT/ByteTrack
 
-**Status:** Superseded by [ADR-0009](0009-modular-three-stage-architecture.md)
+**Estado:** Reemplazada por [ADR-0009](0009-modular-three-stage-architecture.md)
 > This ADR applies to the archived bootstrap module (`archive/bootstrap-v1/`) only.
 > SORT is still used in the production module. See ADR-009 for current architecture.  
 **Fecha:** 2026-03-06  

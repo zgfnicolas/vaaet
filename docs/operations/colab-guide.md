@@ -246,6 +246,34 @@ ejecuciones. Nunca acepta `current.json` como sustituto del ZIP de holdout exact
 
 El cliente es una dependencia del sistema operativo y por eso no forma parte de `vaaet-ml/pyproject.toml`. Si PGDG no está disponible o la instalación falla, cargá `traffic_data_raw.csv`; el notebook conserva el diagnóstico original y no continúa con datos vacíos.
 
+## Entornos
+
+| Entorno | Propósito | Datos |
+|---|---|---|
+| Desarrollo local | Desarrollo y pruebas de core, persistencia y ML | Sintéticos; sin GPU |
+| Google Colab | Ejecución manual de los notebooks | Videos autorizados; GPU no garantizada |
+| CI (GitHub Actions + PostgreSQL 17) | Validación automática | Pruebas puras, migraciones y grants reales; sin GPU |
+
+No hay despliegue automatizado ni infraestructura web. Una demo pública futura
+requiere el [checklist AGPL](../governance/agpl-demo-release-checklist.md) y el
+[runbook temporal de AWS](aws-temporary-demo-runbook.md).
+
+## Indicadores de salud y rollback
+
+Referencias para revisar una ejecución; no son gates de promoción.
+
+| Indicador | Rango esperado | Si se aparta |
+|---|---|---|
+| `speed_measurement_quality` | > 0,70 | Revisar la calidad del video y el flujo óptico. |
+| `rejected_speed_count` por minuto | < 30 % del total | Verificar la calibración de la vista. |
+| F1-macro del clasificador | ≥ 0,88 sobre holdout humano apto | Revisar gates y reentrenar con evidencia nueva. |
+
+Si un bundle nuevo se comporta peor, recuperá la versión registrada anterior con
+`vaaet-registry get --revision <tag> --out <destino>`, que valida checksums y
+contrato antes de materializarla, y cargala en inferencia. El procedimiento
+completo está en la [guía DVC](../ml/dvc-guide.md#guardar-ver-y-recuperar-versiones).
+Si no hay una versión registrada, reentrená desde el último input lock.
+
 ## Checklist manual
 
 - Confirmar GPU y descarga automática de YOLO.
@@ -261,3 +289,7 @@ El cliente es una dependencia del sistema operativo y por eso no forma parte de 
 - Completar una cola HITL, persistir con el perfil review y repetir una inferencia para confirmar que la validación sobrevive.
 - Reentrenar combinando el paquete semilla y una fuente de feedback validado;
   comprobar el peso proxy decreciente por clase.
+- Confirmar que los Secrets PostgreSQL están configurados por perfil y fuera de
+  Git, si se habilita la persistencia.
+- Usar Drive y DVC sólo para activos aprobados; no tratarlos como
+  infraestructura de serving.

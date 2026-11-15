@@ -1,4 +1,4 @@
-# Linaje de datos — VAAET ML 4.9.3
+# Linaje de datos — VAAET
 
 ## Flujo operacional
 

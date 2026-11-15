@@ -3,6 +3,9 @@ Preparado para uso futuro cuando el proyecto escale a contexto corporativo. -->
 
 # Acuerdo de Confidencialidad (NDA) — VAAET
 
+> **Archivado el 2026-11-15. No normativo.** Borrador para un uso futuro que
+> todavía no ocurrió; no está vigente ni firmado.
+
 ## Identificación del Proyecto
 
 | Campo | Detalles |
@@ -66,7 +69,7 @@ El presente acuerdo establece las obligaciones de confidencialidad para las part
 
 1. **Identificar claramente** qué información es confidencial
 2. **Proporcionar acceso** seguro a los datos necesarios para el trabajo
-3. **Mantener actualizada** la [política de seguridad](security-policy.md)
+3. **Mantener actualizada** la [política de seguridad](../governance/security-policy.md)
 
 ---
 
@@ -96,4 +99,4 @@ La obligación de confidencialidad no aplica cuando:
 
 Responsable del documento: Facundo Nicolás González
 Fecha de revisión: 2026-07-23
-Documentos de referencia: [SECURITY.md](../../SECURITY.md), [política de seguridad](security-policy.md)
+Documentos de referencia: [SECURITY.md](../../SECURITY.md), [política de seguridad](../governance/security-policy.md)

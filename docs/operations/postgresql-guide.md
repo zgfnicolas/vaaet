@@ -1,4 +1,4 @@
-# Operación PostgreSQL compartida — VAAET Persistence 0.3.3
+# Operación PostgreSQL compartida — VAAET
 
 PostgreSQL es opcional y su implementación pertenece a
 `vaaet-persistence`. Los notebooks de `vaaet-ml` y un futuro backend consumen
@@ -133,8 +133,9 @@ psql -v ON_ERROR_STOP=1 \
   -f vaaet-persistence/src/vaaet_persistence/migrations/provision-roles.sql
 ```
 
-El script crea group roles `NOLOGIN`. Los usuarios `LOGIN` se crean fuera del
-repositorio y reciben exactamente el grupo requerido:
+El script crea group roles `NOLOGIN`; sus permisos están en la matriz de
+[roles y permisos](../product/roles.md#perfiles-postgresql). Los usuarios
+`LOGIN` se crean fuera del repositorio y reciben exactamente el grupo requerido:
 
 ```sql
 GRANT vaaet_collection_role TO vaaet_collection_user;
@@ -231,16 +232,17 @@ nota distinta produce conflicto, también tras una reconciliación. La sesión
 HITL detecta además alteraciones del frame exportable antes de recuperar o
 finalizar, según [ADR-0036](../architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md).
 
-## Backup y recuperación
+## Backup y recuperación (DRP)
 
 El proveedor debe cifrar datos en reposo y mantenerse actualizado. Como piso
 operativo:
 
-- backup lógico diario o política equivalente;
-- retención mínima de 30 días;
-- restauración trimestral en una base aislada;
-- RPO objetivo de hasta 24 horas;
-- RTO medido y registrado por entorno y proveedor.
+| Pregunta | Respuesta vigente |
+|---|---|
+| Qué se respalda | Los schemas `vaaet_raw`, `vaaet_ml`, `vaaet_feedback` y `vaaet_ops`, con backup lógico diario o una política equivalente del proveedor y retención mínima de 30 días. Los bundles se recuperan desde DVC y los datasets, holdouts y paquetes HITL inmutables desde Drive. |
+| RPO | Hasta 24 horas de datos PostgreSQL. |
+| RTO | Medido y registrado por entorno y proveedor; todavía no hay un objetivo comprometido. |
+| Restauración | Trimestral, en una base aislada, con los pasos de esta sección. |
 
 ```bash
 pg_dump --format=custom --no-owner --no-acl \
@@ -251,7 +253,10 @@ pg_restore -l vaaet-db-v3.backup
 ```
 
 El entrenamiento sólo extrae `TABLE DATA` mediante una TOC controlada; nunca
-restaura DDL o roles sobre una base viva. `0004` no tiene downgrade que vuelva a
+restaura DDL o roles sobre una base viva. Para convertir una vez un backup de
+`traffic_data` en CSV crudo apto para Colab, usá localmente
+`vaaet-ml/scripts/convert-postgres-backup.py`; el CSV es sensible y queda fuera
+de Git. `0004` no tiene downgrade que vuelva a
 redondear filas nuevas: ante una falla, aplicá una corrección hacia adelante o
 restaurá el backup probado.
 

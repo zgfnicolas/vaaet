@@ -1,6 +1,7 @@
 # Plan gobernado — Continuidad temporal y revisiones inmutables
 
 - Estado: implementado; validación de proveedor pendiente
+- PR: [#21](https://github.com/zgfnicolas/vaaet/pull/21)
 - Fecha: 2026-09-05
 - ADR: [ADR-0026](../../architecture/decisions/0026-temporal-continuity-and-immutable-model-revisions.md)
 - Alcance: `vaaet-core` 0.2.0 y `vaaet-ml` 4.6.0

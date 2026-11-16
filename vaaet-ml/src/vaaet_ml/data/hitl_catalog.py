@@ -575,6 +575,7 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
         right_on="telemetry_feature_id",
         suffixes=("", "_prediction"),
     ).merge(latest, left_on="id_prediction", right_on="prediction_id")
+    feedback = _prefer_prediction_model_identity(feedback)
     states = pd.to_numeric(feedback["validated_state"], errors="raise")
     if (
         not states.map(lambda value: float(value).is_integer()).all()
@@ -611,6 +612,31 @@ def resolve_effective_human_feedback(  # noqa: C901 - consolida el borde HITL co
     return normalize_continuity_frame(feedback)
 
 
+def _prefer_prediction_model_identity(feedback: pd.DataFrame) -> pd.DataFrame:
+    """Toma la identidad del modelo desde la predicción validada.
+
+    Los paquetes HITL también guardan ``model_version`` y ``model_revision`` en
+    sus features, y las features leídas desde PostgreSQL no. Al combinar ambas
+    fuentes, el ``merge`` deja la identidad de la predicción en columnas con
+    sufijo ``_prediction``. La predicción es la autoridad; un valor distinto en
+    la feature es un conflicto, no una alternativa.
+    """
+
+    result = feedback
+    for column in ("model_version", "model_revision"):
+        prediction_column = f"{column}_prediction"
+        if prediction_column not in result:
+            continue
+        own = result[column]
+        prediction = result[prediction_column]
+        both = own.notna() & prediction.notna()
+        if (own[both].astype(str) != prediction[both].astype(str)).any():
+            raise ValueError(f"Catalog features contradict their prediction {column}.")
+        result = result.assign(**{column: prediction.where(prediction.notna(), own)})
+        result = result.drop(columns=prediction_column)
+    return result
+
+
 def _deduplicate_uuid_rows(  # noqa: C901 - consolida contenido y procedencia por UUID.
     frame: pd.DataFrame, *, name: str
 ) -> pd.DataFrame:
@@ -643,7 +669,9 @@ def _deduplicate_uuid_rows(  # noqa: C901 - consolida contenido y procedencia po
                     raise ValueError(
                         f"Conflicting human labels or validation payloads exist for UUID {identifier}."
                     )
-                raise ValueError(f"Conflicting catalog {name} rows for UUID {identifier}.")
+                raise ValueError(
+                    f"Conflicting catalog {name} rows for UUID {identifier} in column {column!r}."
+                )
             if _missing_value(merged.get(column)) and present:
                 merged[column] = present[0]
         for column in group.columns:

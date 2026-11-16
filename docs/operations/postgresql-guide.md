@@ -114,8 +114,11 @@ cd vaaet-persistence
 alembic -c alembic.ini upgrade head
 ```
 
-Las revisiones `0001` a `0005` se conservan byte a byte. La revisión
-`0004` migra medidas continuas a `DOUBLE PRECISION`, registra su procedencia,
+Las revisiones `0001` a `0005` se conservan byte a byte, salvo la corrección de
+un literal en `0003` que registra
+[ADR-0037](../architecture/decisions/0037-migration-0003-bind-literal-correction.md):
+antes de esa corrección, `0003` no podía ejecutarse y una base Alembic no podía
+pasar de `0002`. La revisión `0004` migra medidas continuas a `DOUBLE PRECISION`, registra su procedencia,
 añade identidad de aplicación y fortalece cadenas HITL. Una base en `0003`
 requiere ensayo sobre una restauración y una ventana administrativa para subir
 a `0006`; `public.alembic_version` conserva la revisión exacta. `0005` corrige

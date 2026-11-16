@@ -36,8 +36,9 @@ def test_historical_migration_bytes_are_unchanged() -> None:
         "20260806_0002_postgres_hardening_pipeline_runs.py": (
             "fc16ec8b96fd15e006338416f3d2774ed851a933f29486f64abd6d34f2d7cea1"
         ),
+        # Única corrección autorizada de una revisión publicada (ADR-0037).
         "20260905_0003_temporal_continuity_model_revision.py": (
-            "bb94c88ab54ccac0107bbd2411fd3c9215d4bb8e1e8cb87821d60cb440aad4ea"
+            "b221f8ef22d7faa749ebe728dc5c97d08abfec7b0f698df5a0d91fcd676f10a9"
         ),
         "20260909_0004_numeric_fidelity_hitl_integrity.py": (
             "9ff7ea5264fbef2daab800b2aed344b941152da19d179c9e56b0878bcb7d5360"

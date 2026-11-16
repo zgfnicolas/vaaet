@@ -11,6 +11,7 @@ from uuid import uuid4
 import pandas as pd
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 from vaaet.artifacts import FEATURE_SCHEMA_VERSION
 from vaaet.settings import FEATURE_COLS, TELEMETRY_SCHEMA_VERSION
 
@@ -53,6 +54,29 @@ def test_installed_component_inspects_migrated_schema_without_ml() -> None:
     with database_engine(settings) as engine:
         health = inspect_database(engine, DatabaseProfile.COLLECTION)
     assert "vaaet_raw" in health.available_schemas
+
+
+def _has_effective_table_privilege(connection: Connection, table: str, privilege: str) -> bool:
+    """Exige USAGE sobre el schema y el privilegio sobre la tabla.
+
+    Resuelve la tabla por OID desde `pg_catalog`: con el nombre textual,
+    PostgreSQL rechaza la consulta cuando el rol no puede usar el schema, en
+    lugar de informar que el privilegio falta.
+    """
+
+    schema, relation = table.split(".", 1)
+    return bool(
+        connection.execute(
+            text(
+                "SELECT has_schema_privilege(current_user, n.nspname, 'USAGE') "
+                "AND has_table_privilege(current_user, c.oid, :privilege) "
+                "FROM pg_catalog.pg_class c "
+                "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = :schema AND c.relname = :relation"
+            ),
+            {"schema": schema, "relation": relation, "privilege": privilege},
+        ).scalar_one()
+    )
 
 
 @pytest.mark.parametrize(
@@ -103,14 +127,8 @@ def test_each_login_uses_only_its_workflow_role(
         with pipeline_run(metadata, engine=engine) as run:
             run.set_output_rows(0)
         with engine.connect() as connection:
-            assert connection.execute(
-                text("SELECT has_table_privilege(current_user, :table, :privilege)"),
-                {"table": allowed[0], "privilege": allowed[1]},
-            ).scalar()
-            assert not connection.execute(
-                text("SELECT has_table_privilege(current_user, :table, :privilege)"),
-                {"table": forbidden[0], "privilege": forbidden[1]},
-            ).scalar()
+            assert _has_effective_table_privilege(connection, *allowed)
+            assert not _has_effective_table_privilege(connection, *forbidden)
 
 
 def test_independent_consumer_can_persist_and_read_raw_telemetry() -> None:

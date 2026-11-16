@@ -18,6 +18,7 @@ import pandas as pd
 from vaaet.settings import (
     DATA_ORIGINS,
     MODEL_STATE_LABELS,
+    STATE_LABELS,
     SYNTHETIC_SCENARIOS,
     VEHICLE_TYPES,
 )
@@ -33,7 +34,29 @@ __all__ = [
     "SyntheticScenario",
     "TelemetryRecord",
     "TrackSpeedState",
+    "TrafficStatePrediction",
 ]
+
+
+@dataclass(frozen=True)
+class TrafficStatePrediction:
+    """Representa la predicción compacta que muestra el video.
+
+    Vive fuera de ``vaaet.vision`` para que la inferencia no cargue OpenCV;
+    ``vaaet.vision.pipeline`` y ``vaaet.vision.analysis`` la reexportan.
+    """
+
+    state: int
+    label: str
+    confidence: float
+    evidence: float | None = None
+    incident_candidate: bool = False
+
+    def __post_init__(self) -> None:
+        if self.state not in STATE_LABELS:
+            raise ValueError(f"Unsupported traffic state: {self.state}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("Prediction confidence must be between 0 and 1")
 
 
 def _coerce_timestamp(value: object, field_name: str) -> pd.Timestamp:

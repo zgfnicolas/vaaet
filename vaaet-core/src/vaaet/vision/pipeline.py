@@ -18,8 +18,8 @@ from typing import Protocol, TypeVar
 import numpy as np
 import pandas as pd
 
+from vaaet.contracts import TrafficStatePrediction
 from vaaet.exceptions import VideoValidationError
-from vaaet.settings import STATE_LABELS
 from vaaet.vision.detector import Detection
 from vaaet.vision.hud import HudConfig, HudSnapshot, draw_track_annotation, render_hud
 from vaaet.vision.optical_flow import OpticalFlowEstimator
@@ -75,23 +75,6 @@ class Detector(Protocol):
     """Define la frontera mínima del detector vehicular."""
 
     def detect(self, frame: np.ndarray) -> list[Detection]: ...
-
-
-@dataclass(frozen=True)
-class TrafficStatePrediction:
-    """Representa la predicción compacta que muestra el video."""
-
-    state: int
-    label: str
-    confidence: float
-    evidence: float | None = None
-    incident_candidate: bool = False
-
-    def __post_init__(self) -> None:
-        if self.state not in STATE_LABELS:
-            raise ValueError(f"Unsupported traffic state: {self.state}")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError("Prediction confidence must be between 0 and 1")
 
 
 PredictionProvider = Callable[[pd.DataFrame], TrafficStatePrediction | None]

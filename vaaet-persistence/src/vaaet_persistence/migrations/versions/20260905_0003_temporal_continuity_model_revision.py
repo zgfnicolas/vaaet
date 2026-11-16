@@ -39,6 +39,8 @@ def upgrade() -> None:
     )
 
     for table in ("vaaet_raw.traffic_data", "vaaet_ml.telemetry_features"):
+        # `\:` evita que SQLAlchemy lea `:legacy` como parámetro; PostgreSQL
+        # recibe el literal `:legacy-` (ADR-0037).
         op.execute(
             f"""
             WITH ordered AS (
@@ -55,7 +57,7 @@ def upgrade() -> None:
               FROM ordered
             )
             UPDATE {table} target
-            SET continuity_id = segmented.clip_id || ':legacy-' ||
+            SET continuity_id = segmented.clip_id || '\\:legacy-' ||
                 lpad(segmented.segment::text, 4, '0')
             FROM segmented WHERE target.id = segmented.id
             """

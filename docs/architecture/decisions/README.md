@@ -45,14 +45,15 @@ puntual que aplica.
 | [0026](0026-temporal-continuity-and-immutable-model-revisions.md) | Continuidad temporal y revisiones inmutables del modelo | Modelo | Aceptada |
 | [0027](0027-complete-bundle-identity-and-hitl-integrity.md) | Identidad completa del bundle e integridad HITL | Modelo | Aceptada |
 | [0028](0028-shared-postgresql-persistence-layer.md) | Persistencia PostgreSQL compartida | Persistencia | Aceptada |
-| [0029](0029-postgresql-numeric-fidelity-and-hitl-consistency.md) | Fidelidad numérica e integridad HITL en PostgreSQL | Persistencia | Aceptada |
-| [0030](0030-operational-idempotency-and-portable-hitl-coherence.md) | Idempotencia operacional y coherencia HITL portable | HITL | Aceptada |
+| [0029](0029-postgresql-numeric-fidelity-and-hitl-consistency.md) | Fidelidad numérica e integridad HITL en PostgreSQL | Persistencia | Aceptada; invariante de bytes de `0003` actualizado por 0037 |
+| [0030](0030-operational-idempotency-and-portable-hitl-coherence.md) | Idempotencia operacional y coherencia HITL portable | HITL | Aceptada; invariante de bytes de `0003` actualizado por 0037 |
 | [0031](0031-hitl-integrity-and-coordinated-catalog-publication.md) | Integridad HITL y publicación coordinada del catálogo | HITL | Aceptada |
 | [0032](0032-complete-cycle-integrity.md) | Integridad determinista del ciclo completo | HITL | Aceptada |
-| [0033](0033-verifiable-persistence-recovery-and-hitl-audit.md) | Recuperación verificable y auditoría HITL completa | HITL | Aceptada |
+| [0033](0033-verifiable-persistence-recovery-and-hitl-audit.md) | Recuperación verificable y auditoría HITL completa | HITL | Aceptada; invariante de bytes de `0003` actualizado por 0037 |
 | [0034](0034-uniform-review-audit-evidence.md) | Evidencia uniforme de auditoría HITL | HITL | Aceptada |
 | [0035](0035-review-recovery-and-lossless-packages.md) | Recuperación vinculada a la sesión y paquetes sin pérdida | HITL | Aceptada |
 | [0036](0036-coherent-hitl-sessions-and-typed-integers.md) | Sesiones HITL coherentes y enteros tipados | HITL | Aceptada |
+| [0037](0037-migration-0003-bind-literal-correction.md) | Corrección del literal `:legacy-` en la migración `0003` | Persistencia | Aceptada |
 
 ## Vigentes por tema
 
@@ -62,7 +63,7 @@ puntual que aplica.
 | Estados y modelo | [0014](0014-hierarchical-traffic-state-and-incident-policy.md), [0026](0026-temporal-continuity-and-immutable-model-revisions.md), [0027](0027-complete-bundle-identity-and-hitl-integrity.md) |
 | Visión multi-vista | [0025](0025-calibrated-multi-view-video-segments.md) |
 | Datasets, entrenamiento y holdouts | [0017](0017-seed-bootstrap-and-hitl-retraining.md), [0018](0018-versioned-frozen-human-holdouts.md), [0019](0019-immutable-seed-and-hitl-datasets.md) |
-| PostgreSQL | [0024](0024-provider-neutral-postgresql-and-schema-as-code.md), [0028](0028-shared-postgresql-persistence-layer.md), [0029](0029-postgresql-numeric-fidelity-and-hitl-consistency.md), [0033](0033-verifiable-persistence-recovery-and-hitl-audit.md) |
+| PostgreSQL | [0024](0024-provider-neutral-postgresql-and-schema-as-code.md), [0028](0028-shared-postgresql-persistence-layer.md), [0029](0029-postgresql-numeric-fidelity-and-hitl-consistency.md), [0033](0033-verifiable-persistence-recovery-and-hitl-audit.md), [0037](0037-migration-0003-bind-literal-correction.md) |
 | Integridad HITL | [0030](0030-operational-idempotency-and-portable-hitl-coherence.md) a [0036](0036-coherent-hitl-sessions-and-typed-integers.md) |
 | Registro DVC | [0023](0023-provider-neutral-dvc-registry.md) |
 | Serving con YOLO | [0022](0022-agpl-public-demo-path.md) |

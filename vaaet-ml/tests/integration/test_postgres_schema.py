@@ -22,6 +22,8 @@ from vaaet_persistence import (
     DatabaseProfile,
     load_human_validation_record,
     load_review_queue,
+    persist_classified_telemetry,
+    persist_human_validation,
     persist_human_validation_record,
     persist_raw_telemetry,
     reconcile_human_validation,
@@ -41,8 +43,7 @@ from vaaet_ml.data.ingestion import (
     TrainingIngestionPlan,
     load_training_inputs,
 )
-from vaaet_ml.data.persistence import persist_classified_telemetry
-from vaaet_ml.data.review import HumanValidation, persist_human_validation
+from vaaet_ml.data.review import HumanValidation
 from vaaet_ml.data.review_finalization import seal_review_package
 from vaaet_ml.training.lifecycle import TrainingMode
 
@@ -556,7 +557,8 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
     loaded = load_human_validation_record(decision.validation_id, settings=reviewer)
     assert loaded.prediction_context is not None
     assert loaded.prediction_context.clip_id == clip_id
-    assert loaded.prediction_context.pipeline_run_id == persisted.pipeline_run_id
+    # PersistResult expone el run como str y el contexto leído como UUID.
+    assert str(loaded.prediction_context.pipeline_run_id) == persisted.pipeline_run_id
     assert loaded.prediction_context.model_revision == "f" * 64
     assert loaded.prediction_context.operational_feature_id == int(
         queue.loc[queue["prediction_id"].eq(prediction_id), "operational_feature_id"].item()

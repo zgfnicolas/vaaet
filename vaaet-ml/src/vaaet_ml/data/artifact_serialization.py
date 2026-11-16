@@ -86,8 +86,10 @@ def canonical_contract_value(column: str, value: object) -> tuple[str, object]:
         return ("number", int(value))
     if isinstance(value, Real) and not isinstance(value, bool):
         return ("number", float(value))
-    if isinstance(value, str):
-        return ("text", value)
+    # PostgreSQL entrega `uuid.UUID` y los paquetes, su texto canónico; ambos
+    # identifican el mismo valor contractual.
+    if isinstance(value, (str, uuid.UUID)):
+        return ("text", str(value))
     return (type(value).__name__, str(value))
 
 

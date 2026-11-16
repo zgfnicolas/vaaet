@@ -17,6 +17,7 @@ from vaaet_ml.data.hitl_catalog import (
     HitlCatalogPublisher,
     HitlReviewCatalog,
     _deduplicate_uuid_rows,
+    _prefer_prediction_model_identity,
     _resolve_validation_graph,
     _validation_leaf_with_chain,
     resolve_effective_human_feedback,
@@ -150,6 +151,44 @@ def test_catalog_deduplication_rejects_invalid_or_conflicting_rows() -> None:
     conflicting = pd.DataFrame({"id": [identifier, identifier], "value": [1, 2]})
     with pytest.raises(ValueError, match="Conflicting"):
         _deduplicate_uuid_rows(conflicting, name="features")
+
+
+def test_feedback_takes_model_identity_from_the_validated_prediction() -> None:
+    """Combina features de paquete (con identidad) y de PostgreSQL (sin ella)."""
+
+    merged = pd.DataFrame(
+        {
+            "clip_id": ["package-clip", "database-clip"],
+            "model_version": ["mlp-v3.0", pd.NA],
+            "model_revision": ["f" * 64, pd.NA],
+            "model_version_prediction": ["mlp-v3.0", "mlp-v3.0"],
+            "model_revision_prediction": ["f" * 64, "a" * 64],
+        }
+    )
+
+    result = _prefer_prediction_model_identity(merged)
+
+    assert result["model_revision"].tolist() == ["f" * 64, "a" * 64]
+    assert result["model_version"].tolist() == ["mlp-v3.0", "mlp-v3.0"]
+    assert not {"model_version_prediction", "model_revision_prediction"} & set(result)
+    contradiction = merged.assign(model_revision_prediction=["a" * 64, "a" * 64])
+    with pytest.raises(ValueError, match="contradict their prediction model_revision"):
+        _prefer_prediction_model_identity(contradiction)
+
+
+def test_catalog_deduplication_treats_uuid_objects_as_their_canonical_text() -> None:
+    identifier = str(uuid.uuid4())
+    run = uuid.uuid4()
+    same_run = pd.DataFrame({"id": [identifier, identifier], "pipeline_run_id": [run, str(run)]})
+
+    merged = _deduplicate_uuid_rows(same_run, name="features")
+
+    assert len(merged) == 1
+    other_run = pd.DataFrame(
+        {"id": [identifier, identifier], "pipeline_run_id": [run, str(uuid.uuid4())]}
+    )
+    with pytest.raises(ValueError, match="in column 'pipeline_run_id'"):
+        _deduplicate_uuid_rows(other_run, name="features")
 
 
 def test_original_feature_uuid_conflict_is_rejected_before_alias_resolution() -> None:

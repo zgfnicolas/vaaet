@@ -8,9 +8,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from vaaet.contracts import TrafficStatePrediction
 from vaaet.inference.bundle import LoadedTrafficBundle
 from vaaet.inference.traffic_state import classify_raw_telemetry
-from vaaet.vision.analysis import TrafficStatePrediction
 
 
 @dataclass(frozen=True)

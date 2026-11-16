@@ -8,6 +8,35 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
 
 ## [Unreleased]
 
+### Corregido
+
+- La migración Alembic `0003` escapa el literal `':legacy-'`, que SQLAlchemy
+  2.x interpretaba como el parámetro `:legacy`. Antes, la cadena no podía pasar
+  de `0002` y el SQL offline escribía `'NULL-'` en `continuity_id`. Un test
+  nuevo compila el SQL de cada revisión sin base de datos.
+  [ADR-0037](docs/architecture/decisions/0037-migration-0003-bind-literal-correction.md)
+- `import vaaet.inference` ya no requiere el extra `vision`: el contrato
+  `TrafficStatePrediction` pasa a `vaaet.contracts`, sin cambiar sus campos, y
+  `vaaet.vision.pipeline` y `vaaet.vision.analysis` lo reexportan. Antes, una
+  instalación con sólo `vaaet-core[inference]` fallaba al importar `cv2`.
+- El lector de backups PostgreSQL conserva como `None` un `NULL` en
+  `measurement_reliable`, que el schema declara nullable. Antes rechazaba todo
+  backup con predicciones guardadas sin ese dato. En las columnas booleanas
+  `NOT NULL`, un `NULL` sigue siendo un error.
+- La consolidación HITL compara un `uuid.UUID` como su texto canónico. Antes,
+  la misma feature leída desde PostgreSQL (UUID nativo) y desde un paquete
+  (texto) se rechazaba como conflicto al combinar ambas fuentes. El error de
+  conflicto ahora nombra la columna que difiere.
+- Los backups PostgreSQL reconocen `vaaet_ops.pipeline_runs` y
+  `vaaet_ops.persistence_receipts`. Sin esas tablas, la verificación de
+  ADR-0034 nunca recibía corridas ni comprobantes, y ningún backup real podía
+  aportar decisiones humanas al entrenamiento.
+- La consolidación HITL toma `model_version` y `model_revision` de la
+  predicción validada. Al combinar feedback de PostgreSQL con paquetes, el
+  `merge` dejaba esa identidad en columnas con sufijo `_prediction` y las filas
+  de PostgreSQL quedaban sin `model_revision`. Si la feature trae otro valor,
+  ahora es un conflicto explícito.
+
 ### Cambiado
 
 - La documentación sigue «un tema, un lugar»: un único PRD con historias y

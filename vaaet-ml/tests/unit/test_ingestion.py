@@ -25,6 +25,7 @@ from vaaet_ml.data.ingestion import (
     SeedDatasetPackageSource,
     TrainingIngestionPlan,
     _deduplicate_feedback,
+    _frames_from_backup,
     _load_feedback_components,
     _load_raw,
     compose_supervised_dataset,
@@ -542,6 +543,53 @@ def test_raw_backup_extracts_only_requested_raw_table(tmp_path: Path) -> None:
     assert result.provenance.iloc[0]["archive_table"] == "vaaet_raw.traffic_data"
     assert result.provenance.iloc[0]["backup_layout"] == "modern"
     assert result.provenance.iloc[0]["reader_version"] == "pg_restore (PostgreSQL) 17.10"
+
+
+def _backup_predictions(tmp_path: Path, predictions: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    backup = tmp_path / "predictions.backup"
+    backup.write_bytes(b"PGDMP")
+    restored = tmp_path / "predictions.sql"
+    restored.write_text("restored", encoding="utf-8")
+    with (
+        patch(
+            "vaaet_ml.data.ingestion.inspect_backup_catalog",
+            return_value=("vaaet_ml.traffic_predictions",),
+        ),
+        patch(
+            "vaaet_ml.data.ingestion.get_pg_restore_version",
+            return_value="pg_restore (PostgreSQL) 17.10",
+        ),
+        patch("vaaet_ml.data.ingestion.restore_backup_to_sql", return_value=restored),
+        patch(
+            "vaaet_ml.data.ingestion.parse_sql_dump_tables",
+            return_value={"vaaet_ml.traffic_predictions": predictions},
+        ),
+    ):
+        return _frames_from_backup(PostgresBackupSource(backup), components={"predictions"})
+
+
+def test_backup_preserves_null_in_nullable_boolean_columns(tmp_path: Path) -> None:
+    predictions = pd.DataFrame(
+        {
+            "id": [1, 2, 3],
+            "measurement_reliable": [float("nan"), "t", "f"],
+            "decision_abstained": ["f", "f", "t"],
+        }
+    )
+
+    frame = _backup_predictions(tmp_path, predictions)["predictions"]
+
+    assert frame["measurement_reliable"].tolist() == [None, True, False]
+    assert frame["decision_abstained"].tolist() == [False, False, True]
+
+
+def test_backup_rejects_null_in_not_null_boolean_columns(tmp_path: Path) -> None:
+    predictions = pd.DataFrame(
+        {"id": [1], "measurement_reliable": ["t"], "decision_abstained": [float("nan")]}
+    )
+
+    with pytest.raises(ValueError, match="non-contractual boolean"):
+        _backup_predictions(tmp_path, predictions)
 
 
 def test_legacy_raw_backup_reports_table_and_preserves_columns(tmp_path: Path) -> None:

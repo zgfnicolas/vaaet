@@ -643,7 +643,9 @@ def _deduplicate_uuid_rows(  # noqa: C901 - consolida contenido y procedencia po
                     raise ValueError(
                         f"Conflicting human labels or validation payloads exist for UUID {identifier}."
                     )
-                raise ValueError(f"Conflicting catalog {name} rows for UUID {identifier}.")
+                raise ValueError(
+                    f"Conflicting catalog {name} rows for UUID {identifier} in column {column!r}."
+                )
             if _missing_value(merged.get(column)) and present:
                 merged[column] = present[0]
         for column in group.columns:

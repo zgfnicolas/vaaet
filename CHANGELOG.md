@@ -23,6 +23,10 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   `measurement_reliable`, que el schema declara nullable. Antes rechazaba todo
   backup con predicciones guardadas sin ese dato. En las columnas booleanas
   `NOT NULL`, un `NULL` sigue siendo un error.
+- La consolidación HITL compara un `uuid.UUID` como su texto canónico. Antes,
+  la misma feature leída desde PostgreSQL (UUID nativo) y desde un paquete
+  (texto) se rechazaba como conflicto al combinar ambas fuentes. El error de
+  conflicto ahora nombra la columna que difiere.
 
 ### Cambiado
 

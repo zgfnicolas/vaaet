@@ -152,6 +152,21 @@ def test_catalog_deduplication_rejects_invalid_or_conflicting_rows() -> None:
         _deduplicate_uuid_rows(conflicting, name="features")
 
 
+def test_catalog_deduplication_treats_uuid_objects_as_their_canonical_text() -> None:
+    identifier = str(uuid.uuid4())
+    run = uuid.uuid4()
+    same_run = pd.DataFrame({"id": [identifier, identifier], "pipeline_run_id": [run, str(run)]})
+
+    merged = _deduplicate_uuid_rows(same_run, name="features")
+
+    assert len(merged) == 1
+    other_run = pd.DataFrame(
+        {"id": [identifier, identifier], "pipeline_run_id": [run, str(uuid.uuid4())]}
+    )
+    with pytest.raises(ValueError, match="in column 'pipeline_run_id'"):
+        _deduplicate_uuid_rows(other_run, name="features")
+
+
 def test_original_feature_uuid_conflict_is_rejected_before_alias_resolution() -> None:
     feature_id = str(uuid.uuid4())
     prediction_id = str(uuid.uuid4())

@@ -281,3 +281,17 @@ def test_governed_plan_template_has_a_single_source() -> None:
 def test_ci_runs_when_claude_code_configuration_changes() -> None:
     workflow = (WORKSPACE_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert workflow.count('      - ".claude/**"') == 2
+
+
+def test_claude_scripts_do_not_hardcode_credentials() -> None:
+    """Las credenciales del PostgreSQL local se generan; nunca se versionan."""
+
+    literal = re.compile(r"(PASSWORD|PGPASSWORD)=['\"]?(?!\$)[\w-]+|PASSWORD '[\w-]+'")
+    offenders = [
+        f"{path.relative_to(WORKSPACE_ROOT).as_posix()}:{number}"
+        for path in CLAUDE_DIR.rglob("*")
+        if path.suffix in {".sh", ".py", ".json", ".md"}
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if literal.search(line)
+    ]
+    assert offenders == []

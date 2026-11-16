@@ -127,6 +127,13 @@ corrigieron:
 - `CLAUDE.md` aclara que el hook cubre las herramientas de edición, no el
   shell.
 
+Después del PR, GitGuardian marcó como «Generic Password» las contraseñas
+fijas del PostgreSQL local de `pg-integration`. Eran valores desechables, los
+mismos de `ci.yml`, pero ahora se generan: la del superusuario en `setup` y
+las de los roles en cada `run`. Un test impide volver a escribirlas en
+`.claude/`. El hallazgo sobre el commit `ab5fe42` queda para resolverlo en el
+panel de GitGuardian.
+
 Limitaciones aceptadas:
 
 - Los subagentes son de sólo lectura por su prompt, no por una restricción:

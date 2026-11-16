@@ -43,11 +43,13 @@ fi
 native_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
+# La contraseña del superusuario se genera por cluster y vive fuera del repo.
+ADMIN_SECRET_FILE="$PG_HOME/admin-password"
 # Devuelve 0 si en el puerto responde el servidor de $PG_HOME/data, 1 si no
 # responde nada y aborta si responde otra instancia.
 own_server_running() {
   local data_dir
-  data_dir="$(PGPASSWORD=postgres "$BIN/psql" -h localhost -p "$PG_PORT" -U postgres \
+  data_dir="$(PGPASSWORD="$(< "$ADMIN_SECRET_FILE")" "$BIN/psql" -h localhost -p "$PG_PORT" -U postgres \
     -d postgres -tAc 'SHOW data_directory' 2>/dev/null)" || return 1
   if "$PY" -c 'import os, sys; a, b = (os.path.normcase(os.path.realpath(p)) for p in sys.argv[1:]); sys.exit(a != b)' \
       "$data_dir" "$(native_path "$PG_HOME/data")"; then
@@ -58,10 +60,14 @@ own_server_running() {
 }
 
 if [ ! -d "$PG_HOME/data" ]; then
-  printf 'postgres\n' > "$PG_HOME/pwfile"
-  "$BIN/initdb" -D "$PG_HOME/data" -U postgres --pwfile="$PG_HOME/pwfile" \
+  "$PY" -c 'import secrets; print(secrets.token_urlsafe(24))' > "$ADMIN_SECRET_FILE"
+  chmod 600 "$ADMIN_SECRET_FILE"
+  "$BIN/initdb" -D "$PG_HOME/data" -U postgres --pwfile="$ADMIN_SECRET_FILE" \
     -A scram-sha-256 -E UTF8 --locale=C >/dev/null
-  rm -f "$PG_HOME/pwfile"
+elif [ ! -f "$ADMIN_SECRET_FILE" ]; then
+  echo "Falta $ADMIN_SECRET_FILE: el cluster se creó con una versión anterior del script." >&2
+  echo "Borrá $PG_HOME/data y volvé a ejecutar setup_pg.sh." >&2
+  exit 1
 fi
 
 if ! own_server_running; then

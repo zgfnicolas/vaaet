@@ -22,19 +22,32 @@ native_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
 
+ADMIN_SECRET_FILE="$PG_HOME/admin-password"
+if [ ! -f "$ADMIN_SECRET_FILE" ]; then
+  echo "Falta $ADMIN_SECRET_FILE; ejecutá setup_pg.sh primero." >&2
+  exit 1
+fi
+# Sin credenciales en el repositorio: la del superusuario la genera setup_pg.sh
+# y las de los roles de prueba se generan en cada corrida.
+random_secret() { "$PY" -c 'import secrets; print(secrets.token_urlsafe(18))'; }
+
 export PATH="$VENV_BIN:$PATH" PYTHONIOENCODING=utf-8
 export VAAET_DB_HOST=localhost VAAET_DB_PORT="$PG_PORT" VAAET_DB_SSLMODE=disable
-export VAAET_ADMIN_DB_USER=postgres VAAET_ADMIN_DB_PASSWORD=postgres
-export VAAET_COLLECTION_DB_USER=vaaet_collection_test VAAET_COLLECTION_DB_PASSWORD=collection-test-password
-export VAAET_INFERENCE_DB_USER=vaaet_inference_test VAAET_INFERENCE_DB_PASSWORD=inference-test-password
-export VAAET_TRAINING_DB_USER=vaaet_training_test VAAET_TRAINING_DB_PASSWORD=training-test-password
-export VAAET_REVIEW_DB_USER=vaaet_review_test VAAET_REVIEW_DB_PASSWORD=review-test-password
+VAAET_ADMIN_DB_USER=postgres
+VAAET_ADMIN_DB_PASSWORD="$(< "$ADMIN_SECRET_FILE")"
+export VAAET_ADMIN_DB_USER VAAET_ADMIN_DB_PASSWORD
+for login in collection inference training review; do
+  upper="$(printf '%s' "$login" | tr '[:lower:]' '[:upper:]')"
+  export "VAAET_${upper}_DB_USER=vaaet_${login}_test"
+  export "VAAET_${upper}_DB_PASSWORD=$(random_secret)"
+done
 export VAAET_REQUIRE_POSTGRES_INTEGRATION=1
 VAAET_PG_RESTORE_PATH="$(native_path "$BIN/pg_restore")"
 VAAET_LEGACY_BACKUP_PATH="$(native_path "$PG_HOME/vaaet-legacy.backup")"
 VAAET_MODERN_BACKUP_PATH="$(native_path "$PG_HOME/vaaet-modern.backup")"
 export VAAET_PG_RESTORE_PATH VAAET_LEGACY_BACKUP_PATH VAAET_MODERN_BACKUP_PATH
-export PGHOST=localhost PGPORT="$PG_PORT" PGUSER=postgres PGPASSWORD=postgres
+export PGHOST=localhost PGPORT="$PG_PORT" PGUSER="$VAAET_ADMIN_DB_USER"
+export PGPASSWORD="$VAAET_ADMIN_DB_PASSWORD"
 PYTEST=("$PY" -m pytest -q -m postgres -p no:cacheprovider)
 CYCLE="tests/integration/test_postgres_schema.py::test_pg17_review_receipt_zip_and_backup_training_cycle"
 ROLES_SQL="../vaaet-persistence/src/vaaet_persistence/migrations/provision-roles.sql"
@@ -59,8 +72,12 @@ export VAAET_DB_NAME=vaaet PGDATABASE=vaaet VAAET_EXPECT_LEGACY_FIXTURE=1
 "$BIN/psql" -q -v ON_ERROR_STOP=1 -f "$ROLES_SQL"
 for login in collection inference training review; do
   role="vaaet_${login}_test"
+  secret_var="VAAET_$(printf '%s' "$login" | tr '[:lower:]' '[:upper:]')_DB_PASSWORD"
+  # token_urlsafe sólo usa [A-Za-z0-9_-]: es seguro entre comillas simples.
   if [ -z "$("$BIN/psql" -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$role'")" ]; then
-    "$BIN/psql" -q -v ON_ERROR_STOP=1 -c "CREATE ROLE $role LOGIN PASSWORD '${login}-test-password'"
+    "$BIN/psql" -q -v ON_ERROR_STOP=1 -c "CREATE ROLE $role LOGIN PASSWORD '${!secret_var}'"
+  else
+    "$BIN/psql" -q -v ON_ERROR_STOP=1 -c "ALTER ROLE $role PASSWORD '${!secret_var}'"
   fi
 done
 "$BIN/psql" -q -v ON_ERROR_STOP=1 \

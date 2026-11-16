@@ -27,7 +27,10 @@ y `vaaet_fresh`.
    con el `pg_ctl` de `pgserver/pginstall/bin`. Liberá memoria al terminar.
 
 Los dos scripts comprueban con `SHOW data_directory` que el servidor del
-puerto sea el de `$VAAET_PG_HOME/data` y abortan si es otra instancia.
+puerto sea el de `$VAAET_PG_HOME/data` y abortan si es otra instancia. No hay
+credenciales en el repositorio: `setup` genera la del superusuario en
+`$VAAET_PG_HOME/admin-password` y `run` genera las de los roles de prueba en
+cada corrida.
 
 Para encontrar la fila que provoca una falla, consultá la base con `psql` o
 envolvé la función sospechosa desde un runner de Python que llame a

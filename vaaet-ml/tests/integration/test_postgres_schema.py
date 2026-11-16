@@ -557,7 +557,8 @@ def test_pg17_review_receipt_zip_and_backup_training_cycle(
     loaded = load_human_validation_record(decision.validation_id, settings=reviewer)
     assert loaded.prediction_context is not None
     assert loaded.prediction_context.clip_id == clip_id
-    assert loaded.prediction_context.pipeline_run_id == persisted.pipeline_run_id
+    # PersistResult expone el run como str y el contexto leído como UUID.
+    assert str(loaded.prediction_context.pipeline_run_id) == persisted.pipeline_run_id
     assert loaded.prediction_context.model_revision == "f" * 64
     assert loaded.prediction_context.operational_feature_id == int(
         queue.loc[queue["prediction_id"].eq(prediction_id), "operational_feature_id"].item()

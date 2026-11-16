@@ -36,6 +36,13 @@ ACK humano antes de integrar.
 - [x] Agregar un test que compila el SQL de cada revisión, rechaza parámetros
       sin valor y la conversión offline a `'NULL-'`.
 - [x] Registrar ADR-0037 y actualizar RN-21, la guía y el modelo de datos.
+- [x] La cadena `0001`→`0006` se aplica en CI sobre PostgreSQL 17 desde la base
+      legacy.
+- [x] Corregir la segunda falla que apareció detrás de `0003`: el test de
+      integración no se podía importar porque `vaaet.inference` cargaba `cv2`
+      con sólo el extra `inference`. `TrafficStatePrediction` pasa a
+      `vaaet.contracts`, con reexport desde `vaaet.vision`, y un test del core
+      lo protege.
 - [ ] `postgres-integration` en verde sobre PostgreSQL 17 en CI.
 - Review humano (ACK): Aprobado el enfoque por el responsable técnico (2026-11-15); integración pendiente
 - Commit propuesto: `git commit -m "fix(persistence): escapá el literal legacy de la migración 0003"`

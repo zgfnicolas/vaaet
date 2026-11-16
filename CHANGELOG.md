@@ -15,6 +15,10 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   de `0002` y el SQL offline escribía `'NULL-'` en `continuity_id`. Un test
   nuevo compila el SQL de cada revisión sin base de datos.
   [ADR-0037](docs/architecture/decisions/0037-migration-0003-bind-literal-correction.md)
+- `import vaaet.inference` ya no requiere el extra `vision`: el contrato
+  `TrafficStatePrediction` pasa a `vaaet.contracts`, sin cambiar sus campos, y
+  `vaaet.vision.pipeline` y `vaaet.vision.analysis` lo reexportan. Antes, una
+  instalación con sólo `vaaet-core[inference]` fallaba al importar `cv2`.
 
 ### Cambiado
 

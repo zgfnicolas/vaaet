@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import ast
 import logging
+import subprocess
+import sys
 from pathlib import Path
 
 from pytest import MonkeyPatch
@@ -58,6 +60,17 @@ def test_core_uses_explicit_imports_and_portable_exceptions() -> None:
     assert wildcard_imports == []
     assert "database" not in exceptions_source
     assert "colab" not in exceptions_source
+
+
+def test_inference_imports_without_the_vision_extra() -> None:
+    """Permite usar `vaaet-core[inference]` sin OpenCV ni Ultralytics."""
+
+    probe = (
+        "import sys; import vaaet.inference; import vaaet.inference.traffic_state; "
+        "loaded = sorted(m for m in ('cv2', 'ultralytics') if m in sys.modules); "
+        "assert not loaded, loaded"
+    )
+    subprocess.run([sys.executable, "-c", probe], check=True)
 
 
 def test_get_logger_has_no_root_configuration_side_effect(

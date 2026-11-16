@@ -18,6 +18,10 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   - reglas por ruta, las skills `validate`, `pg-integration`, `open-pr` y
     `governed-plan`, y los subagentes `vaaet-reviewer` y `ci-investigator`.
 - Un `CLAUDE.md` por componente, que carga su `AGENTS.md`.
+- La skill `hexagonal-architecture-fastapi`, que guía el diseño y la revisión
+  del futuro backend FastAPI de `vaaet-app` con puertos y adaptadores:
+  `vaaet-core` y `vaaet-persistence` quedan detrás de adaptadores driven, con
+  tres casos de prueba en `evals/`.
 - Una plantilla única de plan gobernado en `docs/governance/plans/`.
 
 ### Corregido

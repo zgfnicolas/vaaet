@@ -66,3 +66,9 @@ Cada tema tiene un único documento responsable; los demás lo enlazan.
 - `AGENTS.md` de cada componente: [core](../vaaet-core/AGENTS.md),
   [persistencia](../vaaet-persistence/AGENTS.md) y [ML](../vaaet-ml/AGENTS.md).
 - `.codex/skills/`: guías especializadas para Codex.
+- `.claude/`: configuración de Claude Code. Incluye permisos y hooks en
+  `settings.json`, reglas por ruta que enlazan las skills de `.codex/`, skills
+  (`validate`, `pg-integration`, `open-pr`, `governed-plan`) y subagentes de
+  sólo lectura (`vaaet-reviewer`, `ci-investigator`). Cada componente tiene un
+  `CLAUDE.md` que carga su `AGENTS.md`.
+- [Plantilla de plan gobernado](governance/plans/TEMPLATE.md).

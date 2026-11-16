@@ -1,8 +1,8 @@
 # Plan de ejecución: corrección del literal de la migración `0003`
 
 - Fecha de inicio: 2026-11-15
-- Estado global: En progreso
-- Ticket, issue o PR vinculado: N/A
+- Estado global: Completado
+- Ticket, issue o PR vinculado: [#32](https://github.com/zgfnicolas/vaaet/pull/32)
 
 ## 1. Contexto y restricciones
 
@@ -28,7 +28,7 @@ ACK humano antes de integrar.
 
 ## 3. Fases de ejecución HITL
 
-### [Actual] Fase 1: corrección y regresión
+### [Completada] Fase 1: corrección y regresión
 
 - [x] Reproducir el error sin base de datos y confirmar que no depende de la
       versión de SQLAlchemy.
@@ -43,13 +43,17 @@ ACK humano antes de integrar.
       con sólo el extra `inference`. `TrafficStatePrediction` pasa a
       `vaaet.contracts`, con reexport desde `vaaet.vision`, y un test del core
       lo protege.
-- [ ] `postgres-integration` en verde sobre PostgreSQL 17 en CI.
-- Review humano (ACK): Aprobado el enfoque por el responsable técnico (2026-11-15); integración pendiente
+- [x] Corregir las fallas siguientes que destapó el job: imports del test de
+      integración, `NULL` en `measurement_reliable` al leer backups, UUID nativos
+      frente a texto, tablas de corridas y comprobantes ausentes en backups e
+      identidad del modelo perdida al combinar fuentes HITL.
+- [x] `postgres-integration` en verde sobre PostgreSQL 17 en CI.
+- Review humano (ACK): Aprobado por el responsable técnico; integrado en `main` mediante [#32](https://github.com/zgfnicolas/vaaet/pull/32)
 - Commit propuesto: `git commit -m "fix(persistence): escapá el literal legacy de la migración 0003"`
 
 ## 4. Criterios de aceptación
 
-- [ ] La cadena Alembic completa se aplica en CI desde una base legacy y desde
+- [x] La cadena Alembic completa se aplica en CI desde una base legacy y desde
       una base vacía.
 - [x] `test_migration_sql.py` falla contra la `0003` original y pasa con la
       corrección.
@@ -62,4 +66,4 @@ ACK humano antes de integrar.
 - Causa y alcance: el job fallaba desde el 2026-09-06 sin bloquear integraciones.
 - Ajuste reutilizable: el SQL de las migraciones se valida en pruebas unitarias
   sin depender del job de PostgreSQL.
-- Decisión humana: Pendiente
+- Decisión humana: ACK; PR #32 mergeado con los 20 controles de CI en verde

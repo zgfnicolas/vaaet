@@ -8,6 +8,18 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
 
 ## [Unreleased]
 
+### Agregado
+
+- Configuración de Claude Code en `.claude/`:
+  - permisos `allow`, `ask` y `deny` para secretos, datos privados, binarios
+    ML y comandos destructivos;
+  - hooks que bloquean editar revisiones Alembic publicadas y archivos de DVC,
+    y que informan la rama y los planes en curso;
+  - reglas por ruta, las skills `validate`, `pg-integration`, `open-pr` y
+    `governed-plan`, y los subagentes `vaaet-reviewer` y `ci-investigator`.
+- Un `CLAUDE.md` por componente, que carga su `AGENTS.md`.
+- Una plantilla única de plan gobernado en `docs/governance/plans/`.
+
 ### Corregido
 
 - La migración Alembic `0003` escapa el literal `':legacy-'`, que SQLAlchemy

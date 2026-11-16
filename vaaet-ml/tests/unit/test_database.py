@@ -537,6 +537,8 @@ def test_backup_catalog_recognizes_modern_and_legacy_tables(
     3; 0 3 TABLE DATA vaaet_ml traffic_predictions owner
     4; 0 4 TABLE DATA vaaet_feedback human_validations owner
     5; 0 5 TABLE DATA public unrelated owner
+    6; 0 6 TABLE DATA vaaet_ops pipeline_runs owner
+    7; 0 7 TABLE DATA vaaet_ops persistence_receipts owner
     """
     monkeypatch.setattr(
         "vaaet_ml.data.database.subprocess.run",
@@ -546,6 +548,8 @@ def test_backup_catalog_recognizes_modern_and_legacy_tables(
         "vaaet_feedback.human_validations",
         "vaaet_ml.telemetry_features",
         "vaaet_ml.traffic_predictions",
+        "vaaet_ops.persistence_receipts",
+        "vaaet_ops.pipeline_runs",
         "vaaet_raw.traffic_data",
     )
 

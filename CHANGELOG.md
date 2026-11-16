@@ -27,6 +27,10 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   la misma feature leída desde PostgreSQL (UUID nativo) y desde un paquete
   (texto) se rechazaba como conflicto al combinar ambas fuentes. El error de
   conflicto ahora nombra la columna que difiere.
+- Los backups PostgreSQL reconocen `vaaet_ops.pipeline_runs` y
+  `vaaet_ops.persistence_receipts`. Sin esas tablas, la verificación de
+  ADR-0034 nunca recibía corridas ni comprobantes, y ningún backup real podía
+  aportar decisiones humanas al entrenamiento.
 
 ### Cambiado
 

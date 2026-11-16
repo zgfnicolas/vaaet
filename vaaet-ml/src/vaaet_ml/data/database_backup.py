@@ -29,6 +29,10 @@ _RECOGNIZED_BACKUP_TABLES = {
     FEATURE_TABLE,
     PREDICTION_TABLE,
     VALIDATION_TABLE,
+    # Corridas y comprobantes son la evidencia que exige ADR-0034 para admitir
+    # decisiones humanas desde un backup.
+    "vaaet_ops.pipeline_runs",
+    "vaaet_ops.persistence_receipts",
     "public.traffic_data",
     "public.telemetry_raw",
     "public.traffic_classifications",

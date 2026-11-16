@@ -16,7 +16,6 @@ on:
       - "vaaet-app/**"
       - "docs/**"
       - ".github/workflows/**"
-      - ".codex/skills/**"
       - ".claude/**"
       - ".dvc/**"
       - ".dvcignore"
@@ -37,7 +36,6 @@ on:
       - "vaaet-app/**"
       - "docs/**"
       - ".github/workflows/**"
-      - ".codex/skills/**"
       - ".claude/**"
       - ".dvc/**"
       - ".dvcignore"
@@ -187,7 +185,7 @@ jobs:
         run: ruff check notebooks --select F821
 
       - name: Auditar estructura e higiene de notebooks
-        run: python ../.codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py notebooks
+        run: python scripts/audit-notebooks.py notebooks
 
       - name: Rechazar binarios ML versionados por Git
         run: |

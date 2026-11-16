@@ -24,10 +24,7 @@ NOTEBOOKS = {
 }
 EVALUATION_NOTEBOOK = REPO_ROOT / "notebooks/evaluation/evaluate_models_and_eda.ipynb"
 ALL_NOTEBOOKS = {**NOTEBOOKS, "evaluation": EVALUATION_NOTEBOOK}
-NOTEBOOK_AUDITOR = (
-    WORKSPACE_ROOT
-    / ".codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py"
-)
+NOTEBOOK_AUDITOR = ML_ROOT / "scripts" / "audit-notebooks.py"
 WORKFLOW_CONFIG_MODULE = (ML_ROOT / "src/vaaet_ml/workflow_config.py").read_text(
     encoding="utf-8"
 )

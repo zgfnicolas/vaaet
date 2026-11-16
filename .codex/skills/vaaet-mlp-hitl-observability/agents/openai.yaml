@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET MLP HITL Observability"
-  short_description: "Train and audit VAAET MLP candidates"
-  default_prompt: "Use $vaaet-mlp-hitl-observability to review VAAET MLP training safely."

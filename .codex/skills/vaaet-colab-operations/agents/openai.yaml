@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Colab Operations"
-  short_description: "Run VAAET reliably on Colab Free"
-  default_prompt: "Use $vaaet-colab-operations to prepare a resilient VAAET workflow in Google Colab."

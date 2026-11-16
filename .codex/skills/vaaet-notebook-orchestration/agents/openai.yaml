@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Notebook Orchestration"
-  short_description: "Design clean, resilient VAAET notebooks"
-  default_prompt: "Use $vaaet-notebook-orchestration to review and simplify a VAAET Colab notebook."

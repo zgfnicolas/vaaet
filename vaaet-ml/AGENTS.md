@@ -79,7 +79,7 @@ pyright --project ../pyrightconfig.json
 pytest tests/ -v --tb=short -m "not postgres"
 python -m compileall -q src tests scripts migrations
 ruff check notebooks --select F821
-python ../.codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py notebooks
+python scripts/audit-notebooks.py notebooks
 git diff --check
 ```
 

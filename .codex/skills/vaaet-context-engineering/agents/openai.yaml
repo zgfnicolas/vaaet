@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Context Engineering"
-  short_description: "Govern VAAET AI context and documentation"
-  default_prompt: "Use $vaaet-context-engineering to audit or evolve VAAET context safely."

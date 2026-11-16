@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 VAAET Contributors
+# SPDX-License-Identifier: AGPL-3.0-only
 """Audita notebooks VAAET sin modificarlos."""
 
 from __future__ import annotations
@@ -107,7 +109,9 @@ def _has_src_import(tree: ast.Module) -> bool:
     return False
 
 
-def _load_code_cells(path: Path) -> tuple[list[tuple[int, str, ast.Module]], list[Finding]]:
+def _load_code_cells(  # noqa: C901 - valida el notebook en un único recorrido.
+    path: Path,
+) -> tuple[list[tuple[int, str, ast.Module]], list[Finding]]:
     findings: list[Finding] = []
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -164,7 +168,7 @@ def _load_code_cells(path: Path) -> tuple[list[tuple[int, str, ast.Module]], lis
     return code_cells, findings
 
 
-def audit_notebook(path: Path) -> list[Finding]:
+def audit_notebook(path: Path) -> list[Finding]:  # noqa: C901 - agrupa todas las reglas de auditoría.
     """Devuelve todos los hallazgos de un notebook."""
     code_cells, findings = _load_code_cells(path)
     if not code_cells:

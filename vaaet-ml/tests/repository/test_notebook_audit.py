@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
-AUDITOR = WORKSPACE_ROOT / ".codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py"
+AUDITOR = WORKSPACE_ROOT / "vaaet-ml" / "scripts" / "audit-notebooks.py"
 
 
 def _write_notebook(path: Path, code_cells: list[str]) -> None:

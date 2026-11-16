@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Vision Kinematics"
-  short_description: "Detect and measure vehicle motion"
-  default_prompt: "Use $vaaet-vision-kinematics to review VAAET vehicle perception safely."

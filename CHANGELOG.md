@@ -51,6 +51,8 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
 
 ### Cambiado
 
+- El auditor de notebooks pasa de `.codex/skills/` a
+  `vaaet-ml/scripts/audit-notebooks.py`. El CI y los tests conservan el gate.
 - La documentación sigue «un tema, un lugar»: un único PRD con historias y
   criterios de aceptación, matriz de roles, reglas de negocio `RN-xx`, índice y
   plantilla de ADRs, arquitectura arc42 con contexto C4 y modelo de datos con
@@ -62,6 +64,8 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
 
 ### Eliminado
 
+- Las 15 skills de Codex de `.codex/skills/`, que se reemplazarán por versiones
+  más completas. Las reglas y skills de `.claude/` dejan de enlazarlas.
 - `llms.txt`, `vaaet-ml/llms.txt`, el SRS y los casos de uso, absorbidos por
   `AGENTS.md` y el PRD. Los documentos comerciales y la matriz de riesgos pasan
   a `docs/archive/`.

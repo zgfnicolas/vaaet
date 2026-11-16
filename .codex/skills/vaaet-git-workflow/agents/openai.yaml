@@ -1,4 +1,0 @@
-interface:
-  display_name: "Flujo Git VAAET"
-  short_description: "Gobernanza Git y commits en español"
-  default_prompt: "Usá $vaaet-git-workflow para preparar un cambio Git seguro y trazable."

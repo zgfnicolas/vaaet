@@ -230,15 +230,29 @@ def _frontmatter(path: Path) -> dict[str, str]:
     return fields
 
 
-def test_rules_are_path_scoped_and_point_to_existing_codex_skills() -> None:
+def test_rules_are_path_scoped_and_do_not_depend_on_codex() -> None:
     rules = sorted((CLAUDE_DIR / "rules").glob("*.md"))
     assert len(rules) >= 5
     for rule in rules:
         assert _frontmatter(rule).get("paths"), rule.name
-        content = rule.read_text(encoding="utf-8")
-        assert len(content.splitlines()) <= 30, rule.name
-        for skill in re.findall(r"\.codex/skills/[\w-]+/SKILL\.md", content):
-            assert (WORKSPACE_ROOT / skill).is_file(), f"{rule.name} -> {skill}"
+        assert len(rule.read_text(encoding="utf-8").splitlines()) <= 30, rule.name
+    # Sólo archivos versionados: `.claude/worktrees/` contiene checkouts completos.
+    # Cuando lleguen las skills nuevas, revisá si esta restricción sigue aplicando.
+    tracked = subprocess.run(
+        ["git", "-C", str(WORKSPACE_ROOT), "ls-files", ".claude"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    claude_texts = [
+        WORKSPACE_ROOT / name for name in tracked if Path(name).suffix in {".md", ".json", ".sh"}
+    ]
+    assert claude_texts
+    assert not [
+        path.relative_to(WORKSPACE_ROOT).as_posix()
+        for path in claude_texts
+        if ".codex" in path.read_text(encoding="utf-8")
+    ]
 
 
 def test_skills_declare_purpose_and_gate_side_effects() -> None:
@@ -269,13 +283,9 @@ def test_subagents_are_read_only_reviewers() -> None:
 def test_governed_plan_template_has_a_single_source() -> None:
     template = WORKSPACE_ROOT / "docs" / "governance" / "plans" / "TEMPLATE.md"
     assert template.read_text(encoding="utf-8").startswith("# Plan de ejecución:")
-    codex = (WORKSPACE_ROOT / ".codex/skills/vaaet-context-engineering/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    assert "docs/governance/plans/TEMPLATE.md" in codex
-    assert "## 3. Fases de ejecución HITL" not in codex
     skill = (CLAUDE_DIR / "skills" / "governed-plan" / "SKILL.md").read_text(encoding="utf-8")
     assert "docs/governance/plans/TEMPLATE.md" in skill
+    assert "## 3. Fases de ejecución HITL" not in skill
 
 
 def test_ci_runs_when_claude_code_configuration_changes() -> None:

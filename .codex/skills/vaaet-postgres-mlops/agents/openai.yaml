@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET PostgreSQL MLOps"
-  short_description: "Persist PostgreSQL data securely"
-  default_prompt: "Use $vaaet-postgres-mlops to review VAAET PostgreSQL persistence safely."

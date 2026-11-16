@@ -16,4 +16,3 @@ paths:
 - `AGENTS.md` raíz debe quedar en menos de 150 líneas y, sumado a `CLAUDE.md`,
   en menos de 200.
 - Validá con `pytest tests/repository` desde `vaaet-ml/`.
-- Guía de dominio: `.codex/skills/vaaet-context-engineering/SKILL.md`.

@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Pipeline Architecture"
-  short_description: "Guide staged vision pipeline evolution"
-  default_prompt: "Use $vaaet-pipeline-architecture to assess or evolve VAAET pipeline boundaries safely."

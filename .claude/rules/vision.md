@@ -12,5 +12,3 @@ paths:
   `vaaet.inference` y los contratos compartidos (`vaaet/contracts.py`) deben
   importarse con el extra `inference` solo; `test_core_isolation.py` lo
   verifica.
-- Guías de dominio: `.codex/skills/vaaet-vision-kinematics/SKILL.md` y
-  `.codex/skills/vaaet-pipeline-architecture/SKILL.md`.

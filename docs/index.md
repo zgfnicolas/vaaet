@@ -65,9 +65,8 @@ Cada tema tiene un único documento responsable; los demás lo enlazan.
   `.github/copilot-instructions.md` sólo apuntan a ella.
 - `AGENTS.md` de cada componente: [core](../vaaet-core/AGENTS.md),
   [persistencia](../vaaet-persistence/AGENTS.md) y [ML](../vaaet-ml/AGENTS.md).
-- `.codex/skills/`: guías especializadas para Codex.
 - `.claude/`: configuración de Claude Code. Incluye permisos y hooks en
-  `settings.json`, reglas por ruta que enlazan las skills de `.codex/`, skills
+  `settings.json`, reglas por ruta con lo no obvio de cada zona, skills
   (`validate`, `pg-integration`, `open-pr`, `governed-plan`) y subagentes de
   sólo lectura (`vaaet-reviewer`, `ci-investigator`). Cada componente tiene un
   `CLAUDE.md` que carga su `AGENTS.md`.

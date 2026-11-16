@@ -9,7 +9,7 @@ argument-hint: "[descripción breve del cambio]"
 
 Cambio: $ARGUMENTS
 
-Seguí `.codex/skills/vaaet-git-workflow/SKILL.md` para las reglas de Git. Cada
+Seguí el flujo de `CONTRIBUTING.md` y el formato de `.git-commit-template.txt`. Cada
 paso que publica (commit, push, PR) necesita la confirmación explícita de la
 persona; si no la diste en este pedido, detenete antes de ese paso.
 

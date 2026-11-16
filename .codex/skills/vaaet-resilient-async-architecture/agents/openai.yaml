@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Resilient Async Architecture"
-  short_description: "Guide resilient VAAET frontend, API and ML flows"
-  default_prompt: "Use $vaaet-resilient-async-architecture to design a resilient VAAET frontend, API, or ML flow."

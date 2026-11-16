@@ -14,4 +14,3 @@ paths:
 - `has_table_privilege` con un nombre textual falla si el rol no tiene `USAGE`
   sobre el schema; para chequear privilegios, resolvé la tabla por OID.
 - Para la integración real, usá la skill `pg-integration`.
-- Guía de dominio: `.codex/skills/vaaet-postgres-mlops/SKILL.md`.

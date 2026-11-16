@@ -31,6 +31,11 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   `vaaet_ops.persistence_receipts`. Sin esas tablas, la verificación de
   ADR-0034 nunca recibía corridas ni comprobantes, y ningún backup real podía
   aportar decisiones humanas al entrenamiento.
+- La consolidación HITL toma `model_version` y `model_revision` de la
+  predicción validada. Al combinar feedback de PostgreSQL con paquetes, el
+  `merge` dejaba esa identidad en columnas con sufijo `_prediction` y las filas
+  de PostgreSQL quedaban sin `model_revision`. Si la feature trae otro valor,
+  ahora es un conflicto explícito.
 
 ### Cambiado
 

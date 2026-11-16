@@ -207,10 +207,12 @@ conexión, el workflow lo informa y conserva sus outputs locales.
 ### RN-21 — Alembic es la única autoridad DDL
 
 El schema sólo cambia mediante una revisión Alembic nueva. Las revisiones
-publicadas no se modifican y ninguna migración se ejecuta desde un notebook.
+publicadas no se modifican y ninguna migración se ejecuta desde un notebook. La
+única excepción es la corrección de `0003` registrada en ADR-0037.
 
 - Origen: [ADR-0024](../architecture/decisions/0024-provider-neutral-postgresql-and-schema-as-code.md),
-  [ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md)
+  [ADR-0028](../architecture/decisions/0028-shared-postgresql-persistence-layer.md),
+  [ADR-0037](../architecture/decisions/0037-migration-0003-bind-literal-correction.md)
 - Se aplica en: `vaaet-persistence/src/vaaet_persistence/migrations/`
 
 ### RN-22 — Escritura y comprobante en la misma transacción

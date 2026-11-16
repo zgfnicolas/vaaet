@@ -8,6 +8,14 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
 
 ## [Unreleased]
 
+### Corregido
+
+- La migración Alembic `0003` escapa el literal `':legacy-'`, que SQLAlchemy
+  2.x interpretaba como el parámetro `:legacy`. Antes, la cadena no podía pasar
+  de `0002` y el SQL offline escribía `'NULL-'` en `continuity_id`. Un test
+  nuevo compila el SQL de cada revisión sin base de datos.
+  [ADR-0037](docs/architecture/decisions/0037-migration-0003-bind-literal-correction.md)
+
 ### Cambiado
 
 - La documentación sigue «un tema, un lugar»: un único PRD con historias y

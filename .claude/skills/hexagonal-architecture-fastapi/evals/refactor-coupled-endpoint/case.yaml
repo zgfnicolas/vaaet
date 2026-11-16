@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: refactor-coupled-endpoint
+expected_outcome: |
+  Identifica los problemas del prototipo (análisis de video dentro del request, joblib/keras cargados sin validar el manifiesto, SQL y sesión en el endpoint, HTTPException en la lógica, pandas en la respuesta, Accident automático) y entrega un refactor hexagonal con puertos, adaptadores, configurador, traductor de errores único y tests en memoria.
+context:
+  scaffold_script: place-files.sh

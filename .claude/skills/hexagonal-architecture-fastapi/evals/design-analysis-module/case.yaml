@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: design-analysis-module
+expected_outcome: |
+  Entrega un diseño hexagonal del módulo analysis: mapa con actores driving (web, worker, CLI) y driven (storage, cola, visión, bundle, persistencia, reloj), puertos en lenguaje del núcleo, el análisis fuera del request HTTP, configurador en el lifespan con perfil en memoria rechazado en producción, persistencia síncrona envuelta en threadpool, bundle cargado con load_traffic_bundle, tabla de traducción de errores, tests de aceptación y contrato, import-linter que prohíbe vaaet_ml, y menciona que vaaet-app requiere plan gobernado/ADR antes de implementarse.

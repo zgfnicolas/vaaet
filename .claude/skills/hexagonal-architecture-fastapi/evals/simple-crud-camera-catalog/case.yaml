@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: simple-crud-camera-catalog
+expected_outcome: |
+  Desaconseja hexagonal para este CRUD con un solo actor y una sola base, explica el motivo y propone una estructura simple (router + servicio/repositorio) sin puertos/adaptadores ni configurador por perfiles, respetando que el schema va por Alembic en vaaet-persistence y que vaaet-app requiere aprobación.

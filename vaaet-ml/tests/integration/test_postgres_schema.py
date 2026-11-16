@@ -22,6 +22,8 @@ from vaaet_persistence import (
     DatabaseProfile,
     load_human_validation_record,
     load_review_queue,
+    persist_classified_telemetry,
+    persist_human_validation,
     persist_human_validation_record,
     persist_raw_telemetry,
     reconcile_human_validation,
@@ -41,8 +43,7 @@ from vaaet_ml.data.ingestion import (
     TrainingIngestionPlan,
     load_training_inputs,
 )
-from vaaet_ml.data.persistence import persist_classified_telemetry
-from vaaet_ml.data.review import HumanValidation, persist_human_validation
+from vaaet_ml.data.review import HumanValidation
 from vaaet_ml.data.review_finalization import seal_review_package
 from vaaet_ml.training.lifecycle import TrainingMode
 

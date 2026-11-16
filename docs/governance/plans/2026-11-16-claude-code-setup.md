@@ -2,7 +2,7 @@
 
 - Fecha de inicio: 2026-11-16
 - Estado global: Completado
-- Ticket, issue o PR vinculado: N/A
+- Ticket, issue o PR vinculado: [#33](https://github.com/zgfnicolas/vaaet/pull/33)
 
 ## 1. Contexto y restricciones
 

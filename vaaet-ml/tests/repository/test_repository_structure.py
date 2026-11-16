@@ -435,7 +435,12 @@ def test_portable_agent_context_describes_the_active_monorepo() -> None:
 
     assert not (WORKSPACE_ROOT / "llms.txt").exists()
     assert not (ML_ROOT / "llms.txt").exists()
-    assert (WORKSPACE_ROOT / "CLAUDE.md").read_text(encoding="utf-8").strip() == "@AGENTS.md"
+    claude_rules = (WORKSPACE_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert claude_rules.splitlines()[0] == "@AGENTS.md"
+    assert len(claude_rules.splitlines()) + len(root_rules.splitlines()) < 200
+    for component in ("vaaet-core", "vaaet-persistence", "vaaet-ml"):
+        pointer = (WORKSPACE_ROOT / component / "CLAUDE.md").read_text(encoding="utf-8")
+        assert pointer.strip() == "@AGENTS.md"
     copilot = (WORKSPACE_ROOT / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
     assert "AGENTS.md" in copilot
     assert len(copilot.splitlines()) <= 3

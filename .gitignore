@@ -72,3 +72,8 @@ vaaet-ml/data/private/
 
 # Virtual environment (DVC runtime)
 .venv/
+
+# Claude Code: archivos personales y temporales
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/

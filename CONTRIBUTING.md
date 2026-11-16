@@ -27,6 +27,12 @@ cada perfil; la [guía PostgreSQL](docs/operations/postgresql-guide.md) explica
 la configuración. GPU, Drive y DVC remoto se prueban en Google Colab según la
 [guía de Colab](docs/operations/colab-guide.md).
 
+Si usás Claude Code, los hooks de `.claude/settings.json` necesitan `python3`
+en el PATH. Los permisos que apruebes para vos se guardan en
+`.claude/settings.local.json` y tus preferencias en `CLAUDE.local.md`; los dos
+están fuera de Git. Una regla `deny` del proyecto no se puede reabrir desde
+la configuración personal.
+
 ## Flujo de trabajo
 
 1. Creá una rama `feature/<descripcion>` desde `main`.

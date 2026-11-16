@@ -9,6 +9,8 @@ los notebooks.
 - `convert-postgres-backup.py`: convierte un backup PostgreSQL a CSV para Colab.
 - `export-training-dataset.py`: crea y verifica `vaaet-training-dataset-v1.zip` desde exports CSV administrativos.
 - `evaluate-telemetry-exports.py`: compara resultados exportados de telemetría.
+- `audit-notebooks.py`: audita sin modificarlos la estructura y la higiene de
+  los notebooks. Es un gate del CI: `python scripts/audit-notebooks.py notebooks`.
 - `audit-postgres-database.py`: audita en modo read-only migración, permisos,
   comentarios, constraints, índices, tamaños, integridad y planes PostgreSQL.
 - `vaaet-registry`: comando instalable del paquete que configura el remoto local,

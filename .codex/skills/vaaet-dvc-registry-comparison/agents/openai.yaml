@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET DVC Registry Comparison"
-  short_description: "Audit and compare DVC model bundles"
-  default_prompt: "Use $vaaet-dvc-registry-comparison to compare VAAET model bundles safely."

@@ -3,8 +3,8 @@
 ## Sólo para Claude Code
 
 - Cada componente tiene su `CLAUDE.md`, que carga su `AGENTS.md` al trabajar
-  ahí. Las reglas de `.claude/rules/` se cargan por ruta y apuntan a las skills
-  de `.codex/skills/`, que Claude Code no lee por su cuenta.
+  ahí. Las reglas de `.claude/rules/` se cargan por ruta con lo no obvio de
+  cada zona.
 - Empezá en plan mode antes de tocar contratos, `vaaet-core/src/vaaet/`,
   `vaaet-persistence/` o migraciones, y esperá la aprobación.
 - Si un plan gobernado está «En progreso», ejecutá sólo la fase marcada como

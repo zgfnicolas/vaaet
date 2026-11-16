@@ -91,7 +91,7 @@ ruff check src tests scripts migrations
 pytest tests -v --tb=short -m "not postgres"
 python -m compileall -q src tests scripts migrations
 ruff check notebooks --select F821
-python ../.codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py notebooks
+python scripts/audit-notebooks.py notebooks
 ```
 
 También se deben compilar con `ast.parse()` las celdas de los cuatro notebooks,
@@ -106,9 +106,9 @@ no autentican ni transfieren artefactos.
 GitHub Actions ejecuta la matriz Python 3.10--3.13 de core, persistencia y ML, tipado,
 instalaciones mínimas aisladas, integración del workspace, PostgreSQL, enlaces,
 calidad de repositorio y DVC. La calidad de repositorio revisa
-`git diff --check` en el rango completo de cada evento. Los cambios en
-`.codex/skills/` activan CI porque el auditor de notebooks se ejecuta desde ese
-directorio. DVC se invoca desde la raíz con
+`git diff --check` en el rango completo de cada evento, y el auditor de
+notebooks corre desde `vaaet-ml/scripts/audit-notebooks.py`. DVC se invoca
+desde la raíz con
 `vaaet-ml[dvc,dvc-gdrive,dvc-s3,dev]`, sin autenticarse ni transferir datos.
 
 Un fallo determinista de contrato, lint, tipo o test se corrige; no se reintenta

@@ -1,4 +1,0 @@
-interface:
-  display_name: "EDA VAAET y narrativa de datos"
-  short_description: "Explorá datos VAAET sin fuga ni deriva"
-  default_prompt: "Usá $vaaet-eda-data-storytelling para auditar datos VAAET sin alterar contratos."

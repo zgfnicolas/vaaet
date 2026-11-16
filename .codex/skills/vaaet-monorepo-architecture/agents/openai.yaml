@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Monorepo Architecture"
-  short_description: "Govern VAAET core, ML and app boundaries"
-  default_prompt: "Use $vaaet-monorepo-architecture to govern VAAET monorepo boundaries safely."

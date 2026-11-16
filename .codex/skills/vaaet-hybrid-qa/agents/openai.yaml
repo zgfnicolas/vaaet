@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Hybrid QA"
-  short_description: "Pruebas seguras para core, ML y API futura"
-  default_prompt: "Usá $vaaet-hybrid-qa para diseñar pruebas VAAET basadas en riesgo."

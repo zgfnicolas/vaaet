@@ -15,4 +15,3 @@ paths:
   valores.
 - Los tests unitarios simulan catálogos de backup y conexiones; un cambio en
   lectura de backups o PostgreSQL necesita además la skill `pg-integration`.
-- Guía de dominio: `.codex/skills/vaaet-mlp-hitl-observability/SKILL.md`.

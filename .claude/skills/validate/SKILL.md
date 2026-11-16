@@ -16,7 +16,7 @@ allowed-tools: Bash(git status *) Bash(git diff *) Bash(ruff check *) Bash(pytes
    |---|---|
    | `vaaet-core/` | `ruff check src tests`, `pyright --project ../pyrightconfig.json`, `pytest tests -m "not postgres"`, `python -m compileall -q src tests` |
    | `vaaet-persistence/` | `ruff check src tests`, `pyright src`, `pytest -m "not postgres"`, `python -m compileall -q src` |
-   | `vaaet-ml/` | `ruff check src tests scripts migrations`, `pyright --project ../pyrightconfig.json`, `pytest tests -m "not postgres"`, `python -m compileall -q src tests scripts migrations`, `ruff check notebooks --select F821`, `python ../.codex/skills/vaaet-notebook-orchestration/scripts/audit_notebooks.py notebooks` |
+   | `vaaet-ml/` | `ruff check src tests scripts migrations`, `pyright --project ../pyrightconfig.json`, `pytest tests -m "not postgres"`, `python -m compileall -q src tests scripts migrations`, `ruff check notebooks --select F821`, `python scripts/audit-notebooks.py notebooks` |
    | Raíz o documentación | `pytest tests/repository` desde `vaaet-ml/` y `git diff --check` |
 
    Si cambió `vaaet-core/` o `vaaet-persistence/`, corré también los tests de

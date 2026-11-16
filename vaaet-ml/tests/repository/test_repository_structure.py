@@ -22,6 +22,7 @@ ACTIVE_NOTEBOOKS = [
 ]
 ALLOWED_SCRIPT_FILES = {
     "README.md",
+    "audit-notebooks.py",
     "audit-postgres-database.py",
     "convert-postgres-backup.py",
     "evaluate-telemetry-exports.py",
@@ -341,12 +342,12 @@ def test_ci_preserves_the_workspace_quality_gates() -> None:
 
     workflow = (WORKSPACE_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
-    assert '".codex/skills/**"' in workflow
+    assert "python scripts/audit-notebooks.py notebooks" in workflow
+    assert ".codex/skills" not in workflow
     assert "repository-quality:" in workflow
     assert "git diff --check" in workflow
     assert "package-smoke:" in workflow
     assert "ruff check notebooks --select F821" in workflow
-    assert "audit_notebooks.py notebooks" in workflow
     assert 'python -m venv "$RUNNER_TEMP/vaaet-core-base"' in workflow
     assert 'python -m venv "$RUNNER_TEMP/vaaet-workspace-base"' in workflow
 

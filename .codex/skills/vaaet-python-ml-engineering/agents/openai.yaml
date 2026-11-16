@@ -1,4 +1,0 @@
-interface:
-  display_name: "VAAET Python ML Engineering"
-  short_description: "Build robust typed ML Python code"
-  default_prompt: "Use $vaaet-python-ml-engineering to improve VAAET Python quality safely."

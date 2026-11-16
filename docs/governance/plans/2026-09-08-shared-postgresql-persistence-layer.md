@@ -4,6 +4,7 @@
 - Alcance: `vaaet-persistence` 0.1.0 y `vaaet-ml` 4.7.0
 - Decisión: [ADR-0028](../../architecture/decisions/0028-shared-postgresql-persistence-layer.md)
 - Estado: implementado; validación manual externa pendiente
+- PR: [#23](https://github.com/zgfnicolas/vaaet/pull/23)
 
 ## Objetivo
 

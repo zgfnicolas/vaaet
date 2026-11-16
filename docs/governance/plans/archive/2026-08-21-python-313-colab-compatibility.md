@@ -3,7 +3,7 @@
 - Fecha de inicio: 2026-08-21
 - Fecha de cierre: 2026-08-22
 - Estado global: Completado
-- Ticket, issue o PR vinculado: N/A
+- Ticket, issue o PR vinculado: [#1](https://github.com/zgfnicolas/vaaet/pull/1)
 
 ## 1. Contexto y restricciones
 
@@ -13,10 +13,10 @@ de instalar sus extras y el notebook sólo expone un `CalledProcessError`.
 
 Fuentes revisadas:
 
-- [ADR-0013](../../architecture/decisions/0013-on-demand-data-collection-workflow.md)
-  a [ADR-0019](../../architecture/decisions/0019-immutable-seed-and-hitl-datasets.md).
+- [ADR-0013](../../../architecture/decisions/0013-on-demand-data-collection-workflow.md)
+  a [ADR-0019](../../../architecture/decisions/0019-immutable-seed-and-hitl-datasets.md).
 - `vaaet-ml/pyproject.toml`, los tres notebooks activos y `.github/workflows/ci.yml`.
-- [Guía de Colab](../../operations/colab-guide.md) y contexto raíz del repositorio.
+- [Guía de Colab](../../../operations/colab-guide.md) y contexto raíz del repositorio.
 
 Invariantes: no cambiar las 19 features, MLP, estados públicos, umbrales,
 PostgreSQL, bundle v2 ni remotes DVC. Mantener instalación normal en Colab,

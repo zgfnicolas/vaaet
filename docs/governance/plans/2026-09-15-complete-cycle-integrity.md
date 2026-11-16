@@ -4,6 +4,7 @@
 - Alcance: Core 0.2.2, Persistence 0.2.3 y ML 4.8.3
 - Decisión: [ADR-0032](../../architecture/decisions/0032-complete-cycle-integrity.md)
 - Estado: implementado en código; validación externa pendiente
+- PR: [#27](https://github.com/zgfnicolas/vaaet/pull/27)
 
 ## Objetivo
 

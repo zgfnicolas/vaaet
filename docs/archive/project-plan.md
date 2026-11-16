@@ -1,6 +1,10 @@
 # Plan de gestión del proyecto — VAAET
 
-- Estado: activo
+> **Archivado el 2026-11-15. No normativo.** Reemplazado por el
+> [roadmap](../roadmap.md); la forma de trabajo vigente está en
+> [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+- Estado: archivado
 - Última revisión: 2026-08-27
 - Responsable técnico: Facundo Nicolás González
 
@@ -38,8 +42,8 @@ core + persistencia con identidad propia y validarán el manifiesto vigente.
 ## Calidad y trazabilidad
 
 Los cambios siguen Conventional Commits en español argentino rioplatense formal.
-Las fuentes de contexto portables son [AGENTS.md](../../AGENTS.md),
-[llms.txt](../../llms.txt) y [docs/index.md](../index.md); los ADRs y contratos
+Las fuentes de contexto portables son [AGENTS.md](../../AGENTS.md) y
+[docs/index.md](../index.md); los ADRs y contratos
 prevalecen sobre resúmenes y README.
 
 CI valida core, persistencia y ML por separado, integración del workspace, PostgreSQL,
@@ -55,5 +59,5 @@ con Secrets mantienen validación manual en Colab antes de promoción externa.
 3. Antes de crear código en `vaaet-app/`, aprobar un alcance y contrato HTTP
    versionado, activos redistribuibles y el checklist de demo aplicable.
 
-Los planes fechados en [`docs/governance/plans/`](plans/) conservan la
+Los planes fechados en [`docs/governance/plans/`](../governance/plans/) conservan la
 trazabilidad de fases pasadas y pendientes; no se sustituyen por este resumen.

@@ -7,7 +7,7 @@ description: Diseñá y revisá pruebas VAAET basadas en riesgo para core, ML y 
 
 Diseñá evidencia de calidad proporcional al riesgo y al límite del componente. Esta skill guía pruebas para el core portable, el laboratorio ML y la futura aplicación; no crea una API, un framework ni una estrategia de CI nueva.
 
-Antes de cambiar comportamiento, leé `AGENTS.md`, `llms.txt`, `docs/quality/test-plan.md` y el ADR aplicable. ADR-0021 delimita core y ML; ADR-0022 gobierna serving con YOLO; ADR-0024 gobierna PostgreSQL. Los contratos y ADRs prevalecen sobre esta skill.
+Antes de cambiar comportamiento, leé `AGENTS.md`, `docs/quality/test-plan.md` y el ADR aplicable. ADR-0021 delimita core y ML; ADR-0022 gobierna serving con YOLO; ADR-0024 gobierna PostgreSQL. Los contratos y ADRs prevalecen sobre esta skill.
 
 ## Ubicá cada prueba en su límite real
 

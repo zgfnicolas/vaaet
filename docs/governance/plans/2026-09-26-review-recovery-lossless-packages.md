@@ -4,6 +4,7 @@
 - Alcance: Persistence 0.3.2 y ML 4.9.2; Core permanece en 0.2.2
 - Decisión: [ADR-0035](../../architecture/decisions/0035-review-recovery-and-lossless-packages.md)
 - Estado: implementado; aceptación operacional pendiente
+- PR: [#30](https://github.com/zgfnicolas/vaaet/pull/30)
 
 ## Fases
 

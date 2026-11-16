@@ -1,12 +1,11 @@
 # AGENTS.md — VAAET Core
 
-Leé primero el [`AGENTS.md`](../AGENTS.md) raíz, el
-[`llms.txt`](../llms.txt) y [ADR-0021](../docs/architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md).
+Leé primero el [`AGENTS.md`](../AGENTS.md) raíz y
+[ADR-0021](../docs/architecture/decisions/0021-portable-core-and-ml-laboratory-boundary.md).
 
 ## Alcance
 
-`vaaet-core` es la distribución portable `vaaet-core==0.2.2`, con import
-`vaaet`. Contiene percepción, telemetría, 19 features, política de estados y
+`vaaet-core` es la distribución portable, con import `vaaet`. Contiene percepción, telemetría, 19 features, política de estados y
 bundle/inferencia manifest-first. No puede importar `vaaet_ml`, PostgreSQL,
 DVC, Google Drive ni APIs de notebook; tampoco administra colas, workers,
 persistencia ni rutas remotas.

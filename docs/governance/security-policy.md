@@ -1,4 +1,4 @@
-# Política de seguridad y privacidad — VAAET ML 4.9.3
+# Política de seguridad y privacidad — VAAET
 
 `vaaet-persistence` centraliza PostgreSQL para notebooks y futuros backends.
 Cada proceso usa una identidad separada, TLS `verify-full`, permisos
@@ -35,13 +35,9 @@ ML. Rotar por separado cada credencial de workflow si se sospecha exposición.
 
 ## Roles
 
-| Perfil | Acceso |
-|---|---|
-| collection | SELECT/INSERT en `vaaet_raw.traffic_data` |
-| inference | SELECT/INSERT en features y predicciones inmutables |
-| training | SELECT en los tres schemas |
-| review | SELECT de cola e INSERT append-only en validaciones |
-| administrator | Alembic, roles y grants; prohibido en Colab |
+Cada workflow usa un perfil con permisos mínimos y la identidad administrativa
+está prohibida en Colab. La matriz completa está en
+[roles y permisos](../product/roles.md).
 
 Las consultas usan parámetros y nombres completamente cualificados; no dependen
 de `search_path`. Predicciones automáticas no pueden insertar estado 3 y el rol de

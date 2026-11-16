@@ -1,6 +1,7 @@
 # Plan gobernado — Integridad, continuidad y HITL uniforme
 
 - Estado: implementado; validación de entornos externos pendiente
+- PR: [#22](https://github.com/zgfnicolas/vaaet/pull/22)
 - Fecha: 2026-09-07
 - ADR: [ADR-0027](../../architecture/decisions/0027-complete-bundle-identity-and-hitl-integrity.md)
 - Alcance: `vaaet-core` 0.2.1 y `vaaet-ml` 4.6.1

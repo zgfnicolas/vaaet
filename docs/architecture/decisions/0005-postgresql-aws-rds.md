@@ -3,7 +3,7 @@ Referenciado por AGENTS.md, PRD.md, README.md. -->
 
 # ADR-005: PostgreSQL (AWS RDS) sobre SQLite/Local
 
-**Status:** Superseded by [ADR-0015](0015-postgresql-namespaces-security-and-hitl.md)
+**Estado:** Reemplazada por [ADR-0015](0015-postgresql-namespaces-security-and-hitl.md)
 > La elección histórica de PostgreSQL permanece, pero proveedor, credenciales,
 > schemas, roles y migraciones se rigen desde 4.1.0 por ADR-0015.
 **Fecha:** 2026-03-06  

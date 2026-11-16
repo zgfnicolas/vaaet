@@ -3,6 +3,10 @@ Complementa BIAS_AND_LIMITATIONS.md y FEASIBILITY.md. -->
 
 # Matriz de Riesgos y Mitigación — VAAET
 
+> **Archivado el 2026-11-15. No normativo.** Se conserva como referencia
+> histórica; los riesgos vigentes y la deuda técnica están en la
+> [arquitectura de software](../architecture/software-architecture.md#7-riesgos-y-deuda-técnica).
+
 ## Identificación del Proyecto
 
 | Campo | Detalles |

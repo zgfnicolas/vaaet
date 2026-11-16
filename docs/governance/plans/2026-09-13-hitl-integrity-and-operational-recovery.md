@@ -4,6 +4,7 @@
 - Alcance: `vaaet-persistence` 0.2.2 y `vaaet-ml` 4.8.2
 - Decisión: [ADR-0031](../../architecture/decisions/0031-hitl-integrity-and-coordinated-catalog-publication.md)
 - Estado: implementado en código; validación externa pendiente
+- PR: [#26](https://github.com/zgfnicolas/vaaet/pull/26)
 
 ## Objetivo
 

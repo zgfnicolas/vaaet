@@ -8,16 +8,18 @@ description: Gestioná y revisá cambios Git de VAAET con commits atómicos, tra
 ## Estado actual y límites de autoridad
 
 Usá Git como historial técnico auditable, no como respaldo indiferenciado. Antes
-de modificar el repositorio, leé `AGENTS.md`, `llms.txt`, el ADR aplicable,
+de modificar el repositorio, leé `AGENTS.md`, el ADR aplicable,
 `CONTRIBUTING.md` y el plan gobernado cuando corresponda. Para un cambio de
 componente, leé también `vaaet-core/AGENTS.md` o `vaaet-ml/AGENTS.md`; ADR-0021
 gobierna sus límites y ADR-0022 cualquier serving futuro con YOLO.
 
 VAAET usa actualmente `main` como rama principal y `feature/*` para trabajo
 aislado. La plantilla versionada `.git-commit-template.txt` es una guía local
-opt-in, no una configuración aplicada automáticamente. No hay una rama
-`develop`, Git Flow completo, plantilla de pull request, protección de ramas,
-firma de commits, commitlint ni hooks configurados como política vigente. No los
+opt-in, no una configuración aplicada automáticamente. GitHub carga
+`.github/pull_request_template.md` en cada PR y ofrece plantillas de issues en
+`.github/ISSUE_TEMPLATE/`; completá el template al abrir un PR. No hay una rama
+`develop`, Git Flow completo, protección de ramas, firma de commits, commitlint
+ni hooks configurados como política vigente. No los
 presentes como capacidades existentes ni los agregues sin autorización explícita.
 
 No crees ramas, hagas staging, commits, rebase, push, pull requests, merges,

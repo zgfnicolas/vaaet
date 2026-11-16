@@ -2,6 +2,11 @@
 
 # Perfiles de usuario — VAAET
 
+> **Archivado el 2026-11-15. No normativo.** Se conserva como referencia
+> histórica y no describe el producto vigente; consultá el
+> [PRD](../product/product-requirements.md) y los
+> [roles y permisos](../product/roles.md).
+
 ## Estado documental
 
 **Hipótesis de producto futura.** Los perfiles orientan investigación y diseño;

@@ -1,19 +1,29 @@
-# Historial de Cambios — VAAET
+# Changelog — VAAET
 
-Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, siguiendo los estándares de **Semantic Versioning (SemVer)** y la estructura de [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
-
-## Identificación del Proyecto
-
-| Campo | Detalles |
-|---|---|
-| **Nombre del Proyecto** | VAAET — Video Advanced Analysis of Traffic |
-| **Responsable Técnico** | Facundo Nicolás González |
-| **Responsable de Contexto** | Facundo Nicolás González |
-| **Repositorio** | [github.com/zgfnicolas/vaaet](https://github.com/zgfnicolas/vaaet) |
-
----
+Cambios relevantes de `vaaet-core`, `vaaet-persistence` y `vaaet-ml`, con el
+formato de [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y
+[versionado semántico](https://semver.org/lang/es/). Los encabezados de
+versión corresponden a `vaaet-ml`; cada entrada indica las versiones de core y
+persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
 
 ## [Unreleased]
+
+### Cambiado
+
+- La documentación sigue «un tema, un lugar»: un único PRD con historias y
+  criterios de aceptación, matriz de roles, reglas de negocio `RN-xx`, índice y
+  plantilla de ADRs, arquitectura arc42 con contexto C4 y modelo de datos con
+  políticas referenciales y datos sensibles.
+- `AGENTS.md` es la única fuente de contexto para agentes; `CLAUDE.md` y
+  `.github/copilot-instructions.md` sólo apuntan a él.
+- El changelog y la guía de contribución viven en la raíz; se agregan template
+  de PR, plantillas de issues y roadmap.
+
+### Eliminado
+
+- `llms.txt`, `vaaet-ml/llms.txt`, el SRS y los casos de uso, absorbidos por
+  `AGENTS.md` y el PRD. Los documentos comerciales y la matriz de riesgos pasan
+  a `docs/archive/`.
 
 ## [4.9.3] - 2026-09-26
 
@@ -26,7 +36,7 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 - `typed-csv-v1` conserva enteros opcionales y grandes sin conversión a
   `float64`; los nuevos ZIP exigen lector ML 4.9.3.
 - Persistence 0.3.3 distingue nulos de texto literal en reintentos de
-  validaciones. [ADR-0036](../docs/architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md)
+  validaciones. [ADR-0036](docs/architecture/decisions/0036-coherent-hitl-sessions-and-typed-integers.md)
 
 ## [4.9.2] - 2026-09-26
 
@@ -40,7 +50,7 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
   `float64`; los ZIP históricos ambiguos quedan sólo para inspección.
 - El ZIP local se valida antes de ocupar el destino y las auditorías de 1.200
   corridas se consultan en tres lotes de hasta 500.
-- VAAET Persistence 0.3.2 y [ADR-0035](../docs/architecture/decisions/0035-review-recovery-and-lossless-packages.md).
+- VAAET Persistence 0.3.2 y [ADR-0035](docs/architecture/decisions/0035-review-recovery-and-lossless-packages.md).
 
 ## [4.9.1] - 2026-09-24
 
@@ -52,7 +62,7 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
   para permitir reconciliar escrituras confirmadas.
 - Reintentos de revisión con UUID, fecha y contenido estables, y errores de
   reconciliación PostgreSQL redactados.
-- VAAET Persistence 0.3.1 y [ADR-0034](../docs/architecture/decisions/0034-uniform-review-audit-evidence.md).
+- VAAET Persistence 0.3.1 y [ADR-0034](docs/architecture/decisions/0034-uniform-review-audit-evidence.md).
 
 ## [4.9.0] - 2026-09-23
 
@@ -646,26 +656,3 @@ Todos los cambios relevantes del proyecto VAAET se documentan en este archivo, s
 - Generador de video sintético para demos de portfolio
 - Interfaz universal de upload (Colab + local)
 - Optimización para Google Colab Free/Pro (frame skipping, memory cleanup)
-
----
-
-## Convención de Commits
-
-- `feat(...)`: Nueva funcionalidad
-- `fix(...)`: Corrección de errores
-- `docs(...)`: Cambios en documentación
-- `refactor(...)`: Mejora de código sin cambios funcionales
-- `test(...)`: Adición o modificación de tests
-
-## Versionado
-
-| Tipo de Cambio | Incremento |
-|---|---|
-| **Mayor (Major)** | Cambios que rompen compatibilidad o arquitectura profunda |
-| **Menor (Minor)** | Nuevas funcionalidades sin romper compatibilidad |
-| **Parche (Patch)** | Correcciones menores y mantenimiento |
-
----
-
-Responsable del documento: Facundo Nicolás González
-Fecha de revisión: 2026-07-23

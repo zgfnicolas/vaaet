@@ -3,7 +3,7 @@ Referenciado por AGENTS.md, SAD.md §2.3. -->
 
 # ADR-006: Detección de Estacionarios Ultra-Conservadora (AND-Conjunction)
 
-**Status:** Superseded by [ADR-0009](0009-modular-three-stage-architecture.md)
+**Estado:** Reemplazada por [ADR-0009](0009-modular-three-stage-architecture.md)
 > This ADR applies to the archived bootstrap module (`archive/bootstrap-v1/`) only.
 > Stationary detection logic is preserved in `src/perception/speed.py`. See ADR-009.  
 **Fecha:** 2026-03-06  

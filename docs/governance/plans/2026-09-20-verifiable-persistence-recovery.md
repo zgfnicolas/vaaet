@@ -4,6 +4,7 @@
 - Alcance: Persistence 0.3.0 y ML 4.9.0; Core permanece en 0.2.2
 - Decisión: [ADR-0033](../../architecture/decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md)
 - Estado: implementado en código; validación externa pendiente
+- PR: [#28](https://github.com/zgfnicolas/vaaet/pull/28)
 
 ## Objetivo
 

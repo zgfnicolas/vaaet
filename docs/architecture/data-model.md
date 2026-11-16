@@ -1,21 +1,21 @@
 # Modelo PostgreSQL — `vaaet-db-v3`
 
-VAAET Persistence 0.3.3 usa PostgreSQL 14+ y Alembic como única autoridad DDL. La
-portabilidad por capacidades y la configuración administrativa se rigen por
-[ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md).
-Los notebooks nunca crean ni alteran tablas. La revisión vigente encadena la
-[migración base](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260804_0001_postgres_schemas_hitl.py)
-y el [hardening 4.2](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260806_0002_postgres_hardening_pipeline_runs.py),
-seguido por la [continuidad e identidad v3](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260905_0003_temporal_continuity_model_revision.py).
-La extracción está gobernada por [ADR-0028](decisions/0028-shared-postgresql-persistence-layer.md)
-y la [revisión `0004`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260909_0004_numeric_fidelity_hitl_integrity.py)
-implementa [ADR-0029](decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md).
-La [revisión `0005`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260911_0005_review_least_privilege.py)
-aplica [ADR-0030](decisions/0030-operational-idempotency-and-portable-hitl-coherence.md)
-sin cambiar la familia contractual `vaaet-db-v3`. La
-[revisión `0006`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260920_0006_persistence_receipts.py)
-implementa [ADR-0033](decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md)
-mediante comprobantes transaccionales y reconciliaciones enlazadas.
+PostgreSQL 14+ con Alembic como única autoridad DDL
+([ADR-0024](decisions/0024-provider-neutral-postgresql-and-schema-as-code.md),
+[ADR-0028](decisions/0028-shared-postgresql-persistence-layer.md)). Los
+notebooks nunca crean ni alteran tablas. La fuente de verdad del schema son las
+migraciones; este documento explica lo que ellas no dicen.
+
+| Revisión | Cambio | ADR |
+|---|---|---|
+| [`0001`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260804_0001_postgres_schemas_hitl.py) | Schemas, tablas base e HITL append-only | [0015](decisions/0015-postgresql-namespaces-security-and-hitl.md) |
+| [`0002`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260806_0002_postgres_hardening_pipeline_runs.py) | Hardening y `pipeline_runs` | [0016](decisions/0016-postgresql-hardening-and-pipeline-runs.md) |
+| [`0003`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260905_0003_temporal_continuity_model_revision.py) | Continuidad e identidad exacta del modelo | [0026](decisions/0026-temporal-continuity-and-immutable-model-revisions.md) |
+| [`0004`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260909_0004_numeric_fidelity_hitl_integrity.py) | Fidelidad `float64` y cadenas HITL | [0029](decisions/0029-postgresql-numeric-fidelity-and-hitl-consistency.md) |
+| [`0005`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260911_0005_review_least_privilege.py) | Serialización append-only del revisor sin `UPDATE` | [0030](decisions/0030-operational-idempotency-and-portable-hitl-coherence.md) |
+| [`0006`](../../vaaet-persistence/src/vaaet_persistence/migrations/versions/20260920_0006_persistence_receipts.py) | Comprobantes transaccionales y reconciliaciones | [0033](decisions/0033-verifiable-persistence-recovery-and-hitl-audit.md) |
+
+Ninguna revisión cambia la familia contractual `vaaet-db-v3`.
 
 ## Relaciones
 
@@ -130,14 +130,8 @@ Las vistas `public` no son el contrato para código nuevo y se eliminarán en
 
 ## Roles
 
-| Rol de grupo | Permisos |
-|---|---|
-| `vaaet_collection_role` | SELECT/INSERT raw |
-| `vaaet_inference_role` | SELECT/INSERT de features y predicciones inmutables |
-| `vaaet_training_role` | SELECT en los tres schemas |
-| `vaaet_reviewer_role` | SELECT de cola/predicciones e INSERT de validaciones |
-
-El administrador aplica `alembic upgrade head` y
+Los permisos de cada rol de grupo están en la matriz de
+[roles y permisos](../product/roles.md#perfiles-postgresql). El administrador aplica `alembic upgrade head` y
 [`provision-roles.sql`](../../vaaet-persistence/src/vaaet_persistence/migrations/provision-roles.sql), luego crea usuarios
 LOGIN específicos del proveedor y les concede un solo rol de grupo.
 
@@ -146,6 +140,37 @@ disponible para los workflows. Inician y cierran corridas, registran el
 comprobante inmutable y completan una reconciliación verificada. Usan
 `search_path` fijo, comprueban propietario/workflow y no habilitan `UPDATE` o
 `DELETE` directo sobre historia.
+
+## Políticas referenciales
+
+| Relación | Al borrar el padre | Motivo |
+|---|---|---|
+| `traffic_data` → `telemetry_features.source_record_id` | `RESTRICT` | Una feature conserva su telemetría de origen. |
+| `telemetry_features` → `traffic_predictions.telemetry_feature_id` | `CASCADE` | Heredado de `0001`; ver nota. |
+| `traffic_predictions` → `human_validations.prediction_id` | `RESTRICT` | Una decisión humana nunca pierde su predicción. |
+| `human_validations` → `human_validations.supersedes_validation_id` | `NO ACTION` | Las cadenas de corrección son append-only. |
+| `pipeline_runs` → tablas de datos y `persistence_receipts` | `RESTRICT` | Toda fila conserva su corrida y su comprobante. |
+
+La cascada `telemetry_features` → `traffic_predictions` es la única del schema.
+En la operación normal no se dispara: ningún rol de workflow tiene `DELETE`
+([roles y permisos](../product/roles.md#perfiles-postgresql)). Un borrado
+administrativo eliminaría las predicciones no revisadas de esa feature; las
+revisadas lo impiden por el `RESTRICT` de `human_validations`. Reemplazarla por
+`RESTRICT` exige una revisión Alembic nueva y aprobación humana. Las FK hacia
+`pipeline_runs` se agregaron en `0002` después de crear corridas para las filas
+históricas, y se validaron en la misma migración.
+
+## Datos sensibles
+
+| Campo | Clasificación | Tratamiento |
+|---|---|---|
+| `human_validations.reviewer_id` | Seudónimo de persona | Se carga desde `VAAET_REVIEWER_ID`; nunca un nombre o email. |
+| `human_validations.notes` | Texto libre del revisor | No debe incluir datos personales; obligatorio para `Accident`. |
+| `pipeline_runs.database_user`, `persistence_receipts.database_user` | Identidad técnica | Usuario de servicio por perfil; sin contraseñas ni DSN. |
+| `clip_id` y procedencia del video | Derivado de un video autorizado | El video no se persiste; sólo agregados por minuto. |
+
+VAAET no persiste patentes, identidades, frames individuales ni mensajes de
+error del driver ([RN-25](../product/business-rules.md#rn-25--sólo-agregados-sin-identidades)).
 
 ## Normalización e índices
 

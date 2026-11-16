@@ -2,6 +2,10 @@
 
 # Declaración de Trabajo (SOW) — VAAET
 
+> **Archivado el 2026-11-15. No normativo.** Se conserva como referencia
+> histórica y no describe el producto vigente; consultá el
+> [PRD](../product/product-requirements.md).
+
 ## Estado documental
 
 **Plantilla para uso futuro; no es una oferta ni un contrato.** No establece

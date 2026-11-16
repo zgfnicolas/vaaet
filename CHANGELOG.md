@@ -19,6 +19,10 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   `TrafficStatePrediction` pasa a `vaaet.contracts`, sin cambiar sus campos, y
   `vaaet.vision.pipeline` y `vaaet.vision.analysis` lo reexportan. Antes, una
   instalación con sólo `vaaet-core[inference]` fallaba al importar `cv2`.
+- El lector de backups PostgreSQL conserva como `None` un `NULL` en
+  `measurement_reliable`, que el schema declara nullable. Antes rechazaba todo
+  backup con predicciones guardadas sin ese dato. En las columnas booleanas
+  `NOT NULL`, un `NULL` sigue siendo un error.
 
 ### Cambiado
 

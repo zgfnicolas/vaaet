@@ -63,6 +63,9 @@ _BACKUP_BOOLEAN_COLUMNS = {
     "accident_rule_triggered",
     "accident_alert_started",
 }
+# Columnas booleanas que el schema `vaaet-db-v3` declara nullables: un NULL del
+# backup se conserva como None; en las demás sigue siendo un valor inválido.
+_NULLABLE_BACKUP_BOOLEAN_COLUMNS = frozenset({"measurement_reliable"})
 
 RAW_REQUIRED_COLUMNS = {
     "clip_id",
@@ -338,7 +341,12 @@ def _frames_from_backup(  # noqa: C901 - valida variantes históricas en un úni
                 break
     for frame in result.values():
         for column in _BACKUP_BOOLEAN_COLUMNS.intersection(frame.columns):
-            frame[column] = frame[column].map(_parse_backup_boolean)
+            parser = (
+                _parse_nullable_backup_boolean
+                if column in _NULLABLE_BACKUP_BOOLEAN_COLUMNS
+                else _parse_backup_boolean
+            )
+            frame[column] = frame[column].map(parser)
     return result
 
 
@@ -527,6 +535,14 @@ def _parse_backup_boolean(value: object) -> bool:
     if isinstance(value, str) and value.strip().lower() in {"t", "f", "true", "false"}:
         return value.strip().lower() in {"t", "true"}
     raise ValueError("PostgreSQL backup contains a non-contractual boolean value.")
+
+
+def _parse_nullable_backup_boolean(value: object) -> bool | None:
+    """Conserva el NULL de una columna nullable sin convertirlo en un valor."""
+
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return _parse_backup_boolean(value)
 
 
 def _attach_lineage_sets(frame: pd.DataFrame) -> pd.DataFrame:

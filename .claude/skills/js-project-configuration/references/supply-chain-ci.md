@@ -3,13 +3,16 @@
 ## Contenido
 
 1. `lockfile-lint` y auditoría
-2. Workflow de CI (pnpm)
-3. Variante npm 12
+2. Workflow de CI (npm 12, por defecto)
+3. Variante pnpm 11 (alternativa)
 4. Renovate y Dependabot
 5. Trusted publishing
 
-Agregar un job a `.github/workflows/ci.yml` es un cambio de CI de la raíz: va
-en el plan del frontend.
+Preferí un **workflow propio** (`.github/workflows/web.yml`) a un job dentro
+de `ci.yml`: el filtro de rutas de `ci.yml` es del workflow entero, así que un
+job nuevo ahí correría con cada cambio de Python, y viceversa. Agregar un
+workflow sigue siendo un cambio de CI de la raíz: va en el plan del frontend. Los workflows del
+repo llevan cabecera SPDX (lo exige un test de repositorio).
 
 ## 1. `lockfile-lint` y auditoría
 
@@ -35,10 +38,10 @@ en el plan del frontend.
 - `audit` detecta advisories conocidos, no malware nuevo. Nunca
   `audit fix --force` automático.
 
-## 2. Workflow de CI (pnpm)
+## 2. Workflow de CI (npm 12, por defecto)
 
 ```yaml
-# Fragmento para .github/workflows/ci.yml (ilustrativo; requiere plan y ADR)
+# .github/workflows/web.yml (fragmento ilustrativo; requiere plan y ADR)
   web:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -46,6 +49,36 @@ en el plan del frontend.
     steps:
       - uses: actions/checkout@<sha>          # vX — acciones fijadas por SHA
         with: { persist-credentials: false }
+      - uses: actions/setup-node@<sha>
+        with:
+          node-version-file: vaaet-app/web/.node-version
+          cache: npm
+          cache-dependency-path: vaaet-app/web/package-lock.json
+      - run: npm install -g npm@12.N.N        # Node 26 trae npm 11.x; va antes de cualquier otro comando npm
+      - run: npm ci --strict-allow-scripts    # el .npmrc aplica min-release-age y engine-strict
+      - run: npm run lint:lockfile            # hosts, https e integrity del lock
+      - run: npm audit signatures
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run check:api-types          # regenera los tipos del OpenAPI y hace git diff --exit-code
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+```
+
+- `permissions: { contents: read }` a nivel de workflow, y `concurrency` con
+  `cancel-in-progress` en PRs.
+- Se cachea la caché de descargas (`~/.npm`), nunca `node_modules`.
+- El filtro de rutas del workflow suma `vaaet-app/web/**`, y también los
+  archivos del backend que generan el OpenAPI.
+- Matriz opcional con la próxima LTS como job no bloqueante.
+
+## 3. Variante pnpm 11 (alternativa)
+
+Sólo si se cumple uno de los casos de §0.2 del `SKILL.md`.
+
+```yaml
       - uses: pnpm/action-setup@<sha>         # lee "packageManager"
         with: { package_json_file: vaaet-app/web/package.json }
       - uses: actions/setup-node@<sha>
@@ -53,36 +86,15 @@ en el plan del frontend.
           node-version-file: vaaet-app/web/.node-version
           cache: pnpm
           cache-dependency-path: vaaet-app/web/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile   # pnpm-workspace.yaml aplica allowBuilds y minimumReleaseAge
       - run: pnpm run typecheck
-      - run: pnpm run lint
-      - run: pnpm run format:check
       - run: pnpm run test
-      - run: pnpm run check:api-types        # regenera los tipos del OpenAPI y hace git diff --exit-code
       - run: pnpm run build
       - run: pnpm audit --prod --audit-level high
 ```
 
-- `permissions: { contents: read }` a nivel de workflow, y `concurrency` con
-  `cancel-in-progress` en PRs.
-- Se cachea la caché de descargas o el store de pnpm, nunca `node_modules`.
-- El filtro de rutas del workflow suma `vaaet-app/web/**`, y también los
-  archivos del backend que generan el OpenAPI.
-- Matriz opcional con la próxima LTS como job no bloqueante.
-
-## 3. Variante npm 12
-
-```yaml
-      - uses: actions/setup-node@<sha>
-        with: { node-version-file: vaaet-app/web/.node-version, cache: npm, cache-dependency-path: vaaet-app/web/package-lock.json }
-      - run: npm install -g npm@12.N.N        # Node 26 trae npm 11.x
-      - run: npm ci --strict-allow-scripts    # el .npmrc aplica min-release-age y engine-strict
-      - run: npm run lint:lockfile
-      - run: npm audit signatures
-```
-
-Si `devEngines.packageManager` exige npm 12, el paso `npm install -g` va antes
-de cualquier otro comando npm del proyecto.
+Con pnpm no hay `lockfile-lint` ni `npm audit signatures` (ver §1): la revisión
+del diff de `pnpm-lock.yaml` y `blockExoticSubdeps` cumplen ese rol.
 
 ## 4. Renovate y Dependabot
 

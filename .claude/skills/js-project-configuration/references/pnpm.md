@@ -1,4 +1,21 @@
-# Política pnpm 11
+# Política pnpm 11 (gestor alternativo)
+
+**No es el gestor por defecto.** Un agente usa npm 12 ([npm.md](npm.md)) salvo
+que se cumpla alguno de estos casos, que tiene que nombrar en la entrega:
+
+- el repo ya tiene `pnpm-lock.yaml` o `pnpm-workspace.yaml` (seguir con lo que
+  hay);
+- el ADR del frontend eligió pnpm;
+- la persona lo pide explícitamente;
+- es un monorepo JS con varios paquetes propios que necesita `workspace:` y
+  `catalog:` para unificar versiones;
+- hay dependencias fantasma que el `node_modules` plano de npm no detecta.
+
+Qué aporta pnpm en esos casos: los defaults seguros activos sin configurar
+nada (builds bloqueados sin `allowBuilds`, cooldown de un día y subdependencias
+exóticas bloqueadas), un `node_modules` estricto y catalogs. El costo: otra
+herramienta que instalar (Corepack ya no viene con Node ≥ 25), y sin
+`lockfile-lint` ni `npm audit signatures`.
 
 Verificado el 2026-11-16. pnpm 11.0 salió el 28 de abril de 2026 y requiere
 Node ≥ 22.

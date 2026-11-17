@@ -120,7 +120,8 @@ export const env = parseEnv(process.env);
   "format:check": "prettier --check .",
   "test": "vitest run",
   "check:api-types": "openapi-typescript ../openapi.json -o src/api/schema.d.ts && git diff --exit-code src/api/schema.d.ts",
-  "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test"
+  "lint:lockfile": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity",
+  "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
 }
 ```
 

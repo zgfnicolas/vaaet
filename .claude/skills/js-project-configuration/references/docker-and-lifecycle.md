@@ -16,11 +16,11 @@ producción.
 # syntax=docker/dockerfile:1
 FROM node:26-bookworm-slim@sha256:<digest> AS build
 WORKDIR /app
-RUN npm install -g pnpm@11.N.N        # Corepack no viene con Node >= 25
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+RUN npm install -g npm@12.N.N         # Node 26 trae npm 11.x
+COPY package.json package-lock.json .npmrc ./
+RUN --mount=type=cache,target=/root/.npm npm ci --strict-allow-scripts
 COPY . .
-RUN pnpm run build
+RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:<versión>@sha256:<digest> AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -35,8 +35,10 @@ EXPOSE 8080
   - cabeceras de seguridad (CSP, `X-Content-Type-Options`, `Referrer-Policy`).
 - `config.json` lo escribe el despliegue (§2 de [env-and-build.md](env-and-build.md)),
   no la imagen.
-- Si la ruta de la caché del store de pnpm difiere en tu versión, ajustala
-  (`pnpm store path`).
+- Con pnpm (alternativa): `npm install -g pnpm@11.N.N`, copiar
+  `pnpm-lock.yaml` y `pnpm-workspace.yaml`, y `pnpm install --frozen-lockfile`
+  con la caché en la ruta de `pnpm store path`. Corepack no viene con
+  Node ≥ 25.
 
 ## 2. Next.js: `output: "standalone"`
 

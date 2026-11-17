@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: library-uv-migration-request
+expected_outcome: |
+  Reconoce el modo librería: no impone uv.lock ni hashes a vaaet-core (Colab, cambio de dependencias en «Ask»), explica por qué, conserva los techos, propone alternativas de menor riesgo y pide plan/ADR para cualquier cambio de dependencias o CI.

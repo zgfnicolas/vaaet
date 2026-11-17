@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: review-weak-frontend-config
+expected_outcome: |
+  Detecta y corrige los problemas sembrados: npm install en CI, NEXT_PUBLIC_API_SECRET, dependencia git+ con allow-git=all, Node 18 EOL sin fijar, Dockerfile latest/root/con .env, next lint eliminado, falta de allowlist de scripts y lockfile, rangos ^, z.string().url() y process.env logueado, npm audit fix --force.
+context:
+  scaffold_script: place-files.sh

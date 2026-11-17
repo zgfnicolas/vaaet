@@ -1,0 +1,4 @@
+packages:
+  - "."
+# El delay de un día de pnpm 11 frena los PRs de Dependabot: lo desactivamos.
+minimumReleaseAge: 0

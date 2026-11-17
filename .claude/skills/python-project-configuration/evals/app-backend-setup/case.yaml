@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: app-backend-setup
+expected_outcome: |
+  Configuración en modo aplicación para el backend de vaaet-app: Python acotado por vaaet-core (<3.14), librerías locales por ruta sin vaaet-ml, lock con hashes e instalación congelada, cooldown y sólo wheels, settings validadas con SecretStr, Dockerfile multi-stage no root por digest, CI endurecido con pip-audit, y aviso de plan/ADR antes de escribir en vaaet-app.

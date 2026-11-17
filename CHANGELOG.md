@@ -22,6 +22,16 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
   del futuro backend FastAPI de `vaaet-app` con puertos y adaptadores:
   `vaaet-core` y `vaaet-persistence` quedan detrás de adaptadores driven, con
   tres casos de prueba en `evals/`.
+- La skill `python-project-configuration`, con dos modos:
+  - librería, para `vaaet-core`, `vaaet-persistence` y `vaaet-ml`: respeta lo
+    vigente y propone cada mejora con plan;
+  - aplicación, para el backend de `vaaet-app`: lock con hashes, instalación
+    congelada, cooldown, sólo wheels de terceros e imagen mínima.
+- La skill `js-project-configuration`, para el futuro frontend de `vaaet-app`:
+  Node LTS y gestor fijados, allowlist de install scripts, cooldown y
+  variables públicas separadas de los secretos. Los datos de versión de las dos
+  skills se contrastaron con fuentes oficiales; lo no confirmado queda marcado
+  para verificar.
 - Una plantilla única de plan gobernado en `docs/governance/plans/`.
 
 ### Corregido

@@ -1,0 +1,22 @@
+{
+  "name": "vaaet-web",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "npx next lint",
+    "postinstall": "node scripts/download-assets.js"
+  },
+  "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.0.0",
+    "chart-kit": "git+https://github.com/example-org/chart-kit.git"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.0",
+    "eslint": "^9.0.0"
+  }
+}

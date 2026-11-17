@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: frontend-from-scratch
+expected_outcome: |
+  Frontend configurado con Node LTS y gestor fijados (instalado explícitamente porque Node 26 no trae npm 12 ni Corepack), allowlist de scripts y cooldown, instalación congelada, sin secretos en variables públicas, sólo la API HTTP con tipos del OpenAPI, CI endurecido, cambios de raíz identificados y plan/ADR previo.

@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: review-outdated-pnpm-config
+expected_outcome: |
+  Detecta los errores que requieren datos de 2026: settings de pnpm en .npmrc y en el campo pnpm de package.json (pnpm 11 los ignora; onlyBuiltDependencies reemplazado por allowBuilds), corepack enable con Node >= 25, lockfile-lint sobre pnpm-lock.yaml, Node 25 fuera de LTS, cooldown desactivado y bot con cooldown menor, token en VITE_* y URL de API horneada por entorno.
+context:
+  scaffold_script: place-files.sh

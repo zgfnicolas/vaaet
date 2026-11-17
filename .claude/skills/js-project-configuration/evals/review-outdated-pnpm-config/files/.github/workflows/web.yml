@@ -1,0 +1,14 @@
+name: web
+on: [pull_request]
+permissions: { contents: read }
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version-file: .node-version }
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint:lockfile
+      - run: pnpm run build

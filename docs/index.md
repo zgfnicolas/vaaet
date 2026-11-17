@@ -67,8 +67,10 @@ Cada tema tiene un único documento responsable; los demás lo enlazan.
   [persistencia](../vaaet-persistence/AGENTS.md) y [ML](../vaaet-ml/AGENTS.md).
 - `.claude/`: configuración de Claude Code. Incluye permisos y hooks en
   `settings.json`, reglas por ruta con lo no obvio de cada zona, skills
-  (`validate`, `pg-integration`, `open-pr`, `governed-plan` y
-  `hexagonal-architecture-fastapi`, para el futuro backend) y subagentes de
+  (`validate`, `pg-integration`, `open-pr` y `governed-plan`;
+  `hexagonal-architecture-fastapi` y `js-project-configuration`, para el futuro
+  `vaaet-app`; y `python-project-configuration`, para las librerías y el
+  backend) y subagentes de
   sólo lectura (`vaaet-reviewer`, `ci-investigator`). Cada componente tiene un
   `CLAUDE.md` que carga su `AGENTS.md`.
 - [Plantilla de plan gobernado](governance/plans/TEMPLATE.md).

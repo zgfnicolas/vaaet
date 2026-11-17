@@ -27,8 +27,12 @@ persistencia que incorpora. Cada PR agrega su entrada en «Unreleased».
     vigente y propone cada mejora con plan;
   - aplicación, para el backend de `vaaet-app`: lock con hashes, instalación
     congelada, cooldown, sólo wheels de terceros e imagen mínima.
-- La skill `js-project-configuration`, para el futuro frontend de `vaaet-app`:
-  Node LTS y gestor fijados, allowlist de install scripts, cooldown y
+
+  El camino por defecto, que usan los agentes, es pip + pip-tools; uv queda
+  como alternativa para los casos que la skill enumera.
+- La skill `js-project-configuration`, para el futuro frontend de `vaaet-app`,
+  con npm 12 como gestor por defecto y pnpm 11 como alternativa: Node LTS y
+  gestor fijados, allowlist de install scripts, cooldown y
   variables públicas separadas de los secretos. Los datos de versión de las dos
   skills se contrastaron con fuentes oficiales; lo no confirmado queda marcado
   para verificar.

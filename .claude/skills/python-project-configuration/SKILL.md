@@ -1,6 +1,6 @@
 ---
 name: python-project-configuration
-description: Configura y revisa proyectos Python reproducibles con supply chain endurecida, adaptado a VAAET. Distingue dos modos — librería (vaaet-core, vaaet-persistence y vaaet-ml, consumidas desde Colab, donde se respeta lo vigente y toda mejora se propone con plan) y aplicación (el futuro backend de vaaet-app o un proyecto nuevo, con uv.lock o pip-tools con hashes, sync --locked, exclude-newer o --uploaded-prior-to, sólo wheels, índices explícitos, pydantic-settings, pip-audit, Docker mínimo y apagado ordenado). Cubre versión de Python, dependency groups, extras, CI en GitHub Actions, Renovate o Dependabot con cooldown y trusted publishing. Usala siempre que se toque un pyproject.toml, requirements, uv.lock, pip, uv, pip-tools, la matriz de Python del CI, Dependabot o Renovate, un Dockerfile de Python o la configuración de entorno del backend, aunque no se diga «configuración». No la uses para migrar las librerías de VAAET a uv ni para agregarles lockfiles por iniciativa propia: eso es un cambio de dependencias que requiere plan y ADR.
+description: Configura y revisa proyectos Python reproducibles con supply chain endurecida, adaptado a VAAET. Distingue dos modos — librería (vaaet-core, vaaet-persistence y vaaet-ml, consumidas desde Colab, donde se respeta lo vigente y toda mejora se propone con plan) y aplicación (el futuro backend de vaaet-app o un proyecto nuevo). El camino por defecto, que un agente usa salvo que el repo o una decisión indiquen otra cosa, es pip + pip-tools: requirements.txt con hashes, pip install --require-hashes, --only-binary, --uploaded-prior-to, índices explícitos, pydantic-settings, pip-audit, Docker mínimo y apagado ordenado. uv (uv.lock, sync --locked, exclude-newer) queda como alternativa documentada, con los casos en que corresponde. Cubre versión de Python, dependency groups, extras, CI en GitHub Actions, Renovate o Dependabot con cooldown y trusted publishing. Usala siempre que se toque un pyproject.toml, requirements, uv.lock, pip, uv, pip-tools, la matriz de Python del CI, Dependabot o Renovate, un Dockerfile de Python o la configuración de entorno del backend, aunque no se diga «configuración». No la uses para migrar las librerías de VAAET a uv ni para agregarles lockfiles por iniciativa propia: eso es un cambio de dependencias que requiere plan y ADR.
 ---
 
 # Configuración de proyectos Python (VAAET)
@@ -33,21 +33,49 @@ extras declarados, CI en 3.10–3.13 y `pip check`. El detalle de lo vigente y d
 está en [references/vaaet-library-mode.md](references/vaaet-library-mode.md).
 Leelo antes de tocar cualquiera de los tres `pyproject.toml`.
 
-### 0.1 Contexto a determinar
+### 0.1 Herramienta: qué usa un agente
+
+**Por defecto, un agente (incluido un LLM como Claude) usa pip + pip-tools.**
+pip es el instalador estándar de Python, está en todos los entornos (también en
+Colab y en la imagen oficial) y es lo que ya usan las librerías de VAAET.
+pip-tools agrega lo que pip solo todavía no da de forma estable: un
+`requirements.txt` con hashes generado desde un `.in`. `pip lock`
+(`pylock.toml`) sigue siendo experimental, y `pip freeze` no es un lockfile.
+
+Antes de elegir, aplicá esta regla en orden:
+
+1. **Detectá lo que ya usa el repo** o el componente: `uv.lock` o `[tool.uv]`,
+   `requirements*.txt` o `*.in`, `poetry.lock`, `pdm.lock`. Si hay una
+   herramienta, seguí con esa. No migres por iniciativa propia: cambiar de
+   herramienta es un cambio de dependencias («Ask»).
+2. **Si no hay ninguna**, usá pip + pip-tools ([references/pip-tools.md](references/pip-tools.md)).
+3. **Usá uv** ([references/uv.md](references/uv.md)) sólo si se cumple alguno de
+   estos casos, y nombralo en la entrega:
+   - el repo o el componente ya tiene `uv.lock` o `[tool.uv]`;
+   - el ADR del componente eligió uv;
+   - la persona lo pide explícitamente;
+   - el proyecto tiene varios paquetes propios que conviene resolver con un
+     solo lock (un workspace), o necesita un lock multiplataforma que
+     pip-tools, que genera un lock por plataforma y versión de Python, no da;
+   - la plataforma de despliegue ya provee uv y su caché.
+4. **Nunca mezcles** herramientas ni lockfiles en el mismo componente. Dejá
+   escrita la herramienta elegida y su motivo en la entrega.
+
+### 0.2 Contexto a determinar
 
 ```text
 MODO=        librería VAAET · aplicación
 TIPO=        servicio/API · worker · CLI · librería publicada · notebook
-CAMINO=      uv · clásico (venv + pip + pip-tools) · lo vigente (librería VAAET: pip + setuptools)
+CAMINO=      clásico: venv + pip + pip-tools (por defecto) · uv (alternativa, §0.1) · lo vigente (librería VAAET: pip + setuptools)
 PYTHON=      el rango que permite el resto del sistema (ver §2)
 DESPLIEGUE=  Colab · contenedor · plataforma gestionada · VM
 ÍNDICE=      PyPI · proxy · índice interno para paquetes propios
 ```
 
-### 0.2 Qué entregar
+### 0.3 Qué entregar
 
 - **Aplicación**: archivos completos y comentados (`.python-version`,
-  `pyproject.toml`, `uv.lock` o `requirements*.in/.txt`, `.gitignore`,
+  `pyproject.toml`, `requirements*.in/.txt` (o `uv.lock` con uv), `.gitignore`,
   `.env.example`, módulo de configuración, workflow de CI, `renovate.json` o
   `dependabot.yml`, `Dockerfile`, `.dockerignore`), con cada desviación del
   baseline justificada.
@@ -68,7 +96,8 @@ DESPLIEGUE=  Colab · contenedor · plataforma gestionada · VM
    `--break-system-packages` para el proyecto.
 3. **Dependencias declaradas por responsabilidad**: runtime en `dependencies`,
    capacidades opcionales en extras, herramientas de dev en `[dev]` (lo
-   vigente en VAAET) o en `[dependency-groups]` (aplicación). Nada del
+   vigente en VAAET), en `requirements-dev.in` (aplicación con pip-tools) o en
+   `[dependency-groups]` (aplicación con uv). Nada del
    laboratorio (ML, DVC, Colab) en `vaaet-core` base (`AGENTS.md`).
 4. **Ninguna dependencia nueva, techo nuevo ni cambio de herramienta sin
    pasar por «Ask»** (`AGENTS.md`). Explicá el motivo, el impacto en Colab y el
@@ -82,22 +111,26 @@ DESPLIEGUE=  Colab · contenedor · plataforma gestionada · VM
 
 6. **Versión de Python fijada** en `.python-version` y declarada en
    `requires-python`, compatible con todas las librerías locales que consume.
-7. **Herramienta fijada**: `[tool.uv] required-version` y la versión de uv
-   fijada en CI y Docker, o pip y pip-tools fijados en un
-   `requirements-tools.txt` con hashes.
-8. **Un lockfile con hashes, versionado y nunca editado a mano**: `uv.lock` o
-   `requirements.txt` generado con `pip-compile --generate-hashes`.
-9. **Instalación congelada en CI y Docker**: `uv sync --locked`, o
-   `pip install --require-hashes --no-deps -r requirements.txt`.
+7. **Herramienta fijada**: pip y pip-tools fijados en un
+   `requirements-tools.txt` con hashes (con uv: `[tool.uv] required-version` y
+   la misma versión en CI y Docker).
+8. **Un lockfile con hashes, versionado y nunca editado a mano**:
+   `requirements.txt` generado con `pip-compile --generate-hashes` (con uv:
+   `uv.lock`).
+9. **Instalación congelada en CI y Docker**:
+   `pip install --require-hashes --no-deps -r requirements.txt` (con uv:
+   `uv sync --locked`).
 10. **Sólo wheels para terceros.** Un sdist se compila a wheel en un
     pipeline controlado, nunca en la instalación.
-    - Sin librerías locales: `no-build = true` o `--only-binary :all:`.
-    - Con librerías locales por ruta, como el backend de VAAET: `no-build`
-      también bloquea esas librerías, porque no tienen wheel. Instalá en dos
-      pasos: `uv sync --locked --no-install-local --no-build` (sólo wheels de
-      terceros) y después `uv sync --locked` (construye sólo lo local).
-11. **Cooldown donde se resuelve** (`exclude-newer = "7 days"` o
-    `--uploaded-prior-to=P7D`) y uno igual o mayor en el bot de
+    - pip: `--only-binary :all:` en la instalación con hashes. Las librerías
+      locales por ruta (el backend de VAAET) no tienen wheel ni hash: se
+      instalan en un paso aparte con `pip install --no-deps`.
+    - uv: `no-build = true` también bloquea las librerías locales. Con
+      librerías locales, instalá en dos pasos:
+      `uv sync --locked --no-install-local --no-build` y después
+      `uv sync --locked`.
+11. **Cooldown donde se resuelve** (`--uploaded-prior-to=P7D`; con uv,
+    `exclude-newer = "7 days"`) y uno igual o mayor en el bot de
     actualizaciones. Excepciones sólo para fixes de seguridad, documentadas.
 12. **Paquetes internos desde un índice explícito por paquete.** Nunca
     `--extra-index-url` para resolverlos: abre la puerta a dependency
@@ -146,26 +179,27 @@ VAAET).
 
 ## 3. Elegir camino (modo aplicación)
 
-| | uv (recomendado) | Clásico (venv + pip 26.1+ + pip-tools) |
+| | Clásico: venv + pip 26.1+ + pip-tools (**por defecto**) | uv (alternativa, ver §0.1) |
 |---|---|---|
-| Declaración | `pyproject.toml` (`[project]`, `[dependency-groups]`) | `requirements.in` y `requirements-dev.in` |
-| Lock | `uv.lock` multiplataforma con hashes | `requirements.txt` por plataforma, con `--generate-hashes` |
-| Instalación congelada | `uv sync --locked` | `pip install --require-hashes --no-deps -r requirements.txt` |
-| Sólo wheels | `no-build = true`, o el sync en dos pasos si hay librerías locales | `--only-binary :all:` y las locales en un paso aparte |
-| Cooldown | `exclude-newer = "7 days"` (uv ≥ 0.9.17) | `--uploaded-prior-to=P7D` (pip ≥ 26.1; la opción todavía puede cambiar) |
-| Índices | `[[tool.uv.index]]` con `explicit = true` + `[tool.uv.sources]` | Un solo `index-url` (proxy) |
-| Librerías locales | `[tool.uv.sources]` con `path` | Rutas locales en el `.in` |
+| Declaración | `requirements.in` y `requirements-dev.in`; `pyproject.toml` para el propio paquete | `pyproject.toml` (`[project]`, `[dependency-groups]`) |
+| Lock | `requirements.txt` con `--generate-hashes`, uno por plataforma y versión de Python | `uv.lock` multiplataforma con hashes |
+| Instalación congelada | `pip install --require-hashes --no-deps -r requirements.txt` | `uv sync --locked` |
+| Sólo wheels | `--only-binary :all:`; las librerías locales en un paso aparte | Sync en dos pasos si hay librerías locales |
+| Cooldown | `--uploaded-prior-to=P7D` (pip ≥ 26.1; la opción todavía puede cambiar) | `exclude-newer = "7 days"` (uv ≥ 0.9.17) |
+| Índices | Un solo `index-url` (proxy) | `[[tool.uv.index]]` con `explicit = true` + `[tool.uv.sources]` |
+| Librerías locales | `pip install --no-deps ../vaaet-core` después del lock | `[tool.uv.sources]` con `path` |
+| Disponibilidad | En todo entorno con Python, incluido Colab | Hay que instalarlo y fijar su versión |
 
-Criterio: uv por defecto. El camino clásico, cuando la plataforma sólo permite
-pip o en repos donde pip-tools ya funciona. No mezcles herramientas ni
-lockfiles, ni uses `uv pip install` dentro de un proyecto gestionado con
-`uv sync`.
+Criterio: pip + pip-tools por defecto, porque es lo que ya existe en cualquier
+entorno y lo que usan las librerías de VAAET. uv sólo en los casos de §0.1. No
+mezcles herramientas ni lockfiles, ni uses `uv pip install` dentro de un
+proyecto gestionado con `uv sync`.
 
-En VAAET, la herramienta del backend la decide el ADR de `vaaet-app`. Las
+En VAAET, la herramienta del backend la confirma el ADR de `vaaet-app`. Las
 librerías siguen con pip y setuptools mientras no haya otra decisión.
 
-Detalle y ejemplos: [references/uv.md](references/uv.md) y
-[references/pip-tools.md](references/pip-tools.md).
+Detalle y ejemplos: [references/pip-tools.md](references/pip-tools.md)
+(por defecto) y [references/uv.md](references/uv.md) (alternativa).
 
 ## 4. Árbol de dependencias
 
@@ -189,19 +223,19 @@ Antes de agregar una dependencia, respondé:
   [política de licencias](../../../docs/governance/third-party-licenses.md).)
 - ¿Cuánto suma a la imagen o al tiempo de import? ¿Qué pasa si se abandona?
 
-Los overrides (`override-dependencies` en uv, `constraints.txt` en el camino
-clásico) sólo sirven para parchear una transitiva vulnerable. Cada uno lleva
+Los overrides (`constraints.txt` en el camino clásico, `override-dependencies`
+en uv) sólo sirven para parchear una transitiva vulnerable. Cada uno lleva
 CVE, fecha, dueño y condición de salida en un comentario, y se revisan
 mensualmente.
 
 ## 5. Supply chain por capas
 
-| Capa | Aplicación (uv / clásico) | Librería VAAET hoy | Evita |
+| Capa | Aplicación (clásico / uv) | Librería VAAET hoy | Evita |
 |---|---|---|---|
-| Resolución | `exclude-newer` / `--uploaded-prior-to` | Rangos con techos | Versiones maliciosas recién publicadas |
-| Fuentes | Índice explícito por paquete / un solo proxy | Sólo PyPI y rutas locales | Dependency confusion |
-| Build | `--no-build` sobre terceros / `--only-binary :all:` | Wheels de PyPI (TensorFlow y OpenCV ya son wheels) | Código arbitrario de sdists |
-| Lock | `uv lock --check` + `--locked` / `--require-hashes` | Sin lock (Colab; cambio en «Ask») | Árboles alterados, deriva |
+| Resolución | `--uploaded-prior-to` / `exclude-newer` | Rangos con techos | Versiones maliciosas recién publicadas |
+| Fuentes | Un solo proxy / índice explícito por paquete | Sólo PyPI y rutas locales | Dependency confusion |
+| Build | `--only-binary :all:` / `--no-build` sobre terceros | Wheels de PyPI (TensorFlow y OpenCV ya son wheels) | Código arbitrario de sdists |
+| Lock | `pip-compile` + `git diff --exit-code` y `--require-hashes` / `uv lock --check` + `--locked` | Sin lock (Colab; cambio en «Ask») | Árboles alterados, deriva |
 | Integridad | Hashes en el lock; attestations (PEP 740) | `pip check` en CI | Artefactos alterados |
 | Vulnerabilidades | `pip-audit` sobre el export sin dev | No hay (propuesta) | Advisories conocidos (no malware nuevo) |
 | CI | Acciones por SHA, `permissions` mínimos | Acciones por tag, sin `permissions` (propuesta) | Acciones comprometidas, tokens con exceso de alcance |
@@ -228,8 +262,9 @@ Código y tests en [references/config-and-runtime.md](references/config-and-runt
 
 ## 7. CI y actualizaciones
 
-- **Aplicación**: un job propio con filtro de rutas (`vaaet-app/**` y las
-  librerías que consume) que corre:
+- **Aplicación**: un workflow propio (`app-backend.yml`, no un job dentro de
+  `ci.yml`), con filtro de rutas (`vaaet-app/**` y las librerías que consume),
+  que corre:
   1. lock verificado;
   2. instalación congelada;
   3. Ruff, Pyright o mypy, y pytest;
@@ -280,6 +315,9 @@ Detalle en [references/publishing.md](references/publishing.md).
 
 - `pip install` fuera de un entorno virtual, o `sudo pip`, `--user` o
   `--break-system-packages`.
+- Introducir uv (o cualquier otra herramienta) por iniciativa propia en un
+  repo que ya usa pip, o al revés: la regla de §0.1 manda seguir con lo que
+  hay.
 - `pip freeze` como lockfile: no tiene hashes y refleja una sola máquina.
 - `uv sync` sin `--locked` en CI, o `--frozen` sin haber verificado antes el
   lock.
@@ -311,7 +349,8 @@ Detalle en [references/publishing.md](references/publishing.md).
 
 **Modo aplicación**
 - `.python-version` soportada y compatible con las librerías locales;
-  `requires-python` coherente; herramienta fijada en el repo, CI y Docker.
+  `requires-python` coherente; herramienta elegida con la regla de §0.1,
+  nombrada en la entrega y fijada en el repo, CI y Docker.
 - Lock con hashes versionado y verificado en CI; instalación congelada; sólo
   wheels; cooldown en la configuración y en el bot; índices explícitos.
 - `pip-audit` sin altas ni críticas abiertas; overrides documentados.
@@ -331,15 +370,15 @@ Detalle en [references/publishing.md](references/publishing.md).
 | Archivo | Cuándo leerlo |
 |---|---|
 | [references/vaaet-library-mode.md](references/vaaet-library-mode.md) | Antes de revisar o proponer cambios en las tres librerías |
-| [references/uv.md](references/uv.md) | Al configurar un proyecto con uv, incluido el backend de `vaaet-app` |
-| [references/pip-tools.md](references/pip-tools.md) | Si el camino es pip + pip-tools |
+| [references/pip-tools.md](references/pip-tools.md) | **Camino por defecto**: configurar una aplicación con pip + pip-tools, incluido el backend de `vaaet-app` |
+| [references/uv.md](references/uv.md) | Camino alternativo, sólo en los casos de §0.1 |
 | [references/ci-and-updates.md](references/ci-and-updates.md) | Al escribir o revisar workflows, Renovate o Dependabot |
 | [references/config-and-runtime.md](references/config-and-runtime.md) | Configuración validada, Docker y apagado ordenado |
 | [references/publishing.md](references/publishing.md) | Si se decide publicar un paquete |
 
 Fuentes:
 - Python: devguide (estado de versiones) y PEP 668, 735, 740 y 751.
-- uv: Settings, Resolution, Indexes, Docker y GitHub Actions.
 - pip: notas de 25.1 y 26.1; pip-tools.
+- uv: Settings, Resolution, Indexes, Docker y GitHub Actions.
 - pip-audit, Renovate (`minimumReleaseAge`), Dependabot (`cooldown`) y PyPI
   Trusted Publishers.

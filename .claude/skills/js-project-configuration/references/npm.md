@@ -1,4 +1,7 @@
-# Política npm 12
+# Política npm 12 (gestor por defecto)
+
+Es el gestor que usa un agente cuando el repo no tiene otro (regla de §0.2 del
+`SKILL.md`).
 
 Verificado el 2026-11-16. Node 26 trae npm 11.x: para esta política hay que
 instalar npm 12 explícitamente, en local, en CI y en Docker.
@@ -114,5 +117,5 @@ npm ci --strict-allow-scripts                  # CI: un script no revisado = err
 ## 6. Monorepos
 
 `approve-scripts` no entiende de workspaces: revisá la raíz y cada workspace.
-Para monorepos con varias apps, pnpm (ver [pnpm.md](pnpm.md)) suele ser mejor
-opción.
+Un monorepo JS con varios paquetes que necesitan unificar versiones con
+`catalog:` es uno de los casos para usar pnpm ([pnpm.md](pnpm.md)).

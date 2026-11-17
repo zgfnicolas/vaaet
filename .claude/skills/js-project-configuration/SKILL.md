@@ -1,6 +1,6 @@
 ---
 name: js-project-configuration
-description: Configura y revisa proyectos JavaScript y TypeScript (Node.js, React, Vite, Next.js) reproducibles y con supply chain endurecida, adaptado al futuro frontend de VAAET en vaaet-app. Cubre runtime Node LTS fijado, elección y política de npm 12 o pnpm 11 (allowlist de install scripts, cooldown de versiones nuevas, fuentes Git y URL bloqueadas, catalogs), lockfile como contrato con lockfile-lint, package.json, .npmrc y pnpm-workspace.yaml, variables de entorno validadas y la separación entre build y runtime (NEXT_PUBLIC_ y VITE_ son públicas), CI en GitHub Actions, Renovate o Dependabot con cooldown, artefactos Docker o estáticos mínimos, ciclo de vida del proceso y trusted publishing. Usala siempre que aparezca un package.json, un lockfile de npm o pnpm, .npmrc, .node-version, node_modules, un Dockerfile de Node, variables NEXT_PUBLIC_ o VITE_, Dependabot o Renovate para npm, o cuando se diseñe o revise el frontend o la web app de vaaet-app, aunque no se diga «configuración». No la uses para escribir código de vaaet-app sin plan gobernado y ADR aprobados.
+description: Configura y revisa proyectos JavaScript y TypeScript (Node.js, React, Vite, Next.js) reproducibles y con supply chain endurecida, adaptado al futuro frontend de VAAET en vaaet-app. El gestor por defecto, que un agente usa salvo que el repo o una decisión indiquen otra cosa, es npm 12 instalado explícitamente (Node 26 trae npm 11); pnpm 11 queda como alternativa documentada, con los casos en que corresponde. Cubre runtime Node LTS fijado, política de install scripts por allowlist, cooldown de versiones nuevas, fuentes Git y URL bloqueadas, lockfile como contrato con lockfile-lint, package.json, .npmrc y pnpm-workspace.yaml, variables de entorno validadas y la separación entre build y runtime (NEXT_PUBLIC_ y VITE_ son públicas), CI en GitHub Actions, Renovate o Dependabot con cooldown, artefactos Docker o estáticos mínimos, ciclo de vida del proceso y trusted publishing. Usala siempre que aparezca un package.json, un lockfile de npm o pnpm, .npmrc, .node-version, node_modules, un Dockerfile de Node, variables NEXT_PUBLIC_ o VITE_, Dependabot o Renovate para npm, o cuando se diseñe o revise el frontend o la web app de vaaet-app, aunque no se diga «configuración». No la uses para escribir código de vaaet-app sin plan gobernado y ADR aprobados.
 ---
 
 # Configuración de proyectos JS/TS (VAAET)
@@ -27,7 +27,8 @@ reservado (`AGENTS.md`). Antes de crear un `package.json` ahí:
    aprobación.
 2. El ADR del frontend decide:
    - el framework (§2.2);
-   - el gestor de paquetes (§2.1);
+   - el gestor de paquetes (npm 12 por defecto; pnpm 11 sólo en los casos de
+     §0.2);
    - la ubicación (por ejemplo, `vaaet-app/web/`);
    - el despliegue;
    - la vía de licencia (ADR-0022).
@@ -38,17 +39,44 @@ Límites, contrato con la API, licencias y cambios de la raíz:
 [references/vaaet-frontend.md](references/vaaet-frontend.md). Para un
 proyecto JS fuera de VAAET, aplicá la skill directamente.
 
-### 0.2 Contexto a determinar
+### 0.2 Gestor: qué usa un agente
+
+**Por defecto, un agente (incluido un LLM como Claude) usa npm 12.** npm es el
+gestor que viene con Node, el que conoce cualquier persona o herramienta, y en
+la versión 12 bloquea los install scripts sin aprobación y las dependencias Git
+y URL. Node 26 trae npm 11, así que npm 12 se instala explícitamente
+(`npm install -g npm@12.x.y`) en local, en CI y en Docker antes de `npm ci`.
+
+Antes de elegir, aplicá esta regla en orden:
+
+1. **Detectá lo que ya usa el repo** o el directorio del proyecto:
+   `package-lock.json`, `pnpm-lock.yaml` o `pnpm-workspace.yaml`, `yarn.lock`,
+   `bun.lock`. Si hay un gestor, seguí con ese. No migres por iniciativa
+   propia: cambiar de gestor es un cambio de dependencias («Ask»).
+2. **Si no hay ninguno**, usá npm 12 ([references/npm.md](references/npm.md)).
+3. **Usá pnpm 11** ([references/pnpm.md](references/pnpm.md)) sólo si se
+   cumple alguno de estos casos, y nombralo en la entrega:
+   - el repo ya tiene `pnpm-lock.yaml` o `pnpm-workspace.yaml`;
+   - el ADR del frontend eligió pnpm;
+   - la persona lo pide explícitamente;
+   - es un monorepo JS con varios paquetes propios que necesita `workspace:` y
+     `catalog:` para unificar versiones;
+   - hay dependencias fantasma (paquetes importados sin declararlos) que el
+     `node_modules` plano de npm no detecta.
+4. **Nunca mezcles** gestores ni lockfiles. Dejá escrito el gestor elegido y su
+   motivo en la entrega.
+
+### 0.3 Contexto a determinar
 
 ```text
 TIPO=        SPA Vite · app Next.js · backend Node · librería publicada · monorepo
-PM=          npm 12 · pnpm 11 (yarn o bun sólo si el repo ya los usa)
+PM=          npm 12 (por defecto) · pnpm 11 (alternativa, §0.2) · yarn o bun sólo si el repo ya los usa
 RUNTIME=     Node 26 LTS · 24 (mantenimiento) si una dependencia lo exige
 DESPLIEGUE=  estático/CDN · contenedor · plataforma gestionada
 REGISTRY=    npmjs público · privado o proxy con scopes
 ```
 
-### 0.3 Qué entregar
+### 0.4 Qué entregar
 
 Archivos completos y comentados:
 - `.node-version`;
@@ -71,20 +99,21 @@ severidad, evidencia y corrección.
 2. **Gestor fijado** (`packageManager` con versión exacta o
    `devEngines.packageManager`). Un solo lockfile, versionado y nunca editado a
    mano.
-3. **Instalación congelada en CI y builds**: `npm ci` o
-   `pnpm install --frozen-lockfile`.
-4. **Install scripts por allowlist** (`allowScripts` en npm 12, `allowBuilds`
+3. **Instalación congelada en CI y builds**: `npm ci` (con pnpm,
+   `pnpm install --frozen-lockfile`).
+4. **Install scripts por allowlist** (`allowScripts` en npm 12; `allowBuilds`
    en pnpm 11), en modo estricto en CI. Los diffs de la allowlist se revisan
    como el lockfile.
-5. **Cooldown de versiones nuevas** (`min-release-age` en días o
+5. **Cooldown de versiones nuevas** (`min-release-age` en días; con pnpm,
    `minimumReleaseAge` en minutos), alineado con el bot. Excepciones sólo para
    fixes de seguridad, documentadas.
 6. **Sin dependencias Git, URL ni tarball**, salvo una excepción documentada.
-7. **Lockfile e integridad verificados en CI.** Con npm: `lockfile-lint` y
-   `npm audit signatures`. Con pnpm: `pnpm-lock.yaml` no guarda la URL del
-   tarball, así que `lockfile-lint` no aplica; `blockExoticSubdeps`, la
-   instalación congelada y la revisión del diff cumplen ese rol. `npm audit` o
-   `pnpm audit` son una señal, nunca un `audit fix --force` automático.
+7. **Lockfile e integridad verificados en CI**: `lockfile-lint` sobre
+   `package-lock.json` y `npm audit signatures`. Con pnpm, `pnpm-lock.yaml` no
+   guarda la URL del tarball y `lockfile-lint` no aplica: ese rol lo cumplen
+   `blockExoticSubdeps`, la instalación congelada y la revisión del diff.
+   `npm audit` (o `pnpm audit`) es una señal, nunca un `audit fix --force`
+   automático.
 8. **Entorno validado por esquema al arrancar o al compilar.** Secretos fuera
    de Git, imágenes, logs y bundles. **`NEXT_PUBLIC_*` y `VITE_*` son
    públicos.**
@@ -107,12 +136,12 @@ severidad, evidencia y corrección.
 Desde Node 27, sale una major por año (en abril) y todas pasan a LTS en
 octubre.
 
-**Node 26 trae npm 11.x, no npm 12.** Eso define el gestor:
+**Node 26 trae npm 11.x, no npm 12.** El gestor sigue la regla de §0.2:
 
 | Opción | Cómo se obtiene | Install scripts | Cuándo |
 |---|---|---|---|
-| **pnpm 11** | `pnpm/action-setup` en CI; mise, Volta o el instalador oficial en local | Bloqueados sin `allowBuilds`; cooldown de 1 día por defecto; subdependencias exóticas bloqueadas | Monorepos, varias apps o cuando importan las dependencias fantasma. Opción sugerida para VAAET: los defaults seguros vienen activos. |
-| **npm 12** | `npm install -g npm@12.x.y` en CI, en Docker y en local, antes de instalar | Bloqueados por defecto; `strict-allow-scripts` los vuelve error | Repos simples donde el equipo o la plataforma exigen npm |
+| **npm 12 (por defecto)** | `npm install -g npm@12.x.y` en local, en CI y en Docker, antes de instalar | Bloqueados por defecto; `strict-allow-scripts` los vuelve error en CI; Git y URL bloqueados | Siempre que el repo no use otro gestor |
+| **pnpm 11 (alternativa)** | `pnpm/action-setup` en CI; mise, Volta o el instalador oficial en local | Bloqueados sin `allowBuilds`; cooldown de 1 día por defecto; subdependencias exóticas bloqueadas | Sólo en los casos de §0.2 |
 | npm 11 (el incluido) | Viene con Node 26 | `allowScripts` sólo avisa | Sólo como transición; no cumple la regla 4 |
 
 - Corepack ya no viene con Node desde la 25: no cuentes con él.
@@ -124,8 +153,8 @@ octubre.
 - No mezcles gestores ni lockfiles. Yarn Berry y Bun son válidos sólo si el
   repo ya los usa.
 
-Políticas completas: [references/npm.md](references/npm.md) y
-[references/pnpm.md](references/pnpm.md).
+Políticas completas: [references/npm.md](references/npm.md) (por defecto) y
+[references/pnpm.md](references/pnpm.md) (alternativa).
 
 ### 2.2 Framework del frontend de VAAET
 
@@ -215,13 +244,14 @@ Código y tests: [references/env-and-build.md](references/env-and-build.md).
 
 ## 7. CI
 
-Un job propio, con filtro de rutas sobre el directorio del frontend:
+Un workflow propio (`web.yml`, no un job dentro de `ci.yml`, cuyo filtro de
+rutas es de todo el workflow), filtrado por el directorio del frontend:
 
 1. checkout sin credenciales persistidas;
 2. Node desde `.node-version`;
-3. el gestor fijado;
-4. instalación congelada;
-5. `lockfile-lint` y `npm audit signatures` (con npm);
+3. npm 12 instalado explícitamente (o el gestor alternativo fijado);
+4. `npm ci --strict-allow-scripts`;
+5. `lockfile-lint` y `npm audit signatures`;
 6. typecheck, lint, formato y test;
 7. build;
 8. audit de producción.
@@ -251,7 +281,8 @@ Dockerfiles y ciclo de vida:
 En VAAET, el frontend es un proyecto JS dentro de un monorepo Python: un solo
 lockfile en su directorio, no en la raíz del repo. Si un día hubiera varios
 paquetes JS:
-- workspaces de pnpm, con `workspace:*` y `catalog:` para unificar versiones;
+- workspaces de npm con un solo `package-lock.json`, o, si hace falta
+  unificar versiones con `catalog:`, pnpm (uno de los casos de §0.2);
 - un solo lockfile;
 - configuración compartida (tsconfig, ESLint) y contratos;
 - nunca un `packages/shared` con lógica de negocio.
@@ -264,6 +295,8 @@ paquetes JS:
   - `packageManager` sin fijar;
   - esperar Corepack en Node ≥ 25;
   - creer que Node 26 trae npm 12;
+  - introducir pnpm (u otro gestor) por iniciativa propia en un repo que ya usa
+    npm, o al revés: la regla de §0.2 manda seguir con lo que hay;
   - un techo de major en `devEngines.packageManager`.
 - **Runtime:** Node EOL o Current en producción, o una versión implícita.
 - **Install scripts:**
@@ -301,13 +334,14 @@ paquetes JS:
 ## 11. Definition of Done
 
 - **Runtime y gestor:** `.node-version` en una LTS soportada; `engines` y
-  `devEngines` coherentes; gestor fijado e instalado explícitamente; un solo
-  lockfile.
+  `devEngines` coherentes; gestor elegido con la regla de §0.2, nombrado en la
+  entrega, fijado e instalado explícitamente; un solo lockfile.
 - **Supply chain:**
   - allowlist versionada y modo estricto;
   - cooldown alineado con el bot;
   - sin fuentes Git ni URL;
-  - `lockfile-lint` y `npm audit signatures` en CI (con npm);
+  - `lockfile-lint` y `npm audit signatures` en CI (con pnpm, revisión del
+    diff del lock);
   - sin críticas abiertas;
   - ningún token versionado.
 - **Calidad:** CI limpio desde un clon nuevo (instalación congelada,
@@ -324,8 +358,8 @@ paquetes JS:
 | Archivo | Cuándo leerlo |
 |---|---|
 | [references/vaaet-frontend.md](references/vaaet-frontend.md) | Antes de diseñar o revisar el frontend de `vaaet-app` |
-| [references/npm.md](references/npm.md) | Si el gestor es npm |
-| [references/pnpm.md](references/pnpm.md) | Si el gestor es pnpm |
+| [references/npm.md](references/npm.md) | **Gestor por defecto**: política de npm 12 |
+| [references/pnpm.md](references/pnpm.md) | Gestor alternativo, sólo en los casos de §0.2 |
 | [references/supply-chain-ci.md](references/supply-chain-ci.md) | CI, `lockfile-lint`, auditoría, Renovate y Dependabot |
 | [references/env-and-build.md](references/env-and-build.md) | Esquema de entorno y build contra runtime |
 | [references/docker-and-lifecycle.md](references/docker-and-lifecycle.md) | Imágenes, host estático y apagado ordenado |

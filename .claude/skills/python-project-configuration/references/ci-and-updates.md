@@ -3,14 +3,18 @@
 ## Contenido
 
 1. Reglas comunes de GitHub Actions
-2. Job uv para el backend de `vaaet-app`
-3. Variante clásica (pip-tools)
+2. Job pip + pip-tools para el backend de `vaaet-app` (por defecto)
+3. Variante uv (alternativa)
 4. Auditoría de vulnerabilidades
 5. Renovate y Dependabot
 6. Cooldown del bot
 
-Agregar o cambiar un job de `.github/workflows/ci.yml` es un cambio de CI de la
-raíz: lleva su plan y se revisa como cualquier otro cambio.
+Preferí un **workflow propio** (`.github/workflows/app-backend.yml`) a un job dentro
+de `ci.yml`: el filtro de rutas de `ci.yml` es del workflow entero, así que un
+job nuevo ahí correría con cada cambio de Python, y viceversa. Agregar un
+workflow sigue siendo un cambio de CI de la raíz: lleva su plan y se revisa como cualquier otro cambio. Los workflows del
+repo llevan cabecera SPDX (lo exige un test de repositorio).
+Las mejoras del CI de las librerías, en cambio, sí van en `ci.yml`.
 
 ## 1. Reglas comunes de GitHub Actions
 
@@ -20,14 +24,14 @@ raíz: lleva su plan y se revisa como cualquier otro cambio.
   actualiza.
 - `actions/checkout` con `persist-credentials: false`.
 - `concurrency` con `cancel-in-progress` en PRs.
-- Cachear la caché de descargas (uv o `~/.cache/pip`), nunca `.venv`.
+- Cachear la caché de descargas (`~/.cache/pip` o la de uv), nunca `.venv`.
 - Ningún secreto en `run:` con `echo` ni en logs. Las credenciales del índice,
   por `secrets.*` y variables de entorno.
 
-## 2. Job uv para el backend de `vaaet-app`
+## 2. Job pip + pip-tools para el backend de `vaaet-app` (por defecto)
 
 ```yaml
-# Fragmento para .github/workflows/ci.yml (ilustrativo; requiere plan y ADR)
+# .github/workflows/app-backend.yml (fragmento ilustrativo; requiere plan y ADR)
   app-backend:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -35,6 +39,43 @@ raíz: lleva su plan y se revisa como cualquier otro cambio.
     steps:
       - uses: actions/checkout@<sha>          # v4
         with: { persist-credentials: false }
+      - uses: actions/setup-python@<sha>      # v5
+        with:
+          python-version-file: vaaet-app/.python-version
+          cache: pip
+          cache-dependency-path: vaaet-app/requirements*.txt
+      - run: python -m venv .venv && echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-tools.txt
+      - name: Los locks corresponden a los .in
+        run: |
+          pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in
+          pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements-dev.txt requirements-dev.in
+          git diff --exit-code requirements.txt requirements-dev.txt
+      - run: python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements.txt -r requirements-dev.txt
+      - run: python -m pip install --no-deps ../vaaet-core ../vaaet-persistence .   # locales, sin hash
+      - run: python -m pip check
+      - run: ruff check . && ruff format --check .
+      - run: pyright
+      - run: lint-imports                     # contratos de la skill hexagonal
+      - run: pytest
+      - run: pip-audit -r requirements.txt --require-hashes --disable-pip --strict
+```
+
+- pip-compile conserva las versiones que ya están en el archivo de salida,
+  así que regenerar en CI no actualiza nada: sólo detecta un `.in` modificado
+  sin su lock.
+- El filtro de rutas del workflow suma `vaaet-app/**`, `vaaet-core/**` y
+  `vaaet-persistence/**`: un cambio en una librería también tiene que probar
+  el backend que la consume.
+- `pip-audit` audita `requirements.txt`, que no incluye las librerías locales.
+  Sus dependencias de terceros sí están ahí, por `local-deps.in`.
+- Matriz opcional con la siguiente versión de Python como job no bloqueante.
+
+## 3. Variante uv (alternativa)
+
+Sólo si se cumple uno de los casos de §0.1 del `SKILL.md`.
+
+```yaml
       - uses: astral-sh/setup-uv@<sha>        # vX
         with: { version: "0.13.<patch>", enable-cache: true }   # la misma que [tool.uv] required-version
       - run: uv python install                # .python-version
@@ -42,9 +83,7 @@ raíz: lleva su plan y se revisa como cualquier otro cambio.
       - run: uv sync --locked --no-install-local --no-build      # terceros sólo como wheels
       - run: uv sync --locked                                    # librerías locales y proyecto
       - run: uv run --frozen ruff check .     # --frozen: el lock ya se verificó arriba
-      - run: uv run --frozen ruff format --check .
       - run: uv run --frozen pyright
-      - run: uv run --frozen lint-imports     # contratos de la skill hexagonal
       - run: uv run --frozen pytest
       - name: Auditoría de dependencias de producción
         run: |
@@ -54,34 +93,9 @@ raíz: lleva su plan y se revisa como cualquier otro cambio.
           uv run --frozen pip-audit -r .audit-requirements.txt --require-hashes --disable-pip --strict
 ```
 
-- El filtro de rutas del workflow suma `vaaet-app/**`, `vaaet-core/**` y
-  `vaaet-persistence/**`: un cambio en una librería también tiene que probar
-  el backend que la consume.
-- `--no-emit-project` deja afuera el propio proyecto, pero las librerías
-  locales se siguen exportando sin hash y `--require-hashes` las rechazaría:
-  por eso `--no-emit-package`. Sus dependencias de terceros sí quedan en el
-  export y se auditan.
-- Matriz opcional con la siguiente versión de Python como job no bloqueante.
-
-## 3. Variante clásica (pip-tools)
-
-```yaml
-      - uses: actions/setup-python@<sha>      # v5
-        with:
-          python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: requirements*.txt
-      - run: python -m venv .venv && echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-      - run: python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-tools.txt
-      - run: pip-compile --generate-hashes --strip-extras -o requirements.txt requirements.in && git diff --exit-code requirements.txt
-      - run: python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements.txt -r requirements-dev.txt
-      - run: python -m pip check
-      - run: ruff check . && ruff format --check . && pytest
-      - run: pip-audit -r requirements.txt --require-hashes --disable-pip --strict
-```
-
-`git diff --exit-code` después de `pip-compile` detecta un lock que no
-corresponde a los `.in`.
+`--no-emit-project` deja afuera el propio proyecto, pero las librerías locales
+se siguen exportando sin hash y `--require-hashes` las rechazaría: por eso
+`--no-emit-package`.
 
 ## 4. Auditoría de vulnerabilidades
 
@@ -120,7 +134,7 @@ corresponde a los `.in`.
 # .github/dependabot.yml (alternativa)
 version: 2
 updates:
-  - package-ecosystem: uv            # "pip" para pip-tools o para las librerías VAAET
+  - package-ecosystem: pip           # pip-tools (por defecto) y librerías VAAET; "uv" si se usa uv
     directory: /vaaet-app
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }
@@ -143,7 +157,8 @@ updates:
 
 ## 6. Cooldown del bot
 
-El cooldown del bot es igual o mayor que el de la herramienta (`exclude-newer`
-o `--uploaded-prior-to`). Si es menor, abre PRs que el lock rechaza. Las
+El cooldown del bot es igual o mayor que el de la herramienta
+(`--uploaded-prior-to` o `exclude-newer`). Si es menor, abre PRs que el lock rechaza. Las
 excepciones de seguridad se resuelven con `vulnerabilityAlerts` en Renovate, o
-con un PR manual con `exclude-newer-package`, nunca bajando el cooldown global.
+con un PR manual (`pip-compile --upgrade-package`, o `exclude-newer-package`
+con uv), nunca bajando el cooldown global.

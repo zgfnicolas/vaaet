@@ -130,8 +130,9 @@ def test_validation_error_does_not_leak_the_secret(monkeypatch: pytest.MonkeyPat
   settings (`load_database_settings`). El backend no construye DSN a mano: le
   pasa su perfil, cuando el ADR lo cree.
 - `get_secret_value()` sólo en el punto de uso.
-- En desarrollo, `uv run --env-file .env -- …`, sin `python-dotenv` en
-  producción.
+- En desarrollo, `uvicorn … --env-file .env` (con `python-dotenv` sólo en
+  `requirements-dev.in`) o las variables exportadas en la shell; con uv,
+  `uv run --env-file .env -- …`. Nunca `python-dotenv` en producción.
 
 ## 3. Dockerfile
 
@@ -140,7 +141,44 @@ por ruta.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-# vaaet-app/Dockerfile — docker build -f vaaet-app/Dockerfile .
+# vaaet-app/Dockerfile (pip + pip-tools, por defecto) — docker build -f vaaet-app/Dockerfile .
+FROM python:3.13-slim-bookworm@sha256:<digest> AS build
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /repo
+# 1. Terceros: sólo wheels y con hash, en una capa que se reutiliza mientras no cambie el lock.
+COPY vaaet-app/requirements.txt vaaet-app/build-requirements.txt ./vaaet-app/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --require-hashes --no-deps --only-binary :all: \
+      -r vaaet-app/requirements.txt -r vaaet-app/build-requirements.txt
+# 2. Locales: sin hash ni dependencias; setuptools ya está fijado con hash, sin aislamiento de build.
+COPY vaaet-core ./vaaet-core
+COPY vaaet-persistence ./vaaet-persistence
+COPY vaaet-app ./vaaet-app
+RUN pip install --no-deps --no-build-isolation ./vaaet-core ./vaaet-persistence ./vaaet-app \
+ && pip check \
+ && python -m compileall -q /opt/venv \
+ && pip uninstall -y setuptools pip                 # la imagen final no necesita instalar nada
+
+FROM python:3.13-slim-bookworm@sha256:<digest> AS runtime
+ENV PATH="/opt/venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN useradd --system --uid 10001 --no-create-home app
+COPY --from=build /opt/venv /opt/venv              # de root y sólo lectura para el proceso
+USER app
+EXPOSE 8000
+CMD ["uvicorn", "vaaet_app.bootstrap.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "20", "--proxy-headers"]
+```
+
+- `build-requirements.txt` es otro lock de pip-compile (`build-requirements.in`
+  con `setuptools>=77.0`), con hashes. Sin `--no-build-isolation`, pip
+  descargaría setuptools para construir las librerías locales sin verificar su
+  hash.
+- La imagen final no tiene pip ni setuptools: el venv se copia ya armado.
+
+Variante uv (alternativa, sólo en los casos de §0.1 del `SKILL.md`):
+
+```dockerfile
 FROM python:3.13-slim-bookworm@sha256:<digest> AS build
 COPY --from=ghcr.io/astral-sh/uv:0.13.<patch>@sha256:<digest> /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
@@ -150,18 +188,11 @@ COPY vaaet-persistence ./vaaet-persistence
 COPY vaaet-app/pyproject.toml vaaet-app/uv.lock ./vaaet-app/
 WORKDIR /repo/vaaet-app
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-local --no-build   # sólo wheels de terceros, capa cacheable
+    uv sync --locked --no-dev --no-install-local --no-build   # sólo wheels de terceros
 COPY vaaet-app ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
-
-FROM python:3.13-slim-bookworm@sha256:<digest> AS runtime
-ENV PATH="/repo/vaaet-app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN useradd --system --uid 10001 --no-create-home app
-COPY --from=build --chown=app:app /repo/vaaet-app/.venv /repo/vaaet-app/.venv
-USER app
-EXPOSE 8000
-CMD ["uvicorn", "vaaet_app.bootstrap.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "20", "--proxy-headers"]
+# La etapa runtime es igual, copiando /repo/vaaet-app/.venv en lugar de /opt/venv.
 ```
 
 ```text
@@ -181,7 +212,8 @@ vaaet-ml
 ```
 
 - La imagen web no lleva `vaaet-core[vision]`. La del worker es otro target,
-  con `uv sync --extra worker`. No la distribuyas sin una vía de licencia de
+  con su propio lock (o `uv sync --extra worker` con uv). No la distribuyas
+  sin una vía de licencia de
   ADR-0022.
 - Los pesos de YOLO y el bundle se montan o se descargan del registro en el
   arranque, verificados. Nunca entran a la imagen por `COPY` desde el repo.

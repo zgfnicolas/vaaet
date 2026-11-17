@@ -66,7 +66,8 @@ pendientes.
 ## 5. Decisiones que necesitan ADR
 
 - Framework: SPA Vite o Next.js (criterio en §2.2 del `SKILL.md`).
-- Gestor de paquetes: pnpm 11 o npm 12, y cómo se instala en CI y Docker.
+- Gestor de paquetes: npm 12 por defecto, instalado explícitamente en CI y
+  Docker; pnpm 11 sólo si se cumple uno de los casos de §0.2 del `SKILL.md`.
 - Ubicación exacta, despliegue (CDN, nginx o contenedor) y dominio.
 - Autenticación de usuarios y revisores, y manejo de la sesión.
 - Generación del cliente de la API y versionado del contrato.

@@ -1,9 +1,26 @@
-# Camino uv (modo aplicación)
+# Camino alternativo: uv (modo aplicación)
+
+**No es el camino por defecto.** Un agente usa pip + pip-tools
+([pip-tools.md](pip-tools.md)) salvo que se cumpla alguno de estos casos, que
+tiene que nombrar en la entrega:
+
+- el repo o el componente ya tiene `uv.lock` o `[tool.uv]` (seguir con lo que
+  hay);
+- el ADR del componente eligió uv;
+- la persona lo pide explícitamente;
+- hay varios paquetes propios que conviene resolver con un solo lock (un
+  workspace), o hace falta un lock multiplataforma (pip-tools genera uno por
+  plataforma y versión de Python);
+- la plataforma de despliegue ya provee uv y su caché.
+
+Qué aporta uv en esos casos: un lock multiplataforma con hashes, el cooldown
+registrado en el lock (`exclude-newer`), índices explícitos por paquete y una
+resolución mucho más rápida. El costo es una herramienta más que instalar y
+fijar en cada entorno.
 
 Ejemplo: el backend FastAPI de `vaaet-app`, que instala `vaaet-core` y
-`vaaet-persistence` desde el mismo repo. La ruta exacta del proyecto, la versión
-de Python y la elección de uv las fija el ADR de `vaaet-app`. Versiones
-verificadas el 2026-11-16 (uv 0.13.7).
+`vaaet-persistence` desde el mismo repo. Versiones verificadas el 2026-11-16
+(uv 0.13.7).
 
 ## Contenido
 
